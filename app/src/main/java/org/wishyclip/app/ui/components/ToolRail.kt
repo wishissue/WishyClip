@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import org.wishyclip.app.model.Tool
+import org.wishyclip.app.model.isBrush
 import org.wishyclip.app.ui.design.WishyIcons
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.themes.DarkTokens
@@ -32,6 +33,8 @@ fun ToolRail(
     onSelectTool: (Tool) -> Unit,
     modifier: Modifier = Modifier,
     horizontal: Boolean = false,
+    activeBrush: Tool = Tool.PEN,
+    onBrushClick: () -> Unit = { onSelectTool(activeBrush) },
     trailing: (@Composable () -> Unit)? = null
 ) {
     val tokens = WishyTheme.tokens
@@ -51,7 +54,7 @@ fun ToolRail(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)
             ) {
-                ToolItems(selectedTool, onSelectTool)
+                ToolItems(selectedTool, onSelectTool, activeBrush, onBrushClick)
             }
             if (trailing != null) {
                 Row(modifier = Modifier.padding(start = tokens.spaceSmall)) { trailing() }
@@ -73,7 +76,7 @@ fun ToolRail(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)
             ) {
-                ToolItems(selectedTool, onSelectTool)
+                ToolItems(selectedTool, onSelectTool, activeBrush, onBrushClick)
             }
             if (trailing != null) {
                 Column(modifier = Modifier.padding(top = tokens.spaceSmall)) { trailing() }
@@ -82,15 +85,21 @@ fun ToolRail(
     }
 }
 
-/** Emits the tool buttons into whatever Row/Column is hosting them. */
+/**
+ * Emits the tool buttons. All brushes live behind ONE Brush button (it shows the icon of the
+ * active brush and opens the separate Brush menu), like FlipaClip.
+ */
 @Composable
-private fun ToolItems(selectedTool: Tool, onSelectTool: (Tool) -> Unit) {
-    ToolButton(iconRes = WishyIcons.Pen, description = "Pen", selected = selectedTool == Tool.PEN, onClick = { onSelectTool(Tool.PEN) })
-    ToolButton(iconRes = WishyIcons.Pencil, description = "Pencil", selected = selectedTool == Tool.PENCIL, onClick = { onSelectTool(Tool.PENCIL) })
-    ToolButton(iconRes = WishyIcons.Marker, description = "Marker", selected = selectedTool == Tool.MARKER, onClick = { onSelectTool(Tool.MARKER) })
+private fun ToolItems(
+    selectedTool: Tool,
+    onSelectTool: (Tool) -> Unit,
+    activeBrush: Tool,
+    onBrushClick: () -> Unit
+) {
+    ToolButton(iconRes = brushIcon(activeBrush), description = "Brush", selected = selectedTool.isBrush, onClick = onBrushClick)
     ToolButton(iconRes = WishyIcons.Eraser, description = "Eraser", selected = selectedTool == Tool.ERASER, onClick = { onSelectTool(Tool.ERASER) })
-    ToolButton(iconRes = WishyIcons.Fill, description = "Fill", selected = selectedTool == Tool.FILL, onClick = { onSelectTool(Tool.FILL) })
     ToolButton(iconRes = WishyIcons.Lasso, description = "Lasso", selected = selectedTool == Tool.LASSO, onClick = { onSelectTool(Tool.LASSO) })
+    ToolButton(iconRes = WishyIcons.Fill, description = "Fill", selected = selectedTool == Tool.FILL, onClick = { onSelectTool(Tool.FILL) })
     ToolButton(
         iconRes = WishyIcons.Shapes,
         description = "Shapes",
@@ -98,9 +107,6 @@ private fun ToolItems(selectedTool: Tool, onSelectTool: (Tool) -> Unit) {
         onClick = { onSelectTool(Tool.LINE) }
     )
     ToolButton(iconRes = WishyIcons.Text, description = "Text", selected = selectedTool == Tool.TEXT, onClick = { onSelectTool(Tool.TEXT) })
-    ToolButton(iconRes = WishyIcons.Airbrush, description = "Airbrush", selected = selectedTool == Tool.AIRBRUSH, onClick = { onSelectTool(Tool.AIRBRUSH) })
-    ToolButton(iconRes = WishyIcons.Calligraphy, description = "Calligraphy", selected = selectedTool == Tool.CALLIGRAPHY, onClick = { onSelectTool(Tool.CALLIGRAPHY) })
-    ToolButton(iconRes = WishyIcons.Highlighter, description = "Highlighter", selected = selectedTool == Tool.HIGHLIGHTER, onClick = { onSelectTool(Tool.HIGHLIGHTER) })
 }
 
 @Preview(name = "ToolRail Light")

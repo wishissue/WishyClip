@@ -63,6 +63,8 @@ import org.wishyclip.app.canvas.DrawingCanvas
 import org.wishyclip.app.export.ExportFormat
 import org.wishyclip.app.export.ExportService
 import org.wishyclip.app.model.Tool
+import org.wishyclip.app.model.isBrush
+import org.wishyclip.app.ui.components.BrushMenu
 import org.wishyclip.app.ui.EditorViewModel
 import org.wishyclip.app.ui.components.ActionIconButton
 import org.wishyclip.app.ui.components.ColorPickerSheet
@@ -100,6 +102,8 @@ fun EditorScreen(
     var showLayersPanel by remember { mutableStateOf(false) }
     var showColorPicker by remember { mutableStateOf(false) }
     var showToolOptions by remember { mutableStateOf(false) }
+    var showBrushMenu by remember { mutableStateOf(false) }
+    var activeBrush by remember { mutableStateOf(if (vm.tool.isBrush) vm.tool else Tool.PEN) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showDeleteFrameDialog by remember { mutableStateOf(false) }
     var showOnionSkinDialog by remember { mutableStateOf(false) }
@@ -123,11 +127,22 @@ fun EditorScreen(
         if (uri != null) vm.addAudioTrackFromUri(uri, name = "Audio ${vm.audioTracks.size + 1}")
     }
     val onSelectTool: (Tool) -> Unit = { selected ->
+        showBrushMenu = false
         if (vm.tool == selected) {
             showToolOptions = !showToolOptions
         } else {
             vm.selectTool(selected)
             showToolOptions = true
+        }
+    }
+    // One Brush button opens the separate brush menu (FlipaClip-style).
+    val onBrushClick: () -> Unit = {
+        showToolOptions = false
+        if (vm.tool.isBrush) {
+            showBrushMenu = !showBrushMenu
+        } else {
+            vm.selectTool(activeBrush)
+            showBrushMenu = true
         }
     }
     // The color chip lives at the end of the tool bar/rail, like in other animation apps.
@@ -266,6 +281,8 @@ fun EditorScreen(
                         ToolRail(
                             selectedTool = vm.tool,
                             onSelectTool = onSelectTool,
+                            activeBrush = activeBrush,
+                            onBrushClick = onBrushClick,
                             trailing = colorSwatchSlot
                         )
                     }
@@ -340,7 +357,38 @@ fun EditorScreen(
                         }
 
                         // Tool options: floats just above the tool bar (portrait) or beside the rail (landscape)
-                        if (showToolOptions && !isUiHidden) {
+                        if (showBrushMenu && vm.tool.isBrush && !isUiHidden) {
+                            BrushMenu(
+                                selectedBrush = vm.tool,
+                                onSelectBrush = {
+                                    activeBrush = it
+                                    vm.selectTool(it)
+                                },
+                                color = vm.color,
+                                size = vm.brushSize,
+                                onSizeChange = { vm.updateBrushSize(it) },
+                                opacity = vm.opacity,
+                                onOpacityChange = { vm.updateOpacity(it) },
+                                stabilizer = vm.stabilizer,
+                                onStabilizerChange = { vm.updateStabilizer(it) },
+                                onSettingsFinished = { vm.persistBrush() },
+                                modifier = Modifier
+                                    .align(
+                                        when {
+                                            !isLandscape -> Alignment.BottomCenter
+                                            isLeftHanded -> Alignment.TopEnd
+                                            else -> Alignment.TopStart
+                                        }
+                                    )
+                                    .padding(tokens.spaceSmall)
+                                    .then(
+                                        if (isLandscape) Modifier.width(300.dp)
+                                        else Modifier.fillMaxWidth().widthIn(max = 380.dp)
+                                    )
+                            )
+                        }
+
+                        if (showToolOptions && !vm.tool.isBrush && !isUiHidden) {
                             Surface(
                                 modifier = Modifier
                                     .align(
@@ -451,6 +499,8 @@ fun EditorScreen(
                         ToolRail(
                             selectedTool = vm.tool,
                             onSelectTool = onSelectTool,
+                            activeBrush = activeBrush,
+                            onBrushClick = onBrushClick,
                             trailing = colorSwatchSlot
                         )
                     }
@@ -467,6 +517,8 @@ fun EditorScreen(
                             selectedTool = vm.tool,
                             onSelectTool = onSelectTool,
                             horizontal = true,
+                            activeBrush = activeBrush,
+                            onBrushClick = onBrushClick,
                             trailing = colorSwatchSlot
                         )
                     }

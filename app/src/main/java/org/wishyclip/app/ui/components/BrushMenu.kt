@@ -1,0 +1,238 @@
+package org.wishyclip.app.ui.components
+
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.Canvas
+import kotlin.math.sin
+import org.wishyclip.app.canvas.BrushPaints
+import org.wishyclip.app.model.BRUSH_TOOLS
+import org.wishyclip.app.model.Tool
+import org.wishyclip.app.model.displayName
+import org.wishyclip.app.ui.design.WishyIcons
+import org.wishyclip.app.ui.design.WishyTheme
+import org.wishyclip.app.ui.design.themes.DarkTokens
+
+/** Icon shown for a brush tool (rail button + menu rows). */
+@DrawableRes
+fun brushIcon(tool: Tool): Int = when (tool) {
+    Tool.PENCIL -> WishyIcons.Pencil
+    Tool.MARKER -> WishyIcons.Marker
+    Tool.AIRBRUSH -> WishyIcons.Airbrush
+    Tool.CALLIGRAPHY -> WishyIcons.Calligraphy
+    Tool.HIGHLIGHTER -> WishyIcons.Highlighter
+    else -> WishyIcons.Pen
+}
+
+/**
+ * FlipaClip-style Brush menu: its own panel (not mixed into the tool rail) with a list of brushes,
+ * each showing a live stroke preview in the current color, and size / opacity / stabilizer sliders
+ * for the selected brush at the bottom.
+ */
+@Composable
+fun BrushMenu(
+    selectedBrush: Tool,
+    onSelectBrush: (Tool) -> Unit,
+    color: Int,
+    size: Float,
+    onSizeChange: (Float) -> Unit,
+    opacity: Float,
+    onOpacityChange: (Float) -> Unit,
+    stabilizer: Float,
+    onStabilizerChange: (Float) -> Unit,
+    onSettingsFinished: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val tokens = WishyTheme.tokens
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(tokens.mediumRadius),
+        color = tokens.toolRail,
+        shadowElevation = tokens.elevationMedium
+    ) {
+        Column(
+            modifier = Modifier.padding(tokens.spaceMedium),
+            verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
+        ) {
+            Text(
+                text = "Brushes",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = tokens.onSurface
+            )
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 220.dp),
+                verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)
+            ) {
+                items(BRUSH_TOOLS) { brush ->
+                    BrushRow(
+                        tool = brush,
+                        selected = brush == selectedBrush,
+                        color = color,
+                        size = size,
+                        opacity = opacity,
+                        onClick = { onSelectBrush(brush) }
+                    )
+                }
+            }
+
+            WishySlider(
+                value = size,
+                onValueChange = onSizeChange,
+                valueRange = 1f..60f,
+                label = "Size",
+                unit = "px",
+                onValueChangeFinished = onSettingsFinished
+            )
+            WishySlider(
+                value = opacity * 100f,
+                onValueChange = { onOpacityChange(it / 100f) },
+                valueRange = 5f..100f,
+                label = "Opacity",
+                unit = "%",
+                onValueChangeFinished = onSettingsFinished
+            )
+            WishySlider(
+                value = stabilizer * 100f,
+                onValueChange = { onStabilizerChange(it / 100f) },
+                valueRange = 0f..100f,
+                label = "Stabilizer",
+                unit = "%"
+            )
+        }
+    }
+}
+
+@Composable
+private fun BrushRow(
+    tool: Tool,
+    selected: Boolean,
+    color: Int,
+    size: Float,
+    opacity: Float,
+    onClick: () -> Unit
+) {
+    val tokens = WishyTheme.tokens
+    val shape = RoundedCornerShape(tokens.smallRadius)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) tokens.primaryContainer else Color.Transparent)
+            .then(
+                if (selected) Modifier.border(BorderStroke(1.5.dp, tokens.primary), shape) else Modifier
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
+    ) {
+        Icon(
+            painter = painterResource(brushIcon(tool)),
+            contentDescription = tool.displayName,
+            modifier = Modifier.size(tokens.toolIconSize),
+            tint = if (selected) tokens.primary else tokens.onSurfaceVariant
+        )
+        Text(
+            text = tool.displayName,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (selected) tokens.onPrimaryContainer else tokens.onSurface,
+            modifier = Modifier.width(84.dp)
+        )
+        BrushStrokePreview(
+            tool = tool,
+            color = color,
+            size = size,
+            opacity = opacity,
+            modifier = Modifier
+                .weight(1f)
+                .height(36.dp)
+                .clip(RoundedCornerShape(tokens.smallRadius))
+                .background(tokens.paper)
+        )
+    }
+}
+
+/** Draws a wavy sample stroke with the real [BrushPaints] so the preview matches the canvas. */
+@Composable
+private fun BrushStrokePreview(
+    tool: Tool,
+    color: Int,
+    size: Float,
+    opacity: Float,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val pad = 14f
+        val midY = this.size.height / 2f
+        val amp = this.size.height * 0.18f
+        val width = this.size.width - pad * 2f
+        // Keep the preview inside the swatch even for very large brush sizes.
+        val previewSize = size.coerceIn(1f, this.size.height * 0.45f)
+        val path = android.graphics.Path()
+        val steps = 40
+        for (i in 0..steps) {
+            val t = i / steps.toFloat()
+            val x = pad + width * t
+            val y = midY + sin(t * 2f * Math.PI.toFloat()) * amp
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        val paint = BrushPaints.create(tool, color, previewSize, opacity)
+        drawIntoCanvas { it.nativeCanvas.drawPath(path, paint) }
+    }
+}
+
+@Preview(name = "BrushMenu Dark")
+@Composable
+private fun BrushMenuPreview() {
+    WishyTheme(tokens = DarkTokens) {
+        Box(Modifier.padding(8.dp)) {
+            BrushMenu(
+                selectedBrush = Tool.PEN,
+                onSelectBrush = {},
+                color = 0xFF222222.toInt(),
+                size = 12f,
+                onSizeChange = {},
+                opacity = 1f,
+                onOpacityChange = {},
+                stabilizer = 0.2f,
+                onStabilizerChange = {},
+                onSettingsFinished = {},
+                modifier = Modifier.width(340.dp)
+            )
+        }
+    }
+}
