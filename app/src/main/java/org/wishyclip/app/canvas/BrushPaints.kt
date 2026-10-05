@@ -8,6 +8,22 @@ import android.graphics.PorterDuffXfermode
 import org.wishyclip.app.model.Tool
 
 object BrushPaints {
+    /**
+     * Final alpha (0..1) a stroke of [tool] is composited with. Strokes are drawn at full alpha
+     * onto a scratch overlay and composited once with this factor, so overlapping segments
+     * of one stroke never darken each other.
+     */
+    fun alphaFactor(tool: Tool, opacity: Float): Float {
+        val a = opacity.coerceIn(0f, 1f)
+        return when (tool) {
+            Tool.PENCIL -> a * 0.85f
+            Tool.MARKER -> a * 0.65f
+            Tool.AIRBRUSH -> a * 0.3f
+            Tool.HIGHLIGHTER -> a * 0.4f
+            else -> a
+        }
+    }
+
     /** [argb] is an Android color int, [size] is in bitmap pixels, [opacity] 0..1. */
     fun create(tool: Tool, argb: Int, size: Float, opacity: Float): Paint {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)

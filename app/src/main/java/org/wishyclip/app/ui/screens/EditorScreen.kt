@@ -107,8 +107,6 @@ fun EditorScreen(
     var showImportDialog by remember { mutableStateOf(false) }
     var showFpsDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
-    var showTextInputDialog by remember { mutableStateOf(false) }
-    var textInputPosition by remember { mutableStateOf(Offset.Zero) }
 
     val imageLayerPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) vm.importImageAsLayer(uri)
@@ -299,23 +297,45 @@ fun EditorScreen(
                                 layers = { vm.currentLayers() },
                                 onionSkinData = { vm.getOnionSkinData() },
                                 activeLassoSelection = { vm.activeLassoSelection },
+                                strokeOverlay = { vm.activeStrokeOverlay() },
+                                lassoPreview = { vm.lassoPreviewPath() },
                                 revision = { vm.revision },
                                 enabled = !vm.isPlaying,
-                                onStrokeStart = { x, y, press, tilt ->
-                                    if (vm.tool == Tool.TEXT) {
-                                        textInputPosition = Offset(x, y)
-                                        showTextInputDialog = true
-                                    } else {
-                                        vm.strokeStart(x, y, press, tilt)
-                                    }
-                                },
+                                onStrokeStart = { x, y, press, tilt -> vm.strokeStart(x, y, press, tilt) },
                                 onStrokeMove = { x, y, press, tilt -> vm.strokeMove(x, y, press, tilt) },
                                 onStrokeEnd = { vm.strokeEnd() },
+                                onStrokeCancel = { vm.strokeCancel() },
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(color = tokens.primary)
+                            }
+                        }
+
+                        // Contextual bar for a floating lasso selection / text object.
+                        val floating = vm.activeLassoSelection
+                        if (floating != null && !isUiHidden) {
+                            Surface(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = tokens.spaceSmall),
+                                shape = RoundedCornerShape(tokens.mediumRadius),
+                                color = tokens.toolRail,
+                                shadowElevation = tokens.elevationMedium
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TextButton(onClick = { vm.commitLassoSelection() }) { Text("✓ Done") }
+                                    if (floating.isText) {
+                                        TextButton(onClick = { vm.editActiveText() }) { Text("✎ Edit") }
+                                    } else {
+                                        TextButton(onClick = { vm.cancelLassoSelection() }) { Text("↩ Put back") }
+                                    }
+                                    TextButton(onClick = { vm.deleteLassoSelection() }) { Text("🗑 Delete") }
+                                }
                             }
                         }
 
@@ -669,25 +689,20 @@ fun EditorScreen(
         }
     }
 
-    if (showTextInputDialog) {
-        var textValue by remember { mutableStateOf("") }
+    if (vm.textEditorOpen) {
+        var textValue by remember { mutableStateOf(vm.textEditorInitial) }
         WishyDialog(
-            title = "Add Text",
-            onDismissRequest = { showTextInputDialog = false },
+            title = "Text",
+            onDismissRequest = { vm.dismissTextEditor() },
             confirmText = stringResource(R.string.action_ok),
-            onConfirm = {
-                if (textValue.isNotBlank()) {
-                    vm.drawTextAt(textValue, textInputPosition.x, textInputPosition.y)
-                }
-                showTextInputDialog = false
-            },
+            onConfirm = { vm.confirmText(textValue) },
             dismissText = stringResource(R.string.action_cancel),
-            onDismiss = { showTextInputDialog = false }
+            onDismiss = { vm.dismissTextEditor() }
         ) {
             OutlinedTextField(
                 value = textValue,
                 onValueChange = { textValue = it },
-                label = { Text("Enter text") },
+                label = { Text("Type here") },
                 modifier = Modifier.fillMaxWidth()
             )
         }

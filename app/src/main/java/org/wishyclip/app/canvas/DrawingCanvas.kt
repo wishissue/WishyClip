@@ -3,18 +3,22 @@ package org.wishyclip.app.canvas
 import android.graphics.DashPathEffect
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.graphics.Rect
 import android.graphics.RectF
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateRotation
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -31,25 +35,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import kotlin.math.cos
 import kotlin.math.min
-import kotlin.math.roundToInt
+import kotlin.math.sin
+
+private const val ACCENT = 0xFF4C8DFF.toInt()
 
 /**
- * Draws the project's layers (fit to view, letterboxed) and turns pointer events
- * into stroke callbacks with pressure sensitivity, stylus palm rejection, and low-latency historical processing.
+ * Draws the project's layers (fit to view, letterboxed) and turns pointer events into stroke
+ * callbacks with pressure, stylus palm rejection and low-latency historical samples.
+ *
+ * Performance notes: all Paint/Matrix/Rect objects are allocated once (not per frame), the stroke
+ * in progress is drawn from a small overlay instead of a rewritten layer, and the pointer handler
+ * is *not* keyed on zoom/pan so pinching never restarts it mid-gesture.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -59,23 +66,45 @@ fun DrawingCanvas(
     layers: () -> List<LayerData>,
     onionSkinData: () -> OnionSkinData? = { null },
     activeLassoSelection: () -> LassoSelection? = { null },
+    strokeOverlay: () -> LiveStroke? = { null },
+    lassoPreview: () -> Path? = { null },
     revision: () -> Int,
     enabled: Boolean,
     onStrokeStart: (Float, Float, Float, Float) -> Unit,
     onStrokeMove: (Float, Float, Float, Float) -> Unit,
     onStrokeEnd: () -> Unit,
+    onStrokeCancel: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var pan by remember { mutableStateOf(Offset.Zero) }
     var rotation by remember { mutableFloatStateOf(0f) }
-    var isFlippedHorizontally by remember { mutableStateOf(false) }
-    var isFlippedVertically by remember { mutableStateOf(false) }
 
     val startCb by rememberUpdatedState(onStrokeStart)
     val moveCb by rememberUpdatedState(onStrokeMove)
     val endCb by rememberUpdatedState(onStrokeEnd)
+    val cancelCb by rememberUpdatedState(onStrokeCancel)
+    val density = LocalDensity.current.density
+
+    // Reused every frame instead of being reallocated.
+    val bgPaint = remember { Paint().apply { color = android.graphics.Color.WHITE } }
+    val layerPaint = remember { Paint(Paint.FILTER_BITMAP_FLAG) }
+    val ghostPaint = remember { Paint(Paint.FILTER_BITMAP_FLAG) }
+    val selPaint = remember { Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG) }
+    val tintFilters = remember { HashMap<Int, PorterDuffColorFilter>() }
+    val dashEffect = remember { DashPathEffect(floatArrayOf(14f, 10f), 0f) }
+    val outlinePaint = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = ACCENT }
+    }
+    val handleFill = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = android.graphics.Color.WHITE }
+    }
+    val dst = remember { RectF() }
+    val srcRect = remember { Rect() }
+    val selMatrix = remember { Matrix() }
+    val scratchPath = remember { Path() }
+    val scratchMatrix = remember { Matrix() }
 
     Box(modifier = modifier) {
         Canvas(
@@ -83,7 +112,9 @@ fun DrawingCanvas(
                 .fillMaxSize()
                 .background(Color(0xFFD9D9D9))
                 .onSizeChanged { viewSize = it }
-                .pointerInput(viewSize, enabled, projectWidth, projectHeight, zoom, pan, rotation, isFlippedHorizontally, isFlippedVertically) {
+                // NOTE: not keyed on zoom/pan/rotation. Those are read live inside map(); keying on
+                // them restarted this block on every pinch step and cancelled the gesture.
+                .pointerInput(viewSize, enabled, projectWidth, projectHeight) {
                     if (!enabled || viewSize.width == 0 || viewSize.height == 0) return@pointerInput
                     val scale = min(
                         viewSize.width.toFloat() / projectWidth,
@@ -91,71 +122,88 @@ fun DrawingCanvas(
                     )
                     val ox = (viewSize.width - projectWidth * scale) / 2f
                     val oy = (viewSize.height - projectHeight * scale) / 2f
+                    val cx = viewSize.width / 2f
+                    val cy = viewSize.height / 2f
 
+                    // Inverse of the draw transform: translate(center+pan) rotate scale translate(-center).
                     fun map(p: Offset): Offset {
-                        val matrix = Matrix()
-                        val viewCenterX = viewSize.width / 2f
-                        val viewCenterY = viewSize.height / 2f
-
-                        matrix.postTranslate(-viewCenterX, -viewCenterY)
-                        matrix.postRotate(-rotation)
-                        matrix.postScale(
-                            if (isFlippedHorizontally) -1f / zoom else 1f / zoom,
-                            if (isFlippedVertically) -1f / zoom else 1f / zoom
-                        )
-                        matrix.postTranslate(viewCenterX - pan.x, viewCenterY - pan.y)
-                        matrix.postTranslate(-ox, -oy)
-                        matrix.postScale(1f / scale, 1f / scale)
-
-                        val pts = floatArrayOf(p.x, p.y)
-                        matrix.mapPoints(pts)
-                        return Offset(pts[0], pts[1])
+                        val dx = p.x - cx - pan.x
+                        val dy = p.y - cy - pan.y
+                        val rad = Math.toRadians(-rotation.toDouble())
+                        val c = cos(rad).toFloat()
+                        val s = sin(rad).toFloat()
+                        val vx = (dx * c - dy * s) / zoom + cx
+                        val vy = (dx * s + dy * c) / zoom + cy
+                        return Offset((vx - ox) / scale, (vy - oy) / scale)
                     }
 
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
+                        val primaryId = down.id
+                        val stylus = down.type == PointerType.Stylus
 
                         val p0 = map(down.position)
-                        val p0Pressure = down.pressure
-
-                        startCb(p0.x, p0.y, p0Pressure, 0f)
+                        startCb(p0.x, p0.y, down.pressure, 0f)
                         down.consume()
 
-                        val primaryId = down.id
-
+                        var transforming = false
                         while (true) {
                             val event = awaitPointerEvent()
-                            if (event.changes.size > 1) {
-                                val change1 = event.changes[0]
-                                val change2 = event.changes[1]
-                                val oldDist = (change1.previousPosition - change2.previousPosition).getDistance()
-                                val newDist = (change1.position - change2.position).getDistance()
-                                if (oldDist > 0f) {
-                                    zoom = (zoom * (newDist / oldDist)).coerceIn(0.2f, 8f)
-                                }
-                                val panDelta = change1.position - change1.previousPosition
-                                pan += panDelta
+
+                            // With a stylus, any other contact is a resting palm: ignore it.
+                            val pressedCount = if (stylus) {
+                                if (event.changes.any { it.id == primaryId && it.pressed }) 1 else 0
+                            } else {
+                                event.changes.count { it.pressed }
+                            }
+                            if (pressedCount == 0) {
                                 event.changes.forEach { it.consume() }
                                 break
                             }
 
-                            val change = event.changes.firstOrNull { it.id == primaryId }
-
-                            if (change == null || !change.pressed) {
-                                change?.consume()
-                                break
+                            if (transforming || pressedCount > 1) {
+                                if (!transforming) {
+                                    transforming = true
+                                    // Second finger: this was a pinch, not a stroke. Discard the dot.
+                                    (cancelCb ?: endCb)()
+                                }
+                                if (pressedCount > 1) {
+                                    val s = event.calculateZoom()
+                                    val dRot = event.calculateRotation()
+                                    val dPan = event.calculatePan()
+                                    val pivot = event.calculateCentroid(useCurrent = false)
+                                    if (pivot != Offset.Unspecified) {
+                                        val newZoom = (zoom * s).coerceIn(0.2f, 8f)
+                                        val sEff = newZoom / zoom
+                                        // Keep the point under the fingers fixed while zooming/rotating.
+                                        val tx = cx + pan.x - pivot.x
+                                        val ty = cy + pan.y - pivot.y
+                                        val rad = Math.toRadians(dRot.toDouble())
+                                        val c = cos(rad).toFloat()
+                                        val sn = sin(rad).toFloat()
+                                        val nx = pivot.x + sEff * (tx * c - ty * sn) + dPan.x
+                                        val ny = pivot.y + sEff * (tx * sn + ty * c) + dPan.y
+                                        pan = Offset(nx - cx, ny - cy)
+                                        zoom = newZoom
+                                        rotation += dRot
+                                    }
+                                }
+                                event.changes.forEach { it.consume() }
+                                continue
                             }
+
+                            val change = event.changes.firstOrNull { it.id == primaryId && it.pressed }
+                            if (change == null) break
 
                             for (h in change.historical) {
                                 val hp = map(h.position)
                                 moveCb(hp.x, hp.y, change.pressure, 0f)
                             }
-
                             val p = map(change.position)
                             moveCb(p.x, p.y, change.pressure, 0f)
-                            change.consume()
+                            event.changes.forEach { it.consume() }
                         }
-                        endCb()
+                        if (!transforming) endCb()
                     }
                 }
         ) {
@@ -165,7 +213,6 @@ fun DrawingCanvas(
             val dh = projectHeight * scale
             val ox = (size.width - dw) / 2f
             val oy = (size.height - dh) / 2f
-
             val viewCenterX = size.width / 2f
             val viewCenterY = size.height / 2f
 
@@ -174,83 +221,105 @@ fun DrawingCanvas(
                 nativeCanvas.save()
                 nativeCanvas.translate(viewCenterX + pan.x, viewCenterY + pan.y)
                 nativeCanvas.rotate(rotation)
-                nativeCanvas.scale(
-                    if (isFlippedHorizontally) -zoom else zoom,
-                    if (isFlippedVertically) -zoom else zoom
-                )
+                nativeCanvas.scale(zoom, zoom)
                 nativeCanvas.translate(-viewCenterX, -viewCenterY)
 
-                val bgPaint = Paint().apply { color = android.graphics.Color.WHITE }
-                nativeCanvas.drawRect(ox, oy, ox + dw, oy + dh, bgPaint)
+                dst.set(ox, oy, ox + dw, oy + dh)
+                nativeCanvas.drawRect(dst, bgPaint)
 
-                // Draw Onion Skin ghost frames
+                // Onion skin ghosts
                 val onion = onionSkinData()
                 if (onion != null && onion.settings.enabled) {
-                    val drawGhostGroup = { ghosts: List<GhostFrame>, defaultTint: Int ->
+                    fun drawGhosts(ghosts: List<GhostFrame>, tint: Int) {
+                        ghostPaint.colorFilter = if (tint != 0) {
+                            tintFilters.getOrPut(tint) { PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN) }
+                        } else null
                         for (ghost in ghosts) {
                             val factor = (1f - (ghost.distance - 1) * 0.25f).coerceAtLeast(0.2f)
                             val alpha = (onion.settings.opacity * factor).coerceIn(0.01f, 1f)
-                            val paint = Paint(Paint.FILTER_BITMAP_FLAG)
-                            if (defaultTint != 0) {
-                                paint.colorFilter = PorterDuffColorFilter(defaultTint, PorterDuff.Mode.SRC_IN)
-                            }
                             for (layer in ghost.layers) {
                                 if (!layer.visible) continue
-                                paint.alpha = (layer.opacity * alpha * 255f).toInt().coerceIn(0, 255)
-                                nativeCanvas.drawBitmap(layer.bitmap, null,
-                                    RectF(ox, oy, ox + dw, oy + dh), paint)
+                                ghostPaint.alpha = (layer.opacity * alpha * 255f).toInt().coerceIn(0, 255)
+                                nativeCanvas.drawBitmap(layer.bitmap, null, dst, ghostPaint)
                             }
                         }
                     }
-                    drawGhostGroup(onion.before, onion.settings.tintBefore)
-                    drawGhostGroup(onion.after, onion.settings.tintAfter)
+                    drawGhosts(onion.before, onion.settings.tintBefore)
+                    drawGhosts(onion.after, onion.settings.tintAfter)
                 }
 
-                // Current frame layers
-                val layerPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+                // Current frame layers, with the live stroke sitting directly above its layer.
+                val live = strokeOverlay()
                 for (layer in layers()) {
                     if (!layer.visible) continue
                     layerPaint.alpha = (layer.opacity * 255f).toInt().coerceIn(0, 255)
-                    nativeCanvas.drawBitmap(layer.bitmap, null,
-                        RectF(ox, oy, ox + dw, oy + dh), layerPaint)
+                    nativeCanvas.drawBitmap(layer.bitmap, null, dst, layerPaint)
+                    if (live != null && live.layerId == layer.id) {
+                        val o = live.overlay
+                        srcRect.set(o.dirty)
+                        val d = o.dirty
+                        dst.set(
+                            ox + d.left * scale, oy + d.top * scale,
+                            ox + d.right * scale, oy + d.bottom * scale
+                        )
+                        layerPaint.alpha = (layer.opacity * o.alpha * 255f).toInt().coerceIn(0, 255)
+                        nativeCanvas.drawBitmap(o.bitmap, srcRect, dst, layerPaint)
+                        dst.set(ox, oy, ox + dw, oy + dh)
+                    }
                 }
 
-                // Active Lasso Selection floating overlay
+                // Lasso loop preview while drawing the selection
+                val preview = lassoPreview()
+                if (preview != null) {
+                    scratchPath.set(preview)
+                    scratchMatrix.setScale(scale, scale)
+                    scratchMatrix.postTranslate(ox, oy)
+                    scratchPath.transform(scratchMatrix)
+                    outlinePaint.strokeWidth = 2.5f * density / zoom
+                    outlinePaint.pathEffect = dashEffect
+                    nativeCanvas.drawPath(scratchPath, outlinePaint)
+                }
+
+                // Floating selection / text with transform handles
                 val sel = activeLassoSelection()
                 if (sel != null && !sel.pixels.isRecycled) {
-                    val matrix = Matrix(sel.getMatrix())
-                    matrix.postScale(scale, scale)
-                    matrix.postTranslate(ox, oy)
+                    selMatrix.set(sel.getMatrix())
+                    selMatrix.postScale(scale, scale)
+                    selMatrix.postTranslate(ox, oy)
+                    nativeCanvas.drawBitmap(sel.pixels, selMatrix, selPaint)
 
-                    val paint = Paint(Paint.FILTER_BITMAP_FLAG)
-                    nativeCanvas.drawBitmap(sel.pixels, matrix, paint)
+                    val hp = sel.handlePoints(selectionRotateOffset(projectWidth))
+                    fun vx(i: Int) = ox + hp[i] * scale
+                    fun vy(i: Int) = oy + hp[i] * scale
+                    scratchPath.rewind()
+                    scratchPath.moveTo(vx(0), vy(1))
+                    scratchPath.lineTo(vx(2), vy(3))
+                    scratchPath.lineTo(vx(4), vy(5))
+                    scratchPath.lineTo(vx(6), vy(7))
+                    scratchPath.close()
+                    outlinePaint.strokeWidth = 2f * density / zoom
+                    outlinePaint.pathEffect = dashEffect
+                    nativeCanvas.drawPath(scratchPath, outlinePaint)
 
-                    val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        style = Paint.Style.STROKE
-                        color = android.graphics.Color.BLUE
-                        strokeWidth = 3f
-                        pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+                    // stem from the top edge up to the rotate handle
+                    val topMidX = (vx(0) + vx(2)) / 2f
+                    val topMidY = (vy(1) + vy(3)) / 2f
+                    outlinePaint.pathEffect = null
+                    nativeCanvas.drawLine(topMidX, topMidY, vx(8), vy(9), outlinePaint)
+
+                    val r = selectionHandleSlop(projectWidth) * 0.38f * scale
+                    outlinePaint.strokeWidth = 2.5f * density / zoom
+                    for (i in intArrayOf(0, 2, 4, 6, 8)) {
+                        nativeCanvas.drawCircle(vx(i), vy(i + 1), r, handleFill)
+                        nativeCanvas.drawCircle(vx(i), vy(i + 1), r, outlinePaint)
                     }
-                    val bounds = sel.bounds
-                    val targetLeft = bounds.left + sel.translateX
-                    val targetTop = bounds.top + sel.translateY
-                    val w = bounds.width() * sel.scaleX
-                    val h = bounds.height() * sel.scaleY
-
-                    val viewRect = RectF(
-                        ox + targetLeft * scale,
-                        oy + targetTop * scale,
-                        ox + (targetLeft + w) * scale,
-                        oy + (targetTop + h) * scale
-                    )
-                    nativeCanvas.drawRect(viewRect, strokePaint)
                 }
 
                 nativeCanvas.restore()
             }
         }
 
-        if (zoom != 1f || pan != Offset.Zero || rotation != 0f || isFlippedHorizontally || isFlippedVertically) {
+        if (zoom != 1f || pan != Offset.Zero || rotation != 0f) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -262,10 +331,8 @@ fun DrawingCanvas(
                     zoom = 1f
                     pan = Offset.Zero
                     rotation = 0f
-                    isFlippedHorizontally = false
-                    isFlippedVertically = false
                 }) {
-                    Text("Reset Canvas View", style = MaterialTheme.typography.labelSmall)
+                    Text("Reset view", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }

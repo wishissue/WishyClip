@@ -4,7 +4,9 @@ import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Rect
+import android.graphics.RectF
 import android.net.Uri
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
@@ -33,6 +35,12 @@ import org.wishyclip.app.audio.ExoPlayerAudioTrackManager
 import org.wishyclip.app.audio.WaveformExtractor
 import org.wishyclip.app.canvas.GhostFrame
 import org.wishyclip.app.canvas.LassoSelection
+import org.wishyclip.app.canvas.LiveStroke
+import org.wishyclip.app.canvas.SelectionHit
+import org.wishyclip.app.canvas.TextRaster
+import org.wishyclip.app.canvas.TextSpec
+import org.wishyclip.app.canvas.selectionHandleSlop
+import org.wishyclip.app.canvas.selectionRotateOffset
 import org.wishyclip.app.canvas.LayerData
 import org.wishyclip.app.canvas.LayerUi
 import org.wishyclip.app.canvas.OnionSkinData
@@ -51,6 +59,11 @@ import org.wishyclip.app.data.ProjectEntity
 import org.wishyclip.app.model.Tool
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.hypot
 
 class EditorViewModel(app: Application, private val projectId: Long) : AndroidViewModel(app) {
 
@@ -94,6 +107,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         private set
     var activeLassoSelection by mutableStateOf<LassoSelection?>(null)
         private set
+    var textEditorOpen by mutableStateOf(false)
+        private set
+    var textEditorInitial by mutableStateOf("")
+        private set
     var audioTracks by mutableStateOf<List<AudioTrackEntity>>(emptyList())
         private set
     var stabilizer by mutableFloatStateOf(0f)
@@ -107,7 +124,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     // ---- internals (main thread only, except where noted) ----
     private val cache = HashMap<Long, FrameData>() // frame id -> data; only current frame +-2
-    private var undoManager = UndoManager(20)
+    private var undoManager = UndoManager(40, 64L * 1024 * 1024)
     private val renderer = StrokeRenderer()
     private val lassoTool = StandardLassoTool()
     private val audioManager = ExoPlayerAudioTrackManager(app)
@@ -117,6 +134,16 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     private var saveTicket = 0
     private var playJob: Job? = null
     private var prefetchJob: Job? = null
+    private enum class Gesture { NONE, SELECTING, MOVE, SCALE, ROTATE, TEXT_TAP }
+    private var gesture = Gesture.NONE
+    private var gestureLastX = 0f
+    private var gestureLastY = 0f
+    private var gestureStartX = 0f
+    private var gestureStartY = 0f
+    private var gestureMoved = 0f
+    private var textPendingX = 0f
+    private var textPendingY = 0f
+    private var textEditingExisting = false
     private var strokeLayer: LayerData? = null
     private var strokeFrameId: Long = -1L
 
@@ -223,6 +250,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun selectFrame(index: Int) {
         if (strokeLayer != null) return
+        commitLassoSelection()
         if (isPlaying) stopPlay()
         if (index !in frames.indices) return
         viewModelScope.launch { gotoFrame(index) }
@@ -323,6 +351,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     // ---------------------------------------------------------------- playback
 
     fun togglePlay() {
+        commitLassoSelection()
         if (isPlaying) stopPlay() else startPlay()
     }
 
@@ -398,12 +427,14 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     }
 
     fun selectTool(t: Tool) {
+        if (t != tool) commitLassoSelection()
         tool = t
     }
 
     fun updateColor(argb: Int) {
         color = argb
         persistBrush()
+        activeLassoSelection?.let { if (it.isText) rerasterText(it) }
     }
 
     fun updateBrushSize(v: Float) {
@@ -412,6 +443,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun updateOpacity(v: Float) {
         opacity = v
+        activeLassoSelection?.let { if (it.isText) rerasterText(it) }
     }
 
     fun persistBrush() {
@@ -573,6 +605,11 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         }
     }
 
+    // ---------------------------------------------------------------- floating selection (lasso / text)
+
+    private fun handleSlop() = selectionHandleSlop(project?.width ?: 1280)
+    private fun rotateOffset() = selectionRotateOffset(project?.width ?: 1280)
+
     fun moveLassoSelection(dx: Float, dy: Float) {
         val sel = activeLassoSelection ?: return
         sel.translateX += dx
@@ -582,6 +619,13 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun scaleLassoSelection(sx: Float, sy: Float) {
         val sel = activeLassoSelection ?: return
+        val spec = sel.text
+        if (spec != null) {
+            // Text is re-rendered at the new size so it stays crisp instead of stretching.
+            spec.sizePx = (spec.sizePx * sx).coerceIn(12f, 1500f)
+            rerasterText(sel)
+            return
+        }
         sel.scaleX = (sel.scaleX * sx).coerceIn(0.1f, 10f)
         sel.scaleY = (sel.scaleY * sy).coerceIn(0.1f, 10f)
         revision++
@@ -593,53 +637,162 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         revision++
     }
 
+    /** Stamps the floating selection into the active layer as one undoable step. */
     fun commitLassoSelection() {
         val sel = activeLassoSelection ?: return
-        val layer = activeLayer() ?: return
-        val frameId = frames.getOrNull(currentIndex)?.id ?: return
-
-        val before = layer.bitmap.snapshot()
-        val canvas = Canvas(layer.bitmap)
-        val matrix = sel.getMatrix()
-        val paint = Paint(Paint.FILTER_BITMAP_FLAG)
-        canvas.drawBitmap(sel.pixels, matrix, paint)
-
-        if (!sel.pixels.isRecycled) sel.pixels.recycle()
         activeLassoSelection = null
+        gesture = Gesture.NONE
+        val layer = activeLayer()
+        val frameId = frames.getOrNull(currentIndex)?.id
+        if (layer == null || frameId == null) {
+            sel.release()
+            revision++
+            return
+        }
 
-        undoManager.push(UndoEntry(frameId, layer.id, before))
-        layer.version++
-        syncUndoFlags()
+        val matrix = sel.getMatrix()
+        val dest = RectF(0f, 0f, sel.pixels.width.toFloat(), sel.pixels.height.toFloat())
+        matrix.mapRect(dest)
+        val full = Rect(0, 0, layer.bitmap.width, layer.bitmap.height)
+        val drawRect = Rect(
+            floor(dest.left).toInt() - 2, floor(dest.top).toInt() - 2,
+            ceil(dest.right).toInt() + 2, ceil(dest.bottom).toInt() + 2
+        )
+        val visible = drawRect.intersect(full)
+        val lift = sel.liftRect
+        val patchRect: Rect? = when {
+            visible && lift != null -> drawRect.also { it.union(lift) }
+            visible -> drawRect
+            lift != null -> Rect(lift)
+            else -> null
+        }
+
+        if (patchRect != null) {
+            // Patch = the layer as it was *before* the lift, over everything this commit touches.
+            val patch = BitmapOps.copyRect(layer.bitmap, patchRect)
+            val before = sel.liftBefore
+            if (before != null && lift != null) {
+                BitmapOps.putAt(patch, before, lift.left - patchRect.left, lift.top - patchRect.top)
+            }
+            if (visible) {
+                val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+                Canvas(layer.bitmap).drawBitmap(sel.pixels, matrix, paint)
+            }
+            undoManager.push(UndoEntry(frameId, layer.id, patch, patchRect))
+            layer.version++
+            syncUndoFlags()
+            scheduleSave()
+        }
+        sel.release()
         revision++
-        scheduleSave()
     }
 
+    /** Puts a lassoed region back exactly where it came from; discards a text object. */
+    fun cancelLassoSelection() {
+        val sel = activeLassoSelection ?: return
+        activeLassoSelection = null
+        gesture = Gesture.NONE
+        val layer = activeLayer()
+        val before = sel.liftBefore
+        val lift = sel.liftRect
+        if (layer != null && before != null && lift != null) {
+            BitmapOps.putAt(layer.bitmap, before, lift.left, lift.top)
+        }
+        sel.release()
+        revision++
+    }
+
+    /** Deletes the floating selection (the lifted pixels stay erased). Undoable. */
     fun deleteLassoSelection() {
         val sel = activeLassoSelection ?: return
-        if (!sel.pixels.isRecycled) sel.pixels.recycle()
         activeLassoSelection = null
+        gesture = Gesture.NONE
+        val layer = activeLayer()
+        val frameId = frames.getOrNull(currentIndex)?.id
+        val before = sel.liftBefore
+        val lift = sel.liftRect
+        if (layer != null && frameId != null && before != null && lift != null) {
+            undoManager.push(UndoEntry(frameId, layer.id, before, Rect(lift)))
+            sel.liftBefore = null // ownership moved to the undo stack
+            layer.version++
+            syncUndoFlags()
+            scheduleSave()
+        }
+        sel.release()
         revision++
-        scheduleSave()
     }
 
-    fun drawTextAt(text: String, x: Float, y: Float) {
-        val layer = activeLayer() ?: return
-        val frameId = frames.getOrNull(currentIndex)?.id ?: return
-        val before = layer.bitmap.snapshot()
+    /** Preview of the lasso loop while it is being drawn. */
+    fun lassoPreviewPath(): Path? = if (gesture == Gesture.SELECTING) lassoTool.currentPath else null
 
-        val canvas = Canvas(layer.bitmap)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = this@EditorViewModel.color
-            textSize = (brushSize * 4f).coerceAtLeast(16f)
-            alpha = (opacity * 255f).toInt()
+    /** Scratch overlay of the stroke in progress, drawn above its layer. */
+    fun activeStrokeOverlay(): LiveStroke? {
+        val layer = strokeLayer ?: return null
+        val overlay = renderer.overlay() ?: return null
+        return LiveStroke(layer.id, overlay)
+    }
+
+    // ---- text
+
+    private fun defaultTextSize(): Float = ((project?.height ?: 720) / 8f).coerceAtLeast(40f)
+
+    private fun openTextEditorAt(x: Float, y: Float) {
+        textPendingX = x
+        textPendingY = y
+        textEditingExisting = false
+        textEditorInitial = ""
+        textEditorOpen = true
+    }
+
+    /** Opens the editor for the text object that is currently selected. */
+    fun editActiveText() {
+        val spec = activeLassoSelection?.text ?: return
+        textEditingExisting = true
+        textEditorInitial = spec.text
+        textEditorOpen = true
+    }
+
+    fun dismissTextEditor() {
+        textEditorOpen = false
+    }
+
+    fun confirmText(text: String) {
+        textEditorOpen = false
+        if (text.isBlank()) return
+        if (textEditingExisting) {
+            val sel = activeLassoSelection ?: return
+            val spec = sel.text ?: return
+            spec.text = text
+            rerasterText(sel)
+            return
         }
-        canvas.drawText(text, x, y, paint)
-
-        undoManager.push(UndoEntry(frameId, layer.id, before))
-        layer.version++
-        syncUndoFlags()
+        val layer = activeLayer() ?: return
+        if (!layer.visible) return
+        commitLassoSelection()
+        val spec = TextSpec(text, defaultTextSize())
+        val bmp = TextRaster.render(spec.text, color, spec.sizePx, opacity)
+        val bounds = RectF(
+            textPendingX - bmp.width / 2f, textPendingY - bmp.height / 2f,
+            textPendingX + bmp.width / 2f, textPendingY + bmp.height / 2f
+        )
+        activeLassoSelection = LassoSelection(bmp, bounds, Path(), text = spec)
         revision++
-        scheduleSave()
+    }
+
+    /** Re-renders a text selection (new text, size, color) keeping its centre and rotation. */
+    private fun rerasterText(sel: LassoSelection) {
+        val spec = sel.text ?: return
+        val cx = sel.bounds.centerX() + sel.translateX
+        val cy = sel.bounds.centerY() + sel.translateY
+        val fresh = TextRaster.render(spec.text, color, spec.sizePx, opacity)
+        // The old bitmap is left to the GC: it may still be referenced by a frame being drawn.
+        sel.pixels = fresh
+        sel.bounds = RectF(cx - fresh.width / 2f, cy - fresh.height / 2f, cx + fresh.width / 2f, cy + fresh.height / 2f)
+        sel.translateX = 0f
+        sel.translateY = 0f
+        sel.scaleX = 1f
+        sel.scaleY = 1f
+        revision++
     }
 
     fun updateStabilizer(value: Float) {
@@ -684,25 +837,37 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     }
 
     fun strokeStart(x: Float, y: Float, pressure: Float = 1f, tilt: Float = 0f) {
-        if (isPlaying || strokeLayer != null) return
+        if (isPlaying || strokeLayer != null || gesture != Gesture.NONE) return
         smoothedX = x
         smoothedY = y
-        if (activeLassoSelection != null) {
+
+        val sel = activeLassoSelection
+        if (sel != null) {
+            val hit = sel.hitTest(x, y, handleSlop(), rotateOffset())
+            if (hit != SelectionHit.NONE) {
+                gesture = when (hit) {
+                    SelectionHit.SCALE -> Gesture.SCALE
+                    SelectionHit.ROTATE -> Gesture.ROTATE
+                    else -> Gesture.MOVE
+                }
+                gestureLastX = x
+                gestureLastY = y
+                gestureMoved = 0f
+                return
+            }
+            // Touching empty canvas drops the selection in place, then the touch continues normally.
             commitLassoSelection()
+        }
+
+        if (tool == Tool.TEXT) {
+            gesture = Gesture.TEXT_TAP
+            gestureStartX = x
+            gestureStartY = y
+            gestureMoved = 0f
+            return
         }
         if (tool == Tool.FILL) {
             executeFill(x, y)
-            return
-        }
-        if (tool == Tool.LASSO) {
-            val layer = activeLayer() ?: return
-            if (!layer.visible) return
-            val frameId = frames.getOrNull(currentIndex)?.id ?: return
-            strokeLayer = layer
-            strokeFrameId = frameId
-            val before = layer.bitmap.snapshot()
-            undoManager.push(UndoEntry(frameId, layer.id, before))
-            lassoTool.begin(x, y)
             return
         }
         val layer = activeLayer() ?: return
@@ -710,11 +875,54 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val frameId = frames.getOrNull(currentIndex)?.id ?: return
         strokeLayer = layer
         strokeFrameId = frameId
-        renderer.begin(layer.bitmap.snapshot(), x, y, pressure, tilt)
-        renderStroke()
+        if (tool == Tool.LASSO) {
+            gesture = Gesture.SELECTING
+            lassoTool.begin(x, y)
+            revision++
+            return
+        }
+        renderer.begin(layer.bitmap, tool, color, brushSize, opacity, x, y, pressure, tilt)
+        revision++
     }
 
     fun strokeMove(x: Float, y: Float, pressure: Float = 1f, tilt: Float = 0f) {
+        when (gesture) {
+            Gesture.MOVE -> {
+                moveLassoSelection(x - gestureLastX, y - gestureLastY)
+                gestureMoved += hypot(x - gestureLastX, y - gestureLastY)
+                gestureLastX = x
+                gestureLastY = y
+                return
+            }
+            Gesture.SCALE -> {
+                val sel = activeLassoSelection ?: return
+                val (cx, cy) = sel.center(rotateOffset())
+                val d0 = hypot(gestureLastX - cx, gestureLastY - cy)
+                val d1 = hypot(x - cx, y - cy)
+                if (d0 > 1f && d1 > 1f) scaleLassoSelection(d1 / d0, d1 / d0)
+                gestureLastX = x
+                gestureLastY = y
+                return
+            }
+            Gesture.ROTATE -> {
+                val sel = activeLassoSelection ?: return
+                val (cx, cy) = sel.center(rotateOffset())
+                val a0 = atan2(gestureLastY - cy, gestureLastX - cx)
+                val a1 = atan2(y - cy, x - cx)
+                var delta = Math.toDegrees((a1 - a0).toDouble()).toFloat()
+                if (delta > 180f) delta -= 360f
+                if (delta < -180f) delta += 360f
+                rotateLassoSelection(delta)
+                gestureLastX = x
+                gestureLastY = y
+                return
+            }
+            Gesture.TEXT_TAP -> {
+                gestureMoved = hypot(x - gestureStartX, y - gestureStartY)
+                return
+            }
+            else -> {}
+        }
         if (strokeLayer == null) return
         val curX: Float
         val curY: Float
@@ -728,50 +936,81 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             curX = x
             curY = y
         }
-        if (tool == Tool.LASSO) {
+        if (gesture == Gesture.SELECTING) {
             lassoTool.addPoint(curX, curY)
-            return
+        } else {
+            renderer.moveTo(curX, curY, pressure, tilt)
         }
-        renderer.moveTo(curX, curY, pressure, tilt)
-        renderStroke()
+        revision++
     }
 
     fun strokeEnd() {
+        when (gesture) {
+            Gesture.MOVE -> {
+                gesture = Gesture.NONE
+                // A tap (no drag) on a text object opens it for editing.
+                if (gestureMoved < TAP_SLOP && activeLassoSelection?.isText == true) editActiveText()
+                return
+            }
+            Gesture.SCALE, Gesture.ROTATE -> {
+                gesture = Gesture.NONE
+                return
+            }
+            Gesture.TEXT_TAP -> {
+                gesture = Gesture.NONE
+                if (gestureMoved < TAP_SLOP) openTextEditorAt(gestureStartX, gestureStartY)
+                return
+            }
+            else -> {}
+        }
         val layer = strokeLayer ?: return
         strokeLayer = null
-        if (tool == Tool.LASSO) {
-            val sel = lassoTool.end(layer.bitmap)
-            activeLassoSelection = sel
-            layer.version++
-            syncUndoFlags()
+
+        if (gesture == Gesture.SELECTING) {
+            gesture = Gesture.NONE
+            // Lifting does not touch version/undo/save: that all happens when it is committed.
+            activeLassoSelection = lassoTool.end(layer.bitmap)
             revision++
-            scheduleSave()
             return
         }
-        val before = renderer.finish()
-        if (before != null) {
-            undoManager.push(UndoEntry(strokeFrameId, layer.id, before))
+
+        val patch = renderer.finish()
+        if (patch != null) {
+            undoManager.push(UndoEntry(strokeFrameId, layer.id, patch.bitmap, patch.rect))
+            layer.version++
+            syncUndoFlags()
+            scheduleSave()
         }
-        layer.version++
-        syncUndoFlags()
         revision++
-        scheduleSave()
     }
 
-    private fun renderStroke() {
-        val layer = strokeLayer ?: return
-        renderer.render(layer.bitmap, tool, color, brushSize, opacity)
+    /** The touch turned into a pinch/pan: throw the half-drawn stroke away instead of committing it. */
+    fun strokeCancel() {
+        val wasTransform = gesture == Gesture.MOVE || gesture == Gesture.SCALE ||
+            gesture == Gesture.ROTATE || gesture == Gesture.TEXT_TAP
+        if (wasTransform) {
+            gesture = Gesture.NONE
+            return
+        }
+        if (strokeLayer == null) return
+        strokeLayer = null
+        gesture = Gesture.NONE
+        renderer.cancel()
         revision++
     }
 
     // ---------------------------------------------------------------- undo / redo
 
     fun undo() {
-        if (strokeLayer == null) applyHistory(true)
+        if (strokeLayer != null) return
+        commitLassoSelection()
+        applyHistory(true)
     }
 
     fun redo() {
-        if (strokeLayer == null) applyHistory(false)
+        if (strokeLayer != null) return
+        commitLassoSelection()
+        applyHistory(false)
     }
 
     private fun applyHistory(isUndo: Boolean) {
@@ -782,9 +1021,15 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                 entry.bitmap.recycle()
                 continue
             }
-            val counterpart = UndoEntry(entry.frameId, entry.layerId, layer.bitmap.snapshot())
+            val rect = entry.rect
+            val counterpart = if (rect != null) {
+                UndoEntry(entry.frameId, entry.layerId, BitmapOps.copyRect(layer.bitmap, rect), rect)
+            } else {
+                UndoEntry(entry.frameId, entry.layerId, layer.bitmap.snapshot())
+            }
             if (isUndo) undoManager.pushRedo(counterpart) else undoManager.pushUndoKeepRedo(counterpart)
-            BitmapOps.replace(layer.bitmap, entry.bitmap)
+            if (rect != null) BitmapOps.putAt(layer.bitmap, entry.bitmap, rect.left, rect.top)
+            else BitmapOps.replace(layer.bitmap, entry.bitmap)
             entry.bitmap.recycle()
             layer.version++
             val idx = frames.indexOfFirst { it.id == entry.frameId }
@@ -810,6 +1055,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     }
 
     fun selectLayer(index: Int) {
+        if (index != activeLayerIndex) commitLassoSelection()
         if (index in layerUi.indices) activeLayerIndex = index
     }
 
@@ -949,11 +1195,13 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     /** Called when the host activity stops: pause playback and flush to disk. */
     fun onHostStop() {
+        commitLassoSelection()
         stopPlay()
         viewModelScope.launch { saveAll() }
     }
 
     fun saveAndExit(onDone: () -> Unit) {
+        commitLassoSelection()
         stopPlay()
         viewModelScope.launch {
             saveAll()
@@ -962,6 +1210,8 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     }
 
     override fun onCleared() {
+        commitLassoSelection()
+        renderer.release()
         audioManager.release()
         val remaining = cache.values.toList()
         try {
@@ -977,6 +1227,8 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         super.onCleared()
     }
 }
+
+private const val TAP_SLOP = 12f
 
 class EditorViewModelFactory(
     private val app: Application,

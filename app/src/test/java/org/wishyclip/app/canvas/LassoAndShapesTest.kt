@@ -44,15 +44,13 @@ class LassoAndShapesTest {
     @Test
     fun testShapeRenderer() {
         val targetBmp = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
-        val snapshot = targetBmp.snapshot()
 
         val renderer = StrokeRenderer()
-        renderer.begin(snapshot, 10f, 10f)
+        renderer.begin(targetBmp, Tool.LINE, Color.BLUE, 5f, 1f, 10f, 10f)
         renderer.moveTo(80f, 80f)
 
-        // Render line
-        renderer.render(targetBmp, Tool.LINE, Color.BLUE, size = 5f, opacity = 1f)
-        val snapshot2 = renderer.finish()
-        assertNotNull(snapshot2)
+        val patch = renderer.finish()
+        assertNotNull(patch)
+        renderer.release()
     }
 }

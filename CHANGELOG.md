@@ -16,3 +16,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Audio track importing, voice recording, and waveform strip synchronization with timeline playback.
 - Export service supporting MP4 video (MediaCodec + MediaMuxer), animated GIF, and PNG sequences with Android share sheet integration.
 - Complete Design System with Light, Dark, AMOLED Black, and Candy theme packs plus custom JSON theme importing.
+
+## Unreleased
+
+### Performance
+- Strokes are now drawn incrementally (one curve segment per input event) onto a reusable
+  overlay instead of restoring and redrawing the whole stroke on every event. Long and fast
+  strokes no longer slow down as they grow.
+- Undo stores only the rectangle a stroke touched (eraser: only the touched 128px cells), not a
+  full-canvas copy per stroke. Undo history is also capped at 64 MB.
+- Canvas draw path no longer allocates Paint/Matrix/Rect objects every frame.
+
+### Fixes
+- Pinch zoom/pan/rotate now works continuously (the gesture handler was restarted on every step).
+- Strokes drawn while zoomed and panned landed in the wrong place (pan was not divided by zoom).
+- Second finger landing no longer commits a stray dot; stylus ignores resting palms.
+
+### Lasso & Text
+- Lasso selections can now be moved, scaled and rotated with on-canvas handles, committed with
+  Done, restored with Put back, or deleted. Touching empty canvas drops the selection in place.
+  A dashed preview shows the loop while drawing.
+- Text is now an editable floating object: tap to place, drag/scale/rotate, tap it again (or Edit)
+  to change the words; color and opacity changes apply live. It only merges into the layer on Done.
