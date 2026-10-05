@@ -177,16 +177,14 @@ class StrokeRenderer {
 
     /** Abandons the stroke, restoring the target (eraser) and clearing the overlay. */
     fun cancel() {
-        val t = target
-        if (t != null) {
-            if (viaOverlay) {
-                if (hasDirty) overlayBmp?.let { BitmapOps.clearRect(it, dirty) }
-            } else {
-                for ((key, cell) in backups) {
-                    val cx = (key and 0xFFFFL).toInt()
-                    val cy = (key shr 16).toInt()
-                    BitmapOps.putAt(t, cell, cx * CELL, cy * CELL)
-                }
+        val t = target ?: return
+        if (viaOverlay) {
+            if (hasDirty) overlayBmp?.let { BitmapOps.clearRect(it, Rect(0, 0, it.width, it.height)) }
+        } else {
+            for ((key, cell) in backups) {
+                val cx = (key and 0xFFFFL).toInt()
+                val cy = (key shr 16).toInt()
+                BitmapOps.putAt(t, cell, cx * CELL, cy * CELL)
             }
         }
         reset()
