@@ -81,6 +81,7 @@ class StrokeRenderer {
         @Suppress("UNUSED_PARAMETER") tilt: Float = 0f
     ) {
         cancel()
+        reset()
         this.target = target
         this.targetCanvas = Canvas(target)
         this.tool = tool
@@ -94,7 +95,7 @@ class StrokeRenderer {
         if (viaOverlay) {
             paint.alpha = 255
             ensureOverlay(target)
-            BitmapOps.clearRect(overlayBmp!!, Rect(0, 0, target.width, target.height))
+            BitmapOps.clear(overlayBmp!!)
         }
         baseWidth = paint.strokeWidth
         variablePressure = !isShape && tool != Tool.MARKER && abs(pressure - 1f) > 0.05f
@@ -106,7 +107,10 @@ class StrokeRenderer {
             applyPressureWidth(pressure, pressure)
             val margin = reach()
             if (!viaOverlay) backup(clamp(x - margin, y - margin, x + margin, y + margin))
-            drawCanvas().drawPoint(x, y, paint)
+            val prevStyle = paint.style
+            paint.style = Paint.Style.FILL
+            drawCanvas().drawCircle(x, y, paint.strokeWidth / 2f, paint)
+            paint.style = prevStyle
             expandDirty(x - margin, y - margin, x + margin, y + margin)
         }
     }
@@ -157,7 +161,7 @@ class StrokeRenderer {
             val p = Paint(Paint.FILTER_BITMAP_FLAG)
             p.alpha = (BrushPaints.alphaFactor(tool, opacity) * 255f).roundToInt().coerceIn(0, 255)
             Canvas(t).drawBitmap(overlay, rect, rect, p)
-            BitmapOps.clearRect(overlay, rect)
+            BitmapOps.clear(overlay)
             reset()
             return StrokePatch(patch, rect)
         } else {
@@ -176,14 +180,16 @@ class StrokeRenderer {
 
     /** Abandons the stroke, restoring the target (eraser) and clearing the overlay. */
     fun cancel() {
-        val t = target ?: return
-        if (viaOverlay) {
-            if (hasDirty) overlayBmp?.let { BitmapOps.clearRect(it, Rect(0, 0, it.width, it.height)) }
-        } else {
-            for ((key, cell) in backups) {
-                val cx = (key and 0xFFFFL).toInt()
-                val cy = (key shr 16).toInt()
-                BitmapOps.putAt(t, cell, cx * CELL, cy * CELL)
+        val t = target
+        if (t != null) {
+            if (viaOverlay) {
+                if (hasDirty) overlayBmp?.let { BitmapOps.clearRect(it, Rect(0, 0, it.width, it.height)) }
+            } else {
+                for ((key, cell) in backups) {
+                    val cx = (key and 0xFFFFL).toInt()
+                    val cy = (key shr 16).toInt()
+                    BitmapOps.putAt(t, cell, cx * CELL, cy * CELL)
+                }
             }
         }
         reset()
@@ -210,7 +216,7 @@ class StrokeRenderer {
         dirty.setEmpty()
         hasDirty = false
         segPath.rewind()
-        overlayBmp?.let { BitmapOps.clearRect(it, Rect(0, 0, it.width, it.height)) }
+        overlayBmp?.let { BitmapOps.clear(it) }
         for (b in backups.values) if (!b.isRecycled) b.recycle()
         backups.clear()
         target = null
@@ -224,6 +230,9 @@ class StrokeRenderer {
             val fresh = Bitmap.createBitmap(t.width, t.height, Bitmap.Config.ARGB_8888)
             overlayBmp = fresh
             overlayCanvas = Canvas(fresh)
+        } else {
+            overlayCanvas?.setBitmap(o) ?: run { overlayCanvas = Canvas(o) }
+            BitmapOps.clear(o)
         }
     }
 
@@ -249,7 +258,7 @@ class StrokeRenderer {
 
     private fun updateShape(x: Float, y: Float) {
         val overlay = overlayBmp ?: return
-        if (hasDirty) BitmapOps.clearRect(overlay, dirty)
+        if (hasDirty) BitmapOps.clear(overlay)
         val c = overlayCanvas ?: return
         val l = min(startX, x)
         val t = min(startY, y)

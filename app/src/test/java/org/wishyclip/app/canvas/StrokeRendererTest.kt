@@ -14,7 +14,7 @@ import org.robolectric.annotation.GraphicsMode
 import org.wishyclip.app.model.Tool
 
 @RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@GraphicsMode(GraphicsMode.Mode.LEGACY)
 class StrokeRendererTest {
 
     private fun blank(w: Int = 300, h: Int = 200) =
