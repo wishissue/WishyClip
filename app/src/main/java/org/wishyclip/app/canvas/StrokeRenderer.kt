@@ -89,9 +89,12 @@ class StrokeRenderer {
         isShape = tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE
         viaOverlay = tool != Tool.ERASER
         paint = BrushPaints.create(tool, argb, size, opacity)
+        dirty.setEmpty()
+        hasDirty = false
         if (viaOverlay) {
             paint.alpha = 255
             ensureOverlay(target)
+            BitmapOps.clearRect(overlayBmp!!, Rect(0, 0, target.width, target.height))
         }
         baseWidth = paint.strokeWidth
         variablePressure = !isShape && tool != Tool.MARKER && abs(pressure - 1f) > 0.05f
@@ -99,8 +102,6 @@ class StrokeRenderer {
         lastX = x; lastY = y
         midX = x; midY = y
         lastPressure = pressure
-        dirty.setEmpty()
-        hasDirty = false
         if (!isShape) {
             applyPressureWidth(pressure, pressure)
             val margin = reach()
