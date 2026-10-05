@@ -1,0 +1,118 @@
+package org.wishyclip.app.ui.components
+
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import org.wishyclip.app.ui.design.WishyIcons
+import org.wishyclip.app.ui.design.WishyTheme
+import org.wishyclip.app.ui.design.themes.DarkTokens
+import org.wishyclip.app.ui.design.themes.LightTokens
+import java.io.File
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ProjectCard(
+    title: String,
+    info: String,
+    thumbnailFile: File?,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val tokens = WishyTheme.tokens
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(tokens.mediumRadius))
+            .background(tokens.surface)
+            .border(1.dp, tokens.surfaceVariant, RoundedCornerShape(tokens.mediumRadius))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .background(tokens.canvasBackdrop),
+            contentAlignment = Alignment.Center
+        ) {
+            if (thumbnailFile != null && thumbnailFile.exists()) {
+                AsyncImage(
+                    model = thumbnailFile,
+                    contentDescription = title,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                Image(
+                    painter = painterResource(WishyIcons.Logo),
+                    contentDescription = title,
+                    modifier = Modifier.padding(tokens.spaceLarge)
+                )
+            }
+        }
+        Column(modifier = Modifier.padding(tokens.spaceSmall)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = tokens.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = info,
+                style = MaterialTheme.typography.labelSmall,
+                color = tokens.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Preview(name = "ProjectCard Light")
+@Composable
+private fun ProjectCardLightPreview() {
+    WishyTheme(tokens = LightTokens) {
+        ProjectCard(
+            title = "My Animation",
+            info = "12 frames • 24 FPS",
+            thumbnailFile = null,
+            onClick = {},
+            onLongClick = {}
+        )
+    }
+}
+
+@Preview(name = "ProjectCard Dark")
+@Composable
+private fun ProjectCardDarkPreview() {
+    WishyTheme(tokens = DarkTokens) {
+        ProjectCard(
+            title = "Walk Cycle Test",
+            info = "24 frames • 12 FPS",
+            thumbnailFile = null,
+            onClick = {},
+            onLongClick = {}
+        )
+    }
+}

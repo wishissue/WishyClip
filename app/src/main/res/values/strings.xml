@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Wishy Clip</string>
+    <string name="title_home">My Projects</string>
+    <string name="title_new_project">New Project</string>
+    <string name="title_settings">Settings</string>
+    <string name="title_onboarding">Welcome to Wishy Clip</string>
+    <string name="title_export">Export Animation</string>
+    <string name="title_layers">Layers</string>
+    <string name="title_onion_skin">Onion Skin Settings</string>
+    <string name="title_color_picker">Color Picker</string>
+    <string name="title_design_gallery">Design Gallery</string>
+
+    <!-- Tools -->
+    <string name="tool_pen">Pen</string>
+    <string name="tool_pencil">Pencil</string>
+    <string name="tool_marker">Marker</string>
+    <string name="tool_eraser">Eraser</string>
+    <string name="tool_airbrush">Airbrush</string>
+    <string name="tool_calligraphy">Chisel</string>
+    <string name="tool_highlighter">Highlight</string>
+    <string name="tool_fill">Fill</string>
+    <string name="tool_lasso">Lasso</string>
+    <string name="tool_line">Line</string>
+    <string name="tool_rect">Rectangle</string>
+    <string name="tool_ellipse">Oval</string>
+    <string name="tool_text">Text</string>
+    <string name="tool_eyedropper">Eyedropper</string>
+
+    <!-- Actions & Buttons -->
+    <string name="action_undo">Undo</string>
+    <string name="action_redo">Redo</string>
+    <string name="action_play">Play</string>
+    <string name="action_pause">Pause</string>
+    <string name="action_add_frame">Add Frame</string>
+    <string name="action_duplicate_frame">Duplicate Frame</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_paste">Paste</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_export">Export</string>
+    <string name="action_import">Import</string>
+    <string name="action_settings">Settings</string>
+    <string name="action_share">Share</string>
+    <string name="action_create">Create Project</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_save">Save</string>
+    <string name="action_ok">OK</string>
+    <string name="action_close">Close</string>
+
+    <!-- Settings & Options -->
+    <string name="setting_theme">Theme Pack</string>
+    <string name="setting_icon_pack">Icon Pack</string>
+    <string name="setting_left_handed">Left-Handed Mode</string>
+    <string name="setting_default_fps">Default FPS</string>
+    <string name="setting_haptics">Haptic Feedback</string>
+    <string name="setting_palm_rejection">Palm Rejection</string>
+    <string name="setting_licenses">Attributions &amp; Licenses</string>
+    <string name="setting_about">About Wishy Clip</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_1_title">Draw Frame by Frame</string>
+    <string name="onboarding_1_desc">Use responsive brushes, layers, and pressure-sensitive stylus controls to sketch your ideas.</string>
+    <string name="onboarding_2_title">Animate with Ease</string>
+    <string name="onboarding_2_desc">Preview motion with onion skinning, copy/paste frames, and sync audio tracks on the timeline.</string>
+    <string name="onboarding_3_title">Export &amp; Share</string>
+    <string name="onboarding_3_desc">Export high-quality MP4 videos, animated GIFs, or PNG sequences and share them with the world.</string>
+</resources>
