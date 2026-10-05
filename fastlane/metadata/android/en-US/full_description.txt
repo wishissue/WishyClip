@@ -1,0 +1,11 @@
+Wishy Clip is a free, open-source frame-by-frame 2D animation app for Android. No ads, no paywalls, no subscriptions.
+
+Features:
+- Blazing-fast drawing pipeline with sub-25ms input-to-ink latency.
+- Tiled sparse layer architecture supporting 500+ frames.
+- Classic and Studio timeline layouts with time ruler, scrubbing, and frame exposure lengths.
+- Advanced tools: Brush, Eraser, Fill with tolerance, Lasso with full transform handles, Shapes, Text, Eyedropper, Ruler, and Mirror.
+- Extensible brush engine with 12 built-ins and multi-format community brush importers (.wbrush, Krita .bundle/.kpp, .abr, .gbr/.gih, Procreate .brush).
+- Audio track importing, voice recording, and synchronized waveform strip.
+- MP4 video export (MediaCodec + MediaMuxer), animated GIF export, and PNG sequence export.
+- Customizable theme packs (Light, Dark, AMOLED Black, Candy) and custom JSON theme importing.

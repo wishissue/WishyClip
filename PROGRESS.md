@@ -36,7 +36,15 @@ The project builds cleanly and all local JVM unit tests pass (`20 passed, 0 fail
    - `FrameOrderingTest`: Tests Room database frame creation, insertion, move reordering, duplication, and position continuity.
    - `ProjectPersistenceTest`: Tests project creation, PNG layer bitmap save/load roundtrips, layer deletion, and project deletion.
 
-## Acceptance & Performance Verification (Parts A–H)
+## GitHub Release Readiness (v1.0.0)
+
+- **Clean & Secure**: Updated `.gitignore` to exclude build outputs, `.idea/` personal configs, and `docs/reference/`. Scanned tree for secrets.
+- **License Audit**: Updated `ATTRIBUTIONS.md`, added Apache-2.0 `LICENSE` and `NOTICE` files. Verified zero proprietary or GPL dependencies.
+- **Trademark Safety**: Included independent open-source project disclaimer in `README.md`.
+- **Documentation**: Created `README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `CHANGELOG.md`, `PRIVACY.md`, and manifest permission audit.
+- **GitHub Files**: Added issue templates, PR template, Dependabot config, and `CODEOWNERS`.
+- **CI/CD**: Added GitHub Actions workflows for CI (`ci.yml`) and signed Release builds & GitHub Releases (`release.yml`).
+- **Store Metadata**: Configured Fastlane Android metadata (`fastlane/metadata/android/en-US/`). Semantic version `1.0.0`.
 
 - **Input-to-ink latency**: <25 ms achieved via `DrawingSurfaceView`, unbuffered dispatch, and `MotionEventPredictor`.
 - **Drawing Framerate**: 60 FPS with zero janky frames during 10s 1080p 3-layer drawing.

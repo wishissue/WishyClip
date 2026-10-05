@@ -1,0 +1,1 @@
+Initial stable v1.0.0 release of Wishy Clip.
