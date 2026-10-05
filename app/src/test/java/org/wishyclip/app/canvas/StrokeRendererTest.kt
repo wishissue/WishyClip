@@ -1,6 +1,7 @@
 package org.wishyclip.app.canvas
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -40,7 +41,7 @@ class StrokeRendererTest {
     @Test
     fun undoPatchRestoresOnlyTheTouchedRect() {
         val layer = blank()
-        layer.eraseColor(Color.WHITE)
+        Canvas(layer).drawColor(Color.WHITE)
         val r = StrokeRenderer()
         r.begin(layer, Tool.PEN, Color.BLACK, 10f, 1f, 50f, 50f)
         r.moveTo(150f, 60f)
@@ -72,7 +73,7 @@ class StrokeRendererTest {
     @Test
     fun eraserClearsDirectlyAndPatchRestoresOriginal() {
         val layer = blank()
-        layer.eraseColor(Color.RED)
+        Canvas(layer).drawColor(Color.RED)
         val r = StrokeRenderer()
         r.begin(layer, Tool.ERASER, Color.BLACK, 10f, 1f, 40f, 100f)
         r.moveTo(200f, 100f)
@@ -87,7 +88,7 @@ class StrokeRendererTest {
     @Test
     fun cancelRestoresEraserAndClearsBrush() {
         val layer = blank()
-        layer.eraseColor(Color.BLUE)
+        Canvas(layer).drawColor(Color.BLUE)
         val r = StrokeRenderer()
         r.begin(layer, Tool.ERASER, Color.BLACK, 10f, 1f, 40f, 100f)
         r.moveTo(200f, 100f)
@@ -118,7 +119,7 @@ class StrokeRendererTest {
     @Test
     fun lassoLiftCancelAndSelectionHitTest() {
         val layer = blank(100, 100)
-        layer.eraseColor(Color.RED)
+        Canvas(layer).drawColor(Color.RED)
         val tool = StandardLassoTool()
         tool.begin(20f, 20f); tool.addPoint(60f, 20f); tool.addPoint(60f, 60f); tool.addPoint(20f, 60f)
         val sel = tool.end(layer)!!

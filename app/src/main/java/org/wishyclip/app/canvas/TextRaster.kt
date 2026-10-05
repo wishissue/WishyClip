@@ -13,6 +13,7 @@ import kotlin.math.roundToInt
 object TextRaster {
     private const val MAX_DIM = 4096
 
+    @Suppress("DEPRECATION")
     fun render(text: String, argb: Int, sizePx: Float, opacity: Float): Bitmap {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG)
         paint.textSize = sizePx.coerceIn(8f, 1500f)
@@ -22,10 +23,15 @@ object TextRaster {
         val safe = text.ifEmpty { " " }
         val widest = safe.split("\n").maxOf { paint.measureText(it) }
         val textWidth = ceil(widest).toInt().coerceIn(1, MAX_DIM)
-        val layout = StaticLayout.Builder
-            .obtain(safe, 0, safe.length, paint, textWidth)
-            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-            .build()
+        val layout = StaticLayout(
+            safe,
+            paint,
+            textWidth,
+            Layout.Alignment.ALIGN_NORMAL,
+            1.0f,
+            0.0f,
+            false
+        )
 
         val pad = (paint.textSize * 0.15f).toInt().coerceAtLeast(4)
         val w = (textWidth + pad * 2).coerceAtMost(MAX_DIM)

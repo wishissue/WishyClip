@@ -99,6 +99,7 @@ class StrokeRenderer {
         lastX = x; lastY = y
         midX = x; midY = y
         lastPressure = pressure
+        dirty.setEmpty()
         hasDirty = false
         if (!isShape) {
             applyPressureWidth(pressure, pressure)
@@ -149,25 +150,28 @@ class StrokeRenderer {
             return null
         }
         val rect = Rect(dirty)
-        val patch = BitmapOps.copyRect(t, rect)
         if (viaOverlay) {
+            val patch = BitmapOps.copyRect(t, rect)
             val overlay = overlayBmp!!
             val p = Paint(Paint.FILTER_BITMAP_FLAG)
             p.alpha = (BrushPaints.alphaFactor(tool, opacity) * 255f).roundToInt().coerceIn(0, 255)
             Canvas(t).drawBitmap(overlay, rect, rect, p)
             BitmapOps.clearRect(overlay, rect)
+            reset()
+            return StrokePatch(patch, rect)
         } else {
-            // `patch` currently holds the erased pixels; put the original cells back into it.
-            val c = Canvas(patch)
+            val patchBmp = Bitmap.createBitmap(rect.width(), rect.height(), Bitmap.Config.ARGB_8888)
+            val c = Canvas(patchBmp)
+            c.translate(-rect.left.toFloat(), -rect.top.toFloat())
             val srcPaint = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC) }
             for ((key, cell) in backups) {
                 val cx = (key and 0xFFFFL).toInt()
                 val cy = (key shr 16).toInt()
-                c.drawBitmap(cell, (cx * CELL - rect.left).toFloat(), (cy * CELL - rect.top).toFloat(), srcPaint)
+                c.drawBitmap(cell, (cx * CELL).toFloat(), (cy * CELL).toFloat(), srcPaint)
             }
+            reset()
+            return StrokePatch(patchBmp, rect)
         }
-        reset()
-        return StrokePatch(patch, rect)
     }
 
     /** Abandons the stroke, restoring the target (eraser) and clearing the overlay. */
@@ -205,12 +209,14 @@ class StrokeRenderer {
     // ------------------------------------------------------------------ internals
 
     private fun reset() {
+        dirty.setEmpty()
+        hasDirty = false
+        segPath.rewind()
+        overlayBmp?.let { BitmapOps.clearRect(it, Rect(0, 0, it.width, it.height)) }
         for (b in backups.values) if (!b.isRecycled) b.recycle()
         backups.clear()
         target = null
         targetCanvas = null
-        hasDirty = false
-        segPath.rewind()
     }
 
     private fun ensureOverlay(t: Bitmap) {
