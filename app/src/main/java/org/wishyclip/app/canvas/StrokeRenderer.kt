@@ -193,7 +193,7 @@ class StrokeRenderer {
     fun overlay(): StrokeOverlay? {
         val o = overlayBmp ?: return null
         if (target == null || !viaOverlay || !hasDirty) return null
-        return StrokeOverlay(o, dirty, BrushPaints.alphaFactor(tool, opacity))
+        return StrokeOverlay(o, Rect(dirty), BrushPaints.alphaFactor(tool, opacity))
     }
 
     /** Frees the scratch overlay. Call when the editor is destroyed. */
