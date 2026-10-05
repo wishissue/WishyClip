@@ -1,5 +1,6 @@
 package org.wishyclip.app.ui.screens
 
+import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -46,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -98,8 +101,6 @@ fun EditorScreen(
     var showColorPicker by remember { mutableStateOf(false) }
     var showToolOptions by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
-    var showRenameDialog by remember { mutableStateOf(false) }
-    var renameText by remember { mutableStateOf("") }
     var showDeleteFrameDialog by remember { mutableStateOf(false) }
     var showOnionSkinDialog by remember { mutableStateOf(false) }
     var showAudioDialog by remember { mutableStateOf(false) }
@@ -119,311 +120,294 @@ fun EditorScreen(
         if (uri != null) vm.importVideoAsFrames(uri)
     }
 
-    WishyTheme {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = tokens.surface
-        ) {
-            if (vm.loadError) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Could not open this project.", color = tokens.onSurface)
-                        TextButton(onClick = onExit) { Text("Back") }
-                    }
-                }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding()
-                ) {
-                    // ---- Top Bar ----
-                    AnimatedVisibility(
-                        visible = !isUiHidden,
-                        enter = fadeIn(),
-                        exit = fadeOut()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(tokens.topBarHeight)
-                                .background(tokens.surface)
-                                .padding(horizontal = tokens.spaceSmall),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ActionIconButton(
-                                iconRes = WishyIcons.Back,
-                                contentDescription = "Back",
-                                onClick = { vm.saveAndExit(onExit) }
-                            )
-                            Text(
-                                text = vm.project?.name ?: "",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = tokens.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = tokens.spaceSmall)
-                                    .clickable {
-                                        renameText = vm.project?.name ?: ""
-                                        showRenameDialog = true
-                                    }
-                            )
-                            ActionIconButton(
-                                iconRes = WishyIcons.Undo,
-                                contentDescription = stringResource(R.string.action_undo),
-                                enabled = vm.canUndo,
-                                onClick = { vm.undo() }
-                            )
-                            ActionIconButton(
-                                iconRes = WishyIcons.Redo,
-                                contentDescription = stringResource(R.string.action_redo),
-                                enabled = vm.canRedo,
-                                onClick = { vm.redo() }
-                            )
-                            ActionIconButton(
-                                iconRes = if (vm.isPlaying) WishyIcons.Pause else WishyIcons.Play,
-                                contentDescription = if (vm.isPlaying) "Pause" else "Play",
-                                onClick = { vm.togglePlay() }
-                            )
-                            ActionIconButton(
-                                iconRes = WishyIcons.Onion,
-                                contentDescription = "Onion Skin",
-                                selected = vm.onionSkinSettings.enabled,
-                                onClick = { vm.toggleOnionSkin() }
-                            )
-                            ActionIconButton(
-                                iconRes = WishyIcons.Layers,
-                                contentDescription = "Layers",
-                                onClick = { showLayersPanel = !showLayersPanel }
-                            )
-                            Box {
-                                ActionIconButton(
-                                    iconRes = WishyIcons.More,
-                                    contentDescription = "More Options",
-                                    onClick = { showOverflowMenu = true }
-                                )
-                                DropdownMenu(
-                                    expanded = showOverflowMenu,
-                                    onDismissRequest = { showOverflowMenu = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Export Animation") },
-                                        onClick = {
-                                            showOverflowMenu = false
-                                            showExportDialog = true
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Import Media") },
-                                        onClick = {
-                                            showOverflowMenu = false
-                                            showImportDialog = true
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Onion Skin Settings") },
-                                        onClick = {
-                                            showOverflowMenu = false
-                                            showOnionSkinDialog = true
-                                        }
-                                    )
-                                    if (onOpenDesignGallery != null) {
-                                        DropdownMenuItem(
-                                            text = { Text("Design Gallery (Debug)") },
-                                            onClick = {
-                                                showOverflowMenu = false
-                                                onOpenDesignGallery()
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) vm.addAudioTrackFromUri(uri, name = "Audio ${vm.audioTracks.size + 1}")
+    }
+    val onSelectTool: (Tool) -> Unit = { selected ->
+        if (vm.tool == selected) {
+            showToolOptions = !showToolOptions
+        } else {
+            vm.selectTool(selected)
+            showToolOptions = true
+        }
+    }
+    // The color chip lives at the end of the tool bar/rail, like in other animation apps.
+    val colorSwatchSlot: @Composable () -> Unit = {
+        ColorSwatch(
+            color = Color(vm.color),
+            onClick = { showColorPicker = true },
+            size = 36.dp
+        )
+    }
 
-                    // ---- Main Workspace (Rail + Canvas + Side Panel) ----
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = tokens.surface
+    ) {
+        if (vm.loadError) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Could not open this project.", color = tokens.onSurface)
+                    TextButton(onClick = onExit) { Text("Back") }
+                }
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+            ) {
+                // ---- Top bar: back, title, undo/redo, play, layers, more ----
+                AnimatedVisibility(
+                    visible = !isUiHidden,
+                    enter = fadeIn(),
+                    exit = fadeOut()
+                ) {
                     Row(
                         modifier = Modifier
-                            .weight(1f)
                             .fillMaxWidth()
+                            .height(tokens.topBarHeight)
+                            .background(tokens.surface)
+                            .padding(horizontal = tokens.spaceXs),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Left Tool Rail (or Right if Left-Handed)
-                        if (!isLeftHanded && !isUiHidden) {
-                            ToolRail(
-                                selectedTool = vm.tool,
-                                onSelectTool = { selected ->
-                                    if (vm.tool == selected) {
-                                        showToolOptions = !showToolOptions
-                                    } else {
-                                        vm.selectTool(selected)
-                                        showToolOptions = true
-                                    }
-                                }
-                            )
-                        }
-
-                        // Canvas Area
-                        Box(
+                        ActionIconButton(
+                            iconRes = WishyIcons.Back,
+                            contentDescription = "Back",
+                            onClick = { vm.saveAndExit(onExit) }
+                        )
+                        Text(
+                            text = vm.project?.name ?: "",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = tokens.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .weight(1f)
-                                .fillMaxHeight()
-                                .background(tokens.canvasBackdrop)
-                                .pointerInput(Unit) {
-                                    detectTapGestures(
-                                        onTap = {
-                                            // One-tap to toggle focus UI mode
-                                            isUiHidden = !isUiHidden
-                                        },
-                                        onDoubleTap = {
-                                            // Two-finger / double-tap quick undo
-                                            vm.undo()
+                                .padding(horizontal = tokens.spaceSmall)
+                        )
+                        ActionIconButton(
+                            iconRes = WishyIcons.Undo,
+                            contentDescription = stringResource(R.string.action_undo),
+                            enabled = vm.canUndo,
+                            onClick = { vm.undo() }
+                        )
+                        ActionIconButton(
+                            iconRes = WishyIcons.Redo,
+                            contentDescription = stringResource(R.string.action_redo),
+                            enabled = vm.canRedo,
+                            onClick = { vm.redo() }
+                        )
+                        ActionIconButton(
+                            iconRes = if (vm.isPlaying) WishyIcons.Pause else WishyIcons.Play,
+                            contentDescription = if (vm.isPlaying) "Pause" else "Play",
+                            selected = vm.isPlaying,
+                            onClick = { vm.togglePlay() }
+                        )
+                        ActionIconButton(
+                            iconRes = WishyIcons.Layers,
+                            contentDescription = "Layers",
+                            selected = showLayersPanel,
+                            onClick = { showLayersPanel = !showLayersPanel }
+                        )
+                        Box {
+                            ActionIconButton(
+                                iconRes = WishyIcons.More,
+                                contentDescription = "More Options",
+                                onClick = { showOverflowMenu = true }
+                            )
+                            DropdownMenu(
+                                expanded = showOverflowMenu,
+                                onDismissRequest = { showOverflowMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Export Animation") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showExportDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Import Media") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showImportDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Onion Skin Settings") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showOnionSkinDialog = true
+                                    }
+                                )
+                                if (onOpenDesignGallery != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Design Gallery (Debug)") },
+                                        onClick = {
+                                            showOverflowMenu = false
+                                            onOpenDesignGallery()
                                         }
                                     )
                                 }
-                        ) {
-                            val p = vm.project
-                            if (p != null && vm.loaded) {
-                                DrawingCanvas(
-                                    projectWidth = p.width,
-                                    projectHeight = p.height,
-                                    layers = { vm.currentLayers() },
-                                    onionSkinData = { vm.getOnionSkinData() },
-                                    activeLassoSelection = { vm.activeLassoSelection },
-                                    revision = { vm.revision },
-                                    enabled = !vm.isPlaying,
-                                    onStrokeStart = { x, y, press, tilt ->
-                                        if (vm.tool == Tool.TEXT) {
-                                            textInputPosition = Offset(x, y)
-                                            showTextInputDialog = true
-                                        } else {
-                                            vm.strokeStart(x, y, press, tilt)
-                                        }
-                                    },
-                                    onStrokeMove = { x, y, press, tilt -> vm.strokeMove(x, y, press, tilt) },
-                                    onStrokeEnd = { vm.strokeEnd() },
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator()
-                                }
                             }
+                        }
+                    }
+                }
 
-                            // Tool options anchored popup sheet
-                            if (showToolOptions && !isUiHidden) {
-                                Surface(
-                                    modifier = Modifier
-                                        .align(if (isLeftHanded) Alignment.TopEnd else Alignment.TopStart)
-                                        .padding(tokens.spaceSmall)
-                                        .width(220.dp),
-                                    shape = RoundedCornerShape(tokens.mediumRadius),
-                                    color = tokens.surface,
-                                    shadowElevation = tokens.elevationMedium
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(tokens.spaceSmall),
-                                        verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
-                                    ) {
-                                        Text(
-                                            text = "${vm.tool.name} Options",
-                                            style = MaterialTheme.typography.titleSmall,
-                                            color = tokens.onSurface
-                                        )
-                                        if (vm.tool == Tool.FILL) {
-                                            WishySlider(
-                                                value = vm.fillTolerance.toFloat(),
-                                                onValueChange = { vm.updateFillTolerance(it.roundToInt()) },
-                                                valueRange = 0f..128f,
-                                                label = "Tolerance"
-                                            )
-                                        } else {
-                                            WishySlider(
-                                                value = vm.brushSize,
-                                                onValueChange = { vm.updateBrushSize(it) },
-                                                valueRange = 1f..60f,
-                                                label = "Size",
-                                                unit = "px",
-                                                onValueChangeFinished = { vm.persistBrush() }
-                                            )
+                // ---- Workspace: (landscape tool rail) + canvas ----
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    if (isLandscape && !isLeftHanded && !isUiHidden) {
+                        ToolRail(
+                            selectedTool = vm.tool,
+                            onSelectTool = onSelectTool,
+                            trailing = colorSwatchSlot
+                        )
+                    }
+
+                    // Canvas area
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .background(tokens.canvasBackdrop)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = {
+                                        // One-tap to toggle focus UI mode
+                                        isUiHidden = !isUiHidden
+                                    },
+                                    onDoubleTap = {
+                                        // Double-tap quick undo
+                                        vm.undo()
+                                    }
+                                )
+                            }
+                    ) {
+                        val p = vm.project
+                        if (p != null && vm.loaded) {
+                            DrawingCanvas(
+                                projectWidth = p.width,
+                                projectHeight = p.height,
+                                layers = { vm.currentLayers() },
+                                onionSkinData = { vm.getOnionSkinData() },
+                                activeLassoSelection = { vm.activeLassoSelection },
+                                revision = { vm.revision },
+                                enabled = !vm.isPlaying,
+                                onStrokeStart = { x, y, press, tilt ->
+                                    if (vm.tool == Tool.TEXT) {
+                                        textInputPosition = Offset(x, y)
+                                        showTextInputDialog = true
+                                    } else {
+                                        vm.strokeStart(x, y, press, tilt)
+                                    }
+                                },
+                                onStrokeMove = { x, y, press, tilt -> vm.strokeMove(x, y, press, tilt) },
+                                onStrokeEnd = { vm.strokeEnd() },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = tokens.primary)
+                            }
+                        }
+
+                        // Tool options: floats just above the tool bar (portrait) or beside the rail (landscape)
+                        if (showToolOptions && !isUiHidden) {
+                            Surface(
+                                modifier = Modifier
+                                    .align(
+                                        when {
+                                            !isLandscape -> Alignment.BottomCenter
+                                            isLeftHanded -> Alignment.TopEnd
+                                            else -> Alignment.TopStart
                                         }
+                                    )
+                                    .padding(tokens.spaceSmall)
+                                    .then(
+                                        if (isLandscape) Modifier.width(220.dp)
+                                        else Modifier.fillMaxWidth().widthIn(max = 360.dp)
+                                    ),
+                                shape = RoundedCornerShape(tokens.mediumRadius),
+                                color = tokens.toolRail,
+                                shadowElevation = tokens.elevationMedium
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(tokens.spaceMedium),
+                                    verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
+                                ) {
+                                    Text(
+                                        text = vm.tool.name.lowercase().replaceFirstChar { it.uppercase() },
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = tokens.onSurface
+                                    )
+                                    if (vm.tool == Tool.FILL) {
                                         WishySlider(
-                                            value = vm.opacity * 100f,
-                                            onValueChange = { vm.updateOpacity(it / 100f) },
-                                            valueRange = 5f..100f,
-                                            label = "Opacity",
-                                            unit = "%",
+                                            value = vm.fillTolerance.toFloat(),
+                                            onValueChange = { vm.updateFillTolerance(it.roundToInt()) },
+                                            valueRange = 0f..128f,
+                                            label = "Tolerance"
+                                        )
+                                    } else {
+                                        WishySlider(
+                                            value = vm.brushSize,
+                                            onValueChange = { vm.updateBrushSize(it) },
+                                            valueRange = 1f..60f,
+                                            label = "Size",
+                                            unit = "px",
                                             onValueChangeFinished = { vm.persistBrush() }
                                         )
-                                        WishySlider(
-                                            value = vm.stabilizer * 100f,
-                                            onValueChange = { vm.updateStabilizer(it / 100f) },
-                                            valueRange = 0f..100f,
-                                            label = "Stabilizer",
-                                            unit = "%"
-                                        )
+                                    }
+                                    WishySlider(
+                                        value = vm.opacity * 100f,
+                                        onValueChange = { vm.updateOpacity(it / 100f) },
+                                        valueRange = 5f..100f,
+                                        label = "Opacity",
+                                        unit = "%",
+                                        onValueChangeFinished = { vm.persistBrush() }
+                                    )
+                                    WishySlider(
+                                        value = vm.stabilizer * 100f,
+                                        onValueChange = { vm.updateStabilizer(it / 100f) },
+                                        valueRange = 0f..100f,
+                                        label = "Stabilizer",
+                                        unit = "%"
+                                    )
 
-                                        // Live brush stroke preview
-                                        Text(
-                                            text = "Brush Preview",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = tokens.onSurfaceVariant
+                                    // Live brush stroke preview (on paper, like the real canvas)
+                                    val brushColor = Color(vm.color)
+                                    val bSize = vm.brushSize
+                                    val bOp = vm.opacity
+                                    Canvas(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(36.dp)
+                                            .clip(RoundedCornerShape(tokens.smallRadius))
+                                            .background(tokens.paper)
+                                    ) {
+                                        val centerY = size.height / 2f
+                                        drawLine(
+                                            color = brushColor,
+                                            start = Offset(20f, centerY),
+                                            end = Offset(size.width - 20f, centerY),
+                                            strokeWidth = bSize,
+                                            cap = StrokeCap.Round,
+                                            alpha = bOp
                                         )
-                                        val brushColor = Color(vm.color)
-                                        val bSize = vm.brushSize
-                                        val bOp = vm.opacity
-                                        Canvas(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(36.dp)
-                                                .clip(RoundedCornerShape(tokens.smallRadius))
-                                                .background(tokens.surfaceVariant)
-                                        ) {
-                                            val centerY = size.height / 2f
-                                            drawLine(
-                                                color = brushColor,
-                                                start = Offset(20f, centerY),
-                                                end = Offset(size.width - 20f, centerY),
-                                                strokeWidth = bSize,
-                                                cap = StrokeCap.Round,
-                                                alpha = bOp
-                                            )
-                                        }
                                     }
                                 }
                             }
-
-                            // Floating Color Swatch (Bottom Corner)
-                            if (!isUiHidden) {
-                                ColorSwatch(
-                                    color = Color(vm.color),
-                                    onClick = { showColorPicker = true },
-                                    modifier = Modifier
-                                        .align(if (isLeftHanded) Alignment.BottomStart else Alignment.BottomEnd)
-                                        .padding(tokens.spaceLarge)
-                                )
-                            }
                         }
 
-                        // Right Tool Rail (if Left-Handed)
-                        if (isLeftHanded && !isUiHidden) {
-                            ToolRail(
-                                selectedTool = vm.tool,
-                                onSelectTool = { selected ->
-                                    if (vm.tool == selected) {
-                                        showToolOptions = !showToolOptions
-                                    } else {
-                                        vm.selectTool(selected)
-                                        showToolOptions = true
-                                    }
-                                }
-                            )
-                        }
-
-                        // Layers Side Sheet
+                        // Layers panel floats over the canvas instead of squeezing it
                         if (showLayersPanel && !isUiHidden) {
                             LayerPanel(
                                 layers = vm.layerUi,
@@ -435,17 +419,52 @@ fun EditorScreen(
                                 onOpacityChange = { idx, op -> vm.setLayerOpacity(idx, op) },
                                 onMoveLayer = { idx, dir -> vm.moveLayer(idx, dir) },
                                 onDeleteLayer = { idx -> vm.deleteLayer(idx) },
-                                modifier = Modifier.width(260.dp)
+                                modifier = Modifier
+                                    .align(if (isLeftHanded) Alignment.TopStart else Alignment.TopEnd)
+                                    .padding(tokens.spaceSmall)
+                                    .width(260.dp)
                             )
                         }
                     }
 
-                    // ---- Bottom Timeline Strip ----
+                    if (isLandscape && isLeftHanded && !isUiHidden) {
+                        ToolRail(
+                            selectedTool = vm.tool,
+                            onSelectTool = onSelectTool,
+                            trailing = colorSwatchSlot
+                        )
+                    }
+                }
+
+                // ---- Portrait: horizontal tool bar sits right above the timeline ----
+                if (!isLandscape) {
                     AnimatedVisibility(
                         visible = !isUiHidden,
                         enter = fadeIn(),
                         exit = fadeOut()
                     ) {
+                        ToolRail(
+                            selectedTool = vm.tool,
+                            onSelectTool = onSelectTool,
+                            horizontal = true,
+                            trailing = colorSwatchSlot
+                        )
+                    }
+                }
+
+                // ---- Bottom timeline ----
+                AnimatedVisibility(
+                    visible = !isUiHidden,
+                    enter = fadeIn(),
+                    exit = fadeOut()
+                ) {
+                    Column {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(tokens.surfaceVariant)
+                        )
                         TimelineStrip(
                             frames = vm.frames,
                             currentIndex = vm.currentIndex,
@@ -460,7 +479,9 @@ fun EditorScreen(
                             onDeleteRequested = { showDeleteFrameDialog = true },
                             onAudioRequested = { showAudioDialog = true },
                             onImportRequested = { showImportDialog = true },
-                            onFpsRequested = { showFpsDialog = true }
+                            onFpsRequested = { showFpsDialog = true },
+                            onionEnabled = vm.onionSkinSettings.enabled,
+                            onToggleOnion = { vm.toggleOnionSkin() }
                         )
                     }
                 }
@@ -562,6 +583,88 @@ fun EditorScreen(
                     videoPicker.launch("video/*")
                     showImportDialog = false
                 }) { Text("🎬 Import Video as Frames") }
+            }
+        }
+    }
+
+    if (showOnionSkinDialog) {
+        val s = vm.onionSkinSettings
+        var onionOpacity by remember(s.opacity) { mutableStateOf(s.opacity * 100f) }
+        WishyDialog(
+            title = "Onion Skin",
+            onDismissRequest = { showOnionSkinDialog = false },
+            confirmText = stringResource(R.string.action_close),
+            onConfirm = { showOnionSkinDialog = false }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
+                WishySlider(
+                    value = s.framesBefore.toFloat(),
+                    onValueChange = {
+                        val v = it.roundToInt()
+                        if (v != s.framesBefore) vm.updateOnionSkinSettings(s.copy(framesBefore = v))
+                    },
+                    valueRange = 0f..3f,
+                    label = "Frames before"
+                )
+                WishySlider(
+                    value = s.framesAfter.toFloat(),
+                    onValueChange = {
+                        val v = it.roundToInt()
+                        if (v != s.framesAfter) vm.updateOnionSkinSettings(s.copy(framesAfter = v))
+                    },
+                    valueRange = 0f..3f,
+                    label = "Frames after"
+                )
+                WishySlider(
+                    value = onionOpacity,
+                    onValueChange = { onionOpacity = it },
+                    valueRange = 5f..80f,
+                    label = "Opacity",
+                    unit = "%",
+                    onValueChangeFinished = {
+                        vm.updateOnionSkinSettings(vm.onionSkinSettings.copy(opacity = onionOpacity / 100f))
+                    }
+                )
+            }
+        }
+    }
+
+    if (showAudioDialog) {
+        WishyDialog(
+            title = "Audio",
+            onDismissRequest = { showAudioDialog = false },
+            confirmText = stringResource(R.string.action_close),
+            onConfirm = { showAudioDialog = false }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)) {
+                if (vm.audioTracks.isEmpty()) {
+                    Text(
+                        "No audio yet. A track you add starts at the current frame.",
+                        color = tokens.onSurfaceVariant
+                    )
+                }
+                vm.audioTracks.forEach { track ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${track.name} - frame ${track.startFrame + 1}",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        ActionIconButton(
+                            iconRes = WishyIcons.Delete,
+                            contentDescription = "Remove audio",
+                            onClick = { vm.deleteAudioTrack(track.id) }
+                        )
+                    }
+                }
+                TextButton(onClick = {
+                    audioPicker.launch("audio/*")
+                    showAudioDialog = false
+                }) { Text("Add audio file") }
             }
         }
     }

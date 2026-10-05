@@ -1,22 +1,23 @@
 package org.wishyclip.app.ui.components
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -30,6 +31,7 @@ import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 import java.io.File
 
+/** Project tile: the first frame on "paper" with the name and size underneath. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ProjectCard(
@@ -45,15 +47,14 @@ fun ProjectCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(tokens.mediumRadius))
-            .background(tokens.surface)
-            .border(1.dp, tokens.surfaceVariant, RoundedCornerShape(tokens.mediumRadius))
+            .background(tokens.toolRail)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
-                .background(tokens.canvasBackdrop),
+                .background(tokens.paper),
             contentAlignment = Alignment.Center
         ) {
             if (thumbnailFile != null && thumbnailFile.exists()) {
@@ -64,18 +65,19 @@ fun ProjectCard(
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
-                Image(
-                    painter = painterResource(WishyIcons.Logo),
+                Icon(
+                    painter = painterResource(WishyIcons.Pencil),
                     contentDescription = title,
-                    modifier = Modifier.padding(tokens.spaceLarge)
+                    tint = Color(0xFFC9C9D0),
+                    modifier = Modifier.size(40.dp)
                 )
             }
         }
-        Column(modifier = Modifier.padding(tokens.spaceSmall)) {
+        Column(modifier = Modifier.padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceSmall)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
                 color = tokens.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

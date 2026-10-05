@@ -3,9 +3,11 @@ package org.wishyclip.app
 import android.app.Application
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,7 +24,7 @@ import org.wishyclip.app.ui.EditorViewModelFactory
 import org.wishyclip.app.ui.HomeViewModel
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.WishyTokens
-import org.wishyclip.app.ui.design.themes.LightTokens
+import org.wishyclip.app.ui.design.themes.FlipDarkTokens
 import org.wishyclip.app.ui.screens.DesignGalleryScreen
 import org.wishyclip.app.ui.screens.EditorScreen
 import org.wishyclip.app.ui.screens.ExportScreen
@@ -36,8 +38,20 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            var currentTokens by remember { mutableStateOf<WishyTokens>(LightTokens) }
+            var currentTokens by remember { mutableStateOf<WishyTokens>(FlipDarkTokens) }
             var isLeftHanded by remember { mutableStateOf(false) }
+
+            // Keep status/navigation bar icons readable against the active theme.
+            DisposableEffect(currentTokens.isDark) {
+                val transparent = android.graphics.Color.TRANSPARENT
+                val barStyle = if (currentTokens.isDark) {
+                    SystemBarStyle.dark(transparent)
+                } else {
+                    SystemBarStyle.light(transparent, transparent)
+                }
+                enableEdgeToEdge(statusBarStyle = barStyle, navigationBarStyle = barStyle)
+                onDispose { }
+            }
 
             WishyTheme(tokens = currentTokens) {
                 WishyNavHost(

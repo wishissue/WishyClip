@@ -35,6 +35,7 @@ import org.wishyclip.app.ui.design.WishyTokens
 import org.wishyclip.app.ui.design.themes.AmoledTokens
 import org.wishyclip.app.ui.design.themes.CandyTokens
 import org.wishyclip.app.ui.design.themes.DarkTokens
+import org.wishyclip.app.ui.design.themes.FlipDarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 
 @Composable
@@ -86,6 +87,9 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
+                    TextButton(onClick = { onSelectTokens(FlipDarkTokens) }) {
+                        Text("Flip Dark", color = if (currentTokens.name == "Flip Dark") tokens.primary else tokens.onSurface)
+                    }
                     TextButton(onClick = { onSelectTokens(LightTokens) }) {
                         Text("Light", color = if (currentTokens.name == "Light") tokens.primary else tokens.onSurface)
                     }

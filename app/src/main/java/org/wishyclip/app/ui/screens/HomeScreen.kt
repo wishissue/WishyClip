@@ -1,6 +1,7 @@
 package org.wishyclip.app.ui.screens
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,10 +11,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -56,104 +60,103 @@ fun HomeScreen(
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameText by remember { mutableStateOf("") }
 
-    WishyTheme {
-        Scaffold(
-            topBar = {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = tokens.spaceLarge, vertical = tokens.spaceSmall),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Image(
-                            painter = painterResource(WishyIcons.Logo),
-                            contentDescription = stringResource(R.string.app_name),
-                            modifier = Modifier.size(36.dp)
-                        )
-                        Text(
-                            text = stringResource(R.string.app_name),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = tokens.onSurface,
-                            modifier = Modifier.padding(start = tokens.spaceSmall)
-                        )
-                    }
-                    ActionIconButton(
-                        iconRes = WishyIcons.Settings,
-                        contentDescription = stringResource(R.string.action_settings),
-                        onClick = onOpenSettings
-                    )
-                }
-            },
-            floatingActionButton = {
-                ExtendedFloatingActionButton(
-                    onClick = onNewProject,
-                    containerColor = tokens.primary,
-                    contentColor = tokens.onPrimary,
-                    icon = {
-                        Image(
-                            painter = painterResource(WishyIcons.Add),
-                            contentDescription = stringResource(R.string.title_new_project),
-                            modifier = Modifier.size(tokens.actionIconSize)
-                        )
-                    },
-                    text = { Text(text = stringResource(R.string.title_new_project)) }
+    Scaffold(
+        containerColor = tokens.surface,
+        topBar = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(tokens.surface)
+                    .statusBarsPadding()
+                    .padding(start = tokens.spaceLarge, end = tokens.spaceXs, top = tokens.spaceXs, bottom = tokens.spaceXs),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = tokens.onSurface
+                )
+                ActionIconButton(
+                    iconRes = WishyIcons.Settings,
+                    contentDescription = stringResource(R.string.action_settings),
+                    onClick = onOpenSettings
                 )
             }
-        ) { innerPadding ->
-            Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                color = tokens.surface
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = onNewProject,
+                containerColor = tokens.primary,
+                contentColor = tokens.onPrimary,
+                shape = CircleShape
             ) {
-                if (projects.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+                Icon(
+                    painter = painterResource(WishyIcons.Add),
+                    contentDescription = stringResource(R.string.title_new_project),
+                    modifier = Modifier.size(28.dp),
+                    tint = tokens.onPrimary
+                )
+            }
+        }
+    ) { innerPadding ->
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            color = tokens.surface
+        ) {
+            if (projects.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
-                        ) {
-                            Image(
-                                painter = painterResource(WishyIcons.Logo),
-                                contentDescription = null,
-                                modifier = Modifier.size(96.dp)
-                            )
-                            Text(
-                                text = "No projects yet",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = tokens.onSurface
-                            )
-                            Text(
-                                text = "Tap + New Project to start animating!",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = tokens.onSurfaceVariant
-                            )
-                        }
+                        Icon(
+                            painter = painterResource(WishyIcons.Pencil),
+                            contentDescription = null,
+                            modifier = Modifier.size(72.dp),
+                            tint = tokens.onSurfaceVariant
+                        )
+                        Text(
+                            text = "No projects yet",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = tokens.onSurface
+                        )
+                        Text(
+                            text = "Tap + to start a new animation.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = tokens.onSurfaceVariant
+                        )
                     }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 160.dp),
-                        contentPadding = PaddingValues(tokens.spaceLarge),
-                        horizontalArrangement = Arrangement.spacedBy(tokens.spaceMedium),
-                        verticalArrangement = Arrangement.spacedBy(tokens.spaceMedium)
-                    ) {
-                        items(projects, key = { it.id }) { project ->
-                            val thumb = vm.thumbFile(project.id)
-                            ProjectCard(
-                                title = project.name,
-                                info = "${project.width}x${project.height} • ${project.fps} FPS",
-                                thumbnailFile = thumb,
-                                onClick = { onOpenProject(project.id) },
-                                onLongClick = {
-                                    selectedProjectForOptions = project
-                                }
-                            )
-                        }
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 150.dp),
+                    contentPadding = PaddingValues(
+                        start = tokens.spaceLarge,
+                        end = tokens.spaceLarge,
+                        top = tokens.spaceSmall,
+                        bottom = 96.dp // keep the last row clear of the + button
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(tokens.spaceMedium),
+                    verticalArrangement = Arrangement.spacedBy(tokens.spaceMedium)
+                ) {
+                    items(projects, key = { it.id }) { project ->
+                        val thumb = vm.thumbFile(project.id)
+                        ProjectCard(
+                            title = project.name,
+                            info = "${project.width}x${project.height} • ${project.fps} FPS",
+                            thumbnailFile = thumb,
+                            onClick = { onOpenProject(project.id) },
+                            onLongClick = {
+                                selectedProjectForOptions = project
+                            }
+                        )
                     }
                 }
             }

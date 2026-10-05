@@ -1,30 +1,25 @@
 package org.wishyclip.app.ui.components
 
 import androidx.annotation.DrawableRes
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import org.wishyclip.app.ui.design.WishyIcons
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 
+/** A single tool: flat icon, the selected tool gets an accent-colored icon on a soft pill. */
 @Composable
 fun ToolButton(
     @DrawableRes iconRes: Int,
@@ -35,31 +30,24 @@ fun ToolButton(
     modifier: Modifier = Modifier
 ) {
     val tokens = WishyTheme.tokens
-    val scaleFactor by animateFloatAsState(
-        targetValue = if (selected) 1.12f else 1.0f,
-        animationSpec = tween(tokens.animFastMs)
-    )
-
+    val iconColor = when {
+        !enabled -> tokens.onSurface.copy(alpha = 0.35f)
+        selected -> tokens.primary
+        else -> tokens.onSurfaceVariant
+    }
     Box(
         modifier = modifier
             .size(tokens.toolButtonSize)
-            .scale(scaleFactor)
-            .padding(tokens.spaceXs)
             .clip(RoundedCornerShape(tokens.mediumRadius))
-            .background(if (selected) tokens.primaryContainer else tokens.surface)
-            .border(
-                width = if (selected) 2.dp else 1.dp,
-                color = if (selected) tokens.primary else tokens.surfaceVariant,
-                shape = RoundedCornerShape(tokens.mediumRadius)
-            )
+            .background(if (selected) tokens.primaryContainer else Color.Transparent)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Image(
+        Icon(
             painter = painterResource(iconRes),
             contentDescription = description,
             modifier = Modifier.size(tokens.toolIconSize),
-            alpha = if (enabled) 1f else 0.35f
+            tint = iconColor
         )
     }
 }

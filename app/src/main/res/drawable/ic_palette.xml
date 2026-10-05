@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- PLACEHOLDER icon. Replace with an open icon pack asset (see ATTRIBUTIONS.md). -->
+<!-- Monochrome line icon: tinted at the call site (LocalContentColor / tint). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="96dp"
-    android:height="96dp"
-    android:viewportWidth="96"
-    android:viewportHeight="96">
-  <path android:fillColor="#FFFF9ACB" android:pathData="M48,48m-44,0a44,44 0,1 1,88 0a44,44 0,1 1,-88 0"/>
-  <path android:fillColor="#FF3B2F4A" android:pathData="M34,30m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0"/>
-  <path android:fillColor="#FF3B2F4A" android:pathData="M62,30m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0"/>
-  <path android:fillColor="#FFFFFFFF" android:pathData="M36,62m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0 M52,52m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0 M60,70m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0"/>
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M12,3A9,9 0 1 0 12,21C13.5,21 14,20 14,19C14,17.5 15,17 16.5,17H18A3,3 0 0 0 21,14C21,8 17,3 12,3Z"/>
+  <path android:fillColor="#FFFFFFFF" android:pathData="M8,11m-1.2,0a1.2,1.2 0 1 0 2.4,0a1.2,1.2 0 1 0 -2.4,0M11,7m-1.2,0a1.2,1.2 0 1 0 2.4,0a1.2,1.2 0 1 0 -2.4,0M16,8m-1.2,0a1.2,1.2 0 1 0 2.4,0a1.2,1.2 0 1 0 -2.4,0"/>
 </vector>

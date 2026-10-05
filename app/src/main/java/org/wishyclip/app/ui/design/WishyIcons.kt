@@ -12,9 +12,9 @@ object WishyIcons {
     @get:DrawableRes val Pencil: Int get() = R.drawable.ic_pencil
     @get:DrawableRes val Marker: Int get() = R.drawable.ic_marker
     @get:DrawableRes val Eraser: Int get() = R.drawable.ic_eraser
-    @get:DrawableRes val Airbrush: Int get() = R.drawable.ic_pen
-    @get:DrawableRes val Calligraphy: Int get() = R.drawable.ic_pencil
-    @get:DrawableRes val Highlighter: Int get() = R.drawable.ic_marker
+    @get:DrawableRes val Airbrush: Int get() = R.drawable.ic_airbrush
+    @get:DrawableRes val Calligraphy: Int get() = R.drawable.ic_calligraphy
+    @get:DrawableRes val Highlighter: Int get() = R.drawable.ic_highlighter
     @get:DrawableRes val Fill: Int get() = R.drawable.ic_fill
     @get:DrawableRes val Lasso: Int get() = R.drawable.ic_lasso
     @get:DrawableRes val Shapes: Int get() = R.drawable.ic_shapes

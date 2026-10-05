@@ -5,6 +5,7 @@ import org.wishyclip.app.ui.design.WishyTokens
 
 val DarkTokens = WishyTokens(
     name = "Dark",
+    isDark = true,
     primary = Color(0xFFD0BCFF),
     onPrimary = Color(0xFF381E72),
     primaryContainer = Color(0xFF4F378B),

@@ -5,6 +5,7 @@ import org.wishyclip.app.ui.design.WishyTokens
 
 val AmoledTokens = WishyTokens(
     name = "AMOLED Black",
+    isDark = true,
     primary = Color(0xFFBB86FC),
     onPrimary = Color(0xFF000000),
     primaryContainer = Color(0xFF3700B3),

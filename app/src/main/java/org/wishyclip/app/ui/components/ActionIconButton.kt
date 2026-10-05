@@ -1,14 +1,13 @@
 package org.wishyclip.app.ui.components
 
 import androidx.annotation.DrawableRes
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,6 +20,7 @@ import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 
+/** Flat, tinted icon button used in top bars, timeline and panels. */
 @Composable
 fun ActionIconButton(
     @DrawableRes iconRes: Int,
@@ -28,23 +28,29 @@ fun ActionIconButton(
     modifier: Modifier = Modifier,
     selected: Boolean = false,
     enabled: Boolean = true,
+    tint: Color? = null,
     onClick: () -> Unit
 ) {
     val tokens = WishyTheme.tokens
+    val iconColor = when {
+        !enabled -> tokens.onSurface.copy(alpha = 0.35f)
+        tint != null -> tint
+        selected -> tokens.primary
+        else -> tokens.onSurface
+    }
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = tokens.minTouchTarget, minHeight = tokens.minTouchTarget)
             .clip(RoundedCornerShape(tokens.smallRadius))
             .background(if (selected) tokens.primaryContainer else Color.Transparent)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(tokens.spaceXs),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Image(
+        Icon(
             painter = painterResource(iconRes),
             contentDescription = contentDescription,
             modifier = Modifier.size(tokens.actionIconSize),
-            alpha = if (enabled) 1f else 0.35f
+            tint = iconColor
         )
     }
 }
@@ -61,6 +67,6 @@ private fun ActionIconButtonLightPreview() {
 @Composable
 private fun ActionIconButtonDarkPreview() {
     WishyTheme(tokens = DarkTokens) {
-        ActionIconButton(iconRes = WishyIcons.Undo, contentDescription = "Undo", onClick = {})
+        ActionIconButton(iconRes = WishyIcons.Undo, contentDescription = "Undo", selected = true, onClick = {})
     }
 }

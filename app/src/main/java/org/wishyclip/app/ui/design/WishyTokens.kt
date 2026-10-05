@@ -9,6 +9,8 @@ import androidx.compose.ui.unit.dp
  */
 data class WishyTokens(
     val name: String = "Default",
+    /** True for dark palettes: selects the dark Material color scheme and light system-bar icons. */
+    val isDark: Boolean = false,
     // Colors
     val primary: Color = Color(0xFF6750A4),
     val onPrimary: Color = Color(0xFFFFFFFF),
@@ -29,6 +31,8 @@ data class WishyTokens(
     val danger: Color = Color(0xFFB3261E),
     val onionPreviousTint: Color = Color(0xFFFF4040),
     val onionNextTint: Color = Color(0xFF40C040),
+    /** Color of the drawing paper / frame cells (what the animation is drawn on). */
+    val paper: Color = Color(0xFFFFFFFF),
 
     // Radii
     val smallRadius: Dp = 8.dp,
@@ -43,12 +47,12 @@ data class WishyTokens(
     val spaceXl: Dp = 24.dp,
 
     // Dimensions
-    val toolIconSize: Dp = 40.dp,
-    val actionIconSize: Dp = 28.dp,
-    val toolButtonSize: Dp = 60.dp,
+    val toolIconSize: Dp = 26.dp,
+    val actionIconSize: Dp = 24.dp,
+    val toolButtonSize: Dp = 44.dp,
     val minTouchTarget: Dp = 48.dp,
-    val topBarHeight: Dp = 48.dp,
-    val toolRailWidth: Dp = 64.dp,
+    val topBarHeight: Dp = 52.dp,
+    val toolRailWidth: Dp = 56.dp,
     val timelineHeight: Dp = 120.dp,
 
     // Elevation
