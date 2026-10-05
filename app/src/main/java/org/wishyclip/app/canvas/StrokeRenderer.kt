@@ -161,17 +161,16 @@ class StrokeRenderer {
             reset()
             return StrokePatch(patch, rect)
         } else {
-            val patchBmp = Bitmap.createBitmap(rect.width(), rect.height(), Bitmap.Config.ARGB_8888)
-            val c = Canvas(patchBmp)
-            c.translate(-rect.left.toFloat(), -rect.top.toFloat())
+            val patch = BitmapOps.copyRect(t, rect)
+            val c = Canvas(patch)
             val srcPaint = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC) }
             for ((key, cell) in backups) {
                 val cx = (key and 0xFFFFL).toInt()
                 val cy = (key shr 16).toInt()
-                c.drawBitmap(cell, (cx * CELL).toFloat(), (cy * CELL).toFloat(), srcPaint)
+                c.drawBitmap(cell, (cx * CELL - rect.left).toFloat(), (cy * CELL - rect.top).toFloat(), srcPaint)
             }
             reset()
-            return StrokePatch(patchBmp, rect)
+            return StrokePatch(patch, rect)
         }
     }
 
