@@ -14,7 +14,13 @@ enum class Tool {
     LINE,
     RECT,
     ELLIPSE,
-    TEXT
+    TEXT,
+    CHARCOAL,
+    INK,
+    WATERCOLOR,
+    CHALK,
+    PIXEL,
+    EYEDROPPER
 }
 
 /** Tools that live inside the Brush menu (one rail button opens a picker, like FlipaClip). */
@@ -24,10 +30,18 @@ val BRUSH_TOOLS: List<Tool> = listOf(
     Tool.MARKER,
     Tool.AIRBRUSH,
     Tool.CALLIGRAPHY,
-    Tool.HIGHLIGHTER
+    Tool.HIGHLIGHTER,
+    Tool.CHARCOAL,
+    Tool.INK,
+    Tool.WATERCOLOR,
+    Tool.CHALK,
+    Tool.PIXEL
 )
 
 val Tool.isBrush: Boolean get() = this in BRUSH_TOOLS
 
 val Tool.displayName: String
-    get() = name.lowercase().replaceFirstChar { it.uppercase() }
+    get() = when (this) {
+        Tool.PIXEL -> "Pixel Pen"
+        else -> name.lowercase().replaceFirstChar { it.uppercase() }
+    }

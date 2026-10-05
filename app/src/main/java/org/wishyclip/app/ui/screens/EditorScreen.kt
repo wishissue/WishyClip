@@ -129,10 +129,10 @@ fun EditorScreen(
     val onSelectTool: (Tool) -> Unit = { selected ->
         showBrushMenu = false
         if (vm.tool == selected) {
-            showToolOptions = !showToolOptions
+            showToolOptions = selected != Tool.EYEDROPPER && !showToolOptions
         } else {
             vm.selectTool(selected)
-            showToolOptions = true
+            showToolOptions = selected != Tool.EYEDROPPER
         }
     }
     // One Brush button opens the separate brush menu (FlipaClip-style).

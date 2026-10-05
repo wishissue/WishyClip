@@ -459,6 +459,27 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         fillTolerance = tolerance.coerceIn(0, 255)
     }
 
+    /** Eyedropper: take the color of the topmost visible pixel at (x, y); blank canvas picks white paper. */
+    fun pickColorAt(x: Float, y: Float) {
+        if (isPlaying) return
+        val ix = x.toInt()
+        val iy = y.toInt()
+        var picked = 0xFFFFFFFF.toInt()
+        val stack = currentLayers()
+        for (i in stack.indices.reversed()) {
+            val layer = stack[i]
+            if (!layer.visible || layer.opacity <= 0f) continue
+            val bmp = layer.bitmap
+            if (bmp.isRecycled || ix !in 0 until bmp.width || iy !in 0 until bmp.height) continue
+            val px = bmp.getPixel(ix, iy)
+            if ((px ushr 24) > 0) {
+                picked = px or 0xFF000000.toInt()
+                break
+            }
+        }
+        updateColor(picked)
+    }
+
     fun executeFill(x: Float, y: Float) {
         if (isPlaying) return
         val layer = activeLayer() ?: return
@@ -868,6 +889,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         }
         if (tool == Tool.FILL) {
             executeFill(x, y)
+            return
+        }
+        if (tool == Tool.EYEDROPPER) {
+            pickColorAt(x, y)
             return
         }
         val layer = activeLayer() ?: return

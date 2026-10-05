@@ -107,6 +107,7 @@ private fun ToolItems(
         onClick = { onSelectTool(Tool.LINE) }
     )
     ToolButton(iconRes = WishyIcons.Text, description = "Text", selected = selectedTool == Tool.TEXT, onClick = { onSelectTool(Tool.TEXT) })
+    ToolButton(iconRes = WishyIcons.Eyedropper, description = "Eyedropper", selected = selectedTool == Tool.EYEDROPPER, onClick = { onSelectTool(Tool.EYEDROPPER) })
 }
 
 @Preview(name = "ToolRail Light")

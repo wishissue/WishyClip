@@ -46,10 +46,10 @@ import org.wishyclip.app.ui.design.themes.DarkTokens
 /** Icon shown for a brush tool (rail button + menu rows). */
 @DrawableRes
 fun brushIcon(tool: Tool): Int = when (tool) {
-    Tool.PENCIL -> WishyIcons.Pencil
-    Tool.MARKER -> WishyIcons.Marker
-    Tool.AIRBRUSH -> WishyIcons.Airbrush
-    Tool.CALLIGRAPHY -> WishyIcons.Calligraphy
+    Tool.PENCIL, Tool.CHARCOAL -> WishyIcons.Pencil
+    Tool.MARKER, Tool.CHALK -> WishyIcons.Marker
+    Tool.AIRBRUSH, Tool.WATERCOLOR -> WishyIcons.Airbrush
+    Tool.CALLIGRAPHY, Tool.INK -> WishyIcons.Calligraphy
     Tool.HIGHLIGHTER -> WishyIcons.Highlighter
     else -> WishyIcons.Pen
 }
