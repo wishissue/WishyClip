@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Monochrome line icon: tinted at the call site (LocalContentColor / tint). -->
+<!-- Chalk Stick Icon -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-  <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M5,15L13,7L17,11L9,19ZM9,19L5,15"/>
-  <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M3,21H6M9,21H10"/>
+    android:width="24dp" android:height="24dp" android:viewportWidth="256" android:viewportHeight="256">
+  <path android:fillColor="#FFFFFFFF" android:pathData="M212,44L172,28a12,12,0,0,0-16,8L112,168a12,12,0,0,0,8,16l40,16a12,12,0,0,0,16-8L220,60A12,12,0,0,0,212,44ZM40,212h70a12,12,0,0,0,0-24H40a12,12,0,0,0,0,24Z"/>
 </vector>

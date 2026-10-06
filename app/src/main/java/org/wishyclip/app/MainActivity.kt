@@ -27,6 +27,13 @@ import org.wishyclip.app.ui.design.WishyTokens
 import org.wishyclip.app.ui.design.themes.CloudTokens
 import org.wishyclip.app.ui.screens.DesignGalleryScreen
 import org.wishyclip.app.ui.screens.EditorScreen
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import org.wishyclip.app.data.SettingsStore
+import org.wishyclip.app.ui.design.IconPack
+import org.wishyclip.app.ui.design.WishyIcons
 import org.wishyclip.app.ui.screens.ExportScreen
 import org.wishyclip.app.ui.screens.HomeScreen
 import org.wishyclip.app.ui.screens.NewProjectScreen
@@ -37,9 +44,27 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val settingsStore = SettingsStore(applicationContext)
+
         setContent {
-            var currentTokens by remember { mutableStateOf<WishyTokens>(CloudTokens) }
-            var isLeftHanded by remember { mutableStateOf(false) }
+            val scope = rememberCoroutineScope()
+            val savedThemeName by settingsStore.themeName.collectAsState(initial = "Cloud")
+            val savedIsLeftHanded by settingsStore.isLeftHanded.collectAsState(initial = false)
+            val savedIconPack by settingsStore.iconPack.collectAsState(initial = IconPack.CUTE.name)
+            val savedHaptics by settingsStore.hapticsEnabled.collectAsState(initial = true)
+            val savedPalmRejection by settingsStore.palmRejection.collectAsState(initial = false)
+
+            val currentTokens = remember(savedThemeName) {
+                SettingsStore.getThemeTokensByName(savedThemeName)
+            }
+
+            LaunchedEffect(savedIconPack) {
+                WishyIcons.currentPack = try {
+                    IconPack.valueOf(savedIconPack)
+                } catch (_: Exception) {
+                    IconPack.CUTE
+                }
+            }
 
             // Keep status/navigation bar icons readable against the active theme.
             DisposableEffect(currentTokens.isDark) {
@@ -56,9 +81,24 @@ class MainActivity : ComponentActivity() {
             WishyTheme(tokens = currentTokens) {
                 WishyNavHost(
                     currentTokens = currentTokens,
-                    onSelectTokens = { currentTokens = it },
-                    isLeftHanded = isLeftHanded,
-                    onToggleLeftHanded = { isLeftHanded = it }
+                    onSelectTokens = { tokens ->
+                        scope.launch { settingsStore.saveThemeName(tokens.name) }
+                    },
+                    isLeftHanded = savedIsLeftHanded,
+                    onToggleLeftHanded = { left ->
+                        scope.launch { settingsStore.saveIsLeftHanded(left) }
+                    },
+                    hapticsEnabled = savedHaptics,
+                    onToggleHaptics = { haptics ->
+                        scope.launch { settingsStore.saveHaptics(haptics) }
+                    },
+                    palmRejection = savedPalmRejection,
+                    onTogglePalmRejection = { palm ->
+                        scope.launch { settingsStore.savePalmRejection(palm) }
+                    },
+                    onSelectIconPack = { pack ->
+                        scope.launch { settingsStore.saveIconPack(pack.name) }
+                    }
                 )
             }
         }
@@ -70,7 +110,12 @@ fun WishyNavHost(
     currentTokens: WishyTokens,
     onSelectTokens: (WishyTokens) -> Unit,
     isLeftHanded: Boolean,
-    onToggleLeftHanded: (Boolean) -> Unit
+    onToggleLeftHanded: (Boolean) -> Unit,
+    hapticsEnabled: Boolean,
+    onToggleHaptics: (Boolean) -> Unit,
+    palmRejection: Boolean,
+    onTogglePalmRejection: (Boolean) -> Unit,
+    onSelectIconPack: (IconPack) -> Unit = {}
 ) {
     val nav = rememberNavController()
     val application = LocalContext.current.applicationContext as Application
@@ -103,6 +148,11 @@ fun WishyNavHost(
                 onSelectTokens = onSelectTokens,
                 isLeftHanded = isLeftHanded,
                 onToggleLeftHanded = onToggleLeftHanded,
+                hapticsEnabled = hapticsEnabled,
+                onToggleHaptics = onToggleHaptics,
+                palmRejection = palmRejection,
+                onTogglePalmRejection = onTogglePalmRejection,
+                onSelectIconPack = onSelectIconPack,
                 onOpenDesignGallery = { nav.navigate("design_gallery") },
                 onBack = { nav.popBackStack() }
             )

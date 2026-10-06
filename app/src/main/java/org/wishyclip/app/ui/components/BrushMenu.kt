@@ -91,7 +91,7 @@ fun BrushMenu(
 ) {
     val tokens = WishyTheme.tokens
     GlassSurface(
-        modifier = modifier,
+        modifier = modifier.draggablePanel(),
         shape = RoundedCornerShape(tokens.largeRadius)
     ) {
         Column(

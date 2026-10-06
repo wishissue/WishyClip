@@ -55,5 +55,12 @@ object WishyIcons {
     @get:DrawableRes val Import: Int get() = R.drawable.ic_import
     @get:DrawableRes val Merge: Int get() = R.drawable.ic_merge
     @get:DrawableRes val Blend: Int get() = R.drawable.ic_blend
+    @get:DrawableRes val ShapeLine: Int get() = R.drawable.ic_shape_line
+    @get:DrawableRes val ShapeRect: Int get() = R.drawable.ic_shape_rect
+    @get:DrawableRes val ShapeEllipse: Int get() = R.drawable.ic_shape_ellipse
+    @get:DrawableRes val Check: Int get() = R.drawable.ic_check
+    @get:DrawableRes val ArrowUp: Int get() = R.drawable.ic_arrow_up
+    @get:DrawableRes val ArrowDown: Int get() = R.drawable.ic_arrow_down
+    @get:DrawableRes val RestoreUi: Int get() = R.drawable.ic_restore
     @get:DrawableRes val Logo: Int get() = R.drawable.ic_logo
 }

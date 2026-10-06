@@ -56,8 +56,13 @@ fun SettingsScreen(
     onSelectTokens: (WishyTokens) -> Unit,
     isLeftHanded: Boolean,
     onToggleLeftHanded: (Boolean) -> Unit,
+    hapticsEnabled: Boolean,
+    onToggleHaptics: (Boolean) -> Unit,
+    palmRejection: Boolean,
+    onTogglePalmRejection: (Boolean) -> Unit,
     onOpenDesignGallery: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onSelectIconPack: (IconPack) -> Unit = {}
 ) {
     val tokens = WishyTheme.tokens
     val scrollState = rememberScrollState()
@@ -118,12 +123,50 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    TextButton(onClick = { WishyIcons.currentPack = IconPack.CUTE }) {
+                    TextButton(onClick = {
+                        WishyIcons.currentPack = IconPack.CUTE
+                        onSelectIconPack(IconPack.CUTE)
+                    }) {
                         Text("Cute (Color)", color = if (WishyIcons.currentPack == IconPack.CUTE) tokens.primary else tokens.onSurface)
                     }
-                    TextButton(onClick = { WishyIcons.currentPack = IconPack.CLEAN }) {
+                    TextButton(onClick = {
+                        WishyIcons.currentPack = IconPack.CLEAN
+                        onSelectIconPack(IconPack.CLEAN)
+                    }) {
                         Text("Clean (Minimal)", color = if (WishyIcons.currentPack == IconPack.CLEAN) tokens.primary else tokens.onSurface)
                     }
+                }
+
+                SectionHeader(title = "Drawing & Touch")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.setting_haptics),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = tokens.onSurface
+                    )
+                    Switch(
+                        checked = hapticsEnabled,
+                        onCheckedChange = onToggleHaptics
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.setting_palm_rejection),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = tokens.onSurface
+                    )
+                    Switch(
+                        checked = palmRejection,
+                        onCheckedChange = onTogglePalmRejection
+                    )
                 }
 
                 SectionHeader(title = "Layout & Accessibility")
@@ -148,7 +191,7 @@ fun SettingsScreen(
                     onClick = onOpenDesignGallery,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("🎨 Open Design Gallery (Debug)")
+                    Text("Open Design Gallery (Debug)")
                 }
 
                 SectionHeader(title = "Legal & Attributions")
@@ -188,6 +231,10 @@ private fun SettingsScreenLightPreview() {
             onSelectTokens = {},
             isLeftHanded = false,
             onToggleLeftHanded = {},
+            hapticsEnabled = true,
+            onToggleHaptics = {},
+            palmRejection = false,
+            onTogglePalmRejection = {},
             onOpenDesignGallery = {},
             onBack = {}
         )

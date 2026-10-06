@@ -39,6 +39,7 @@ fun LayerRow(
     modifier: Modifier = Modifier,
     onToggleLock: (Boolean) -> Unit = {},
     onCycleBlend: () -> Unit = {},
+    onDuplicate: (() -> Unit)? = null,
     /** Null for the bottom layer (nothing below to merge into). */
     onMergeDown: (() -> Unit)? = null
 ) {
@@ -75,17 +76,20 @@ fun LayerRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).padding(horizontal = tokens.spaceSmall)
             )
-            Text(
-                text = "▲",
-                modifier = Modifier.clickable { onMoveUp() }.padding(tokens.spaceSmall),
-                style = MaterialTheme.typography.titleMedium,
-                color = tokens.onSurfaceVariant
+            ActionIconButton(
+                iconRes = WishyIcons.ArrowUp,
+                contentDescription = "Move up",
+                onClick = { onMoveUp() }
             )
-            Text(
-                text = "▼",
-                modifier = Modifier.clickable { onMoveDown() }.padding(tokens.spaceSmall),
-                style = MaterialTheme.typography.titleMedium,
-                color = tokens.onSurfaceVariant
+            ActionIconButton(
+                iconRes = WishyIcons.ArrowDown,
+                contentDescription = "Move down",
+                onClick = { onMoveDown() }
+            )
+            ActionIconButton(
+                iconRes = WishyIcons.Duplicate,
+                contentDescription = "Duplicate Layer",
+                onClick = { onDuplicate?.invoke() }
             )
             ActionIconButton(
                 iconRes = WishyIcons.Delete,

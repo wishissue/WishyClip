@@ -20,7 +20,7 @@ fun selectionHandleSlop(projectWidth: Int): Float = projectWidth * 0.04f
 fun selectionRotateOffset(projectWidth: Int): Float = projectWidth * 0.07f
 
 /** Editable source of a floating text object. The bitmap is re-rendered from this. */
-class TextSpec(var text: String, var sizePx: Float)
+class TextSpec(var text: String, var sizePx: Float, var fontName: String = "Inter")
 
 enum class SelectionHit { NONE, MOVE, SCALE, ROTATE }
 

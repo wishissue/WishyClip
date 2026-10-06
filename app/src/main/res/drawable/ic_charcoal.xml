@@ -1,11 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Monochrome line icon: tinted at the call site (LocalContentColor / tint). -->
+<!-- Charcoal Block / Wedge Icon -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-  <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M4,20L5,16L16,5L19,8L8,19ZM14,7L17,10"/>
-  <path android:fillColor="#FFFFFFFF" android:pathData="M3,21m-0.9,0a0.9,0.9 0 1 0 1.8,0a0.9,0.9 0 1 0 -1.8,0"/>
-  <path android:fillColor="#FFFFFFFF" android:pathData="M8,22m-0.7,0a0.7,0.7 0 1 0 1.4,0a0.7,0.7 0 1 0 -1.4,0"/>
+    android:width="24dp" android:height="24dp" android:viewportWidth="256" android:viewportHeight="256">
+  <path android:fillColor="#FFFFFFFF" android:pathData="M216,40H88a16,16,0,0,0-16,16V100L28,144a16,16,0,0,0,0,24l56,56a16,16,0,0,0,24,0l44-44h64a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM96,208L44,156l36-36v40a16,16,0,0,0,16,16Zm120-40H112V64H216Z"/>
 </vector>

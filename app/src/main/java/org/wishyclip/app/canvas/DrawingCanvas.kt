@@ -10,12 +10,15 @@ import android.graphics.Rect
 import android.graphics.RectF
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateRotation
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -411,14 +414,18 @@ fun DrawingCanvas(
         }
 
         if (view.isTransformed) {
-            Surface(
+            val tokens = org.wishyclip.app.ui.design.WishyTheme.tokens
+            org.wishyclip.app.ui.components.GlassSurface(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(8.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh
+                    .padding(tokens.spaceSmall),
+                shape = RoundedCornerShape(tokens.largeRadius)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs),
+                    modifier = Modifier.padding(horizontal = tokens.spaceXs, vertical = 2.dp)
+                ) {
                     ActionIconButton(
                         iconRes = WishyIcons.RotateLeft,
                         contentDescription = "Rotate canvas 90 degrees left",
@@ -429,8 +436,18 @@ fun DrawingCanvas(
                         contentDescription = "Rotate canvas 90 degrees right",
                         onClick = { view.rotateBy(90f) }
                     )
-                    TextButton(onClick = { view.reset() }) {
-                        Text("Reset view", style = MaterialTheme.typography.labelSmall)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(tokens.smallRadius))
+                            .clickable { view.reset() }
+                            .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs)
+                    ) {
+                        Text(
+                            text = if (view.rotation != 0f) "Reset (${view.rotation.toInt()}°)" else "Reset view",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = tokens.onSurface,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                        )
                     }
                 }
             }

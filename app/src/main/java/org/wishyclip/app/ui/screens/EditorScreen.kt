@@ -1,5 +1,8 @@
 package org.wishyclip.app.ui.screens
 
+import androidx.compose.ui.res.painterResource
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.shape.CircleShape
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -10,6 +13,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -117,6 +122,7 @@ fun EditorScreen(
     var showColorPicker by remember { mutableStateOf(false) }
     var showToolOptions by rememberSaveable { mutableStateOf(false) }
     var showBrushMenu by rememberSaveable { mutableStateOf(false) }
+    var activeShape by rememberSaveable { mutableStateOf(Tool.LINE) }
     var activeBrush by rememberSaveable { mutableStateOf(if (vm.tool.isBrush) vm.tool else Tool.PEN) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showDeleteFrameDialog by remember { mutableStateOf(false) }
@@ -147,23 +153,30 @@ fun EditorScreen(
     val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) vm.addAudioTrackFromUri(uri, name = "Audio ${vm.audioTracks.size + 1}")
     }
+    val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) vm.importFont(uri)
+    }
     val onSelectTool: (Tool) -> Unit = { selected ->
         showBrushMenu = false
-        if (vm.tool == selected) {
-            showToolOptions = selected != Tool.EYEDROPPER && !showToolOptions
-        } else {
-            vm.selectTool(selected)
-            showToolOptions = selected != Tool.EYEDROPPER
-        }
+        showToolOptions = false
+        if (vm.tool != selected) vm.selectTool(selected)
+        if (selected == Tool.LINE || selected == Tool.RECT || selected == Tool.ELLIPSE) activeShape = selected
+    }
+    // Double tap on a tool opens its options (single tap just switches, so drawing is never blocked).
+    val onToolDoubleTap: (Tool) -> Unit = { selected ->
+        showBrushMenu = false
+        if (vm.tool != selected) vm.selectTool(selected)
+        showToolOptions = selected != Tool.EYEDROPPER && !showToolOptions
     }
     // One Brush button opens the separate brush menu (FlipaClip-style).
     val onBrushClick: () -> Unit = {
         showToolOptions = false
         if (vm.tool.isBrush) {
+            // Second tap on the active brush opens the brush menu; first tap only selects it.
             showBrushMenu = !showBrushMenu
         } else {
             vm.selectTool(activeBrush)
-            showBrushMenu = true
+            showBrushMenu = false
         }
     }
     // The color chip lives at the end of the tool bar/rail, like in other animation apps.
@@ -283,6 +296,16 @@ fun EditorScreen(
                                     }
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("Hide interface") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showBrushMenu = false
+                                        showToolOptions = false
+                                        showLayersPanel = false
+                                        isUiHidden = true
+                                    }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Rotate Canvas 90°") },
                                     onClick = {
                                         showOverflowMenu = false
@@ -338,6 +361,8 @@ fun EditorScreen(
                             onSelectTool = onSelectTool,
                             activeBrush = activeBrush,
                             onBrushClick = onBrushClick,
+                            onToolDoubleTap = onToolDoubleTap,
+                            activeShape = activeShape,
                             mirrorMode = vm.mirrorMode,
                             onMirrorClick = { vm.cycleMirror() },
                             rulerOn = vm.rulerVisible,
@@ -355,8 +380,9 @@ fun EditorScreen(
                             .pointerInput(Unit) {
                                 detectTapGestures(
                                     onTap = {
-                                        // One-tap to toggle focus UI mode
-                                        isUiHidden = !isUiHidden
+                                        showBrushMenu = false
+                                        showToolOptions = false
+                                        showLayersPanel = false
                                     },
                                     onDoubleTap = {
                                         // Double-tap quick undo
@@ -390,6 +416,42 @@ fun EditorScreen(
                         } else {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(color = tokens.primary)
+                            }
+                        }
+
+                        // Outside-tap scrim: while a menu is open, tapping the canvas closes it.
+                        if (!isUiHidden && (showBrushMenu || showToolOptions || showLayersPanel)) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(onTap = {
+                                            showBrushMenu = false
+                                            showToolOptions = false
+                                            showLayersPanel = false
+                                        })
+                                    }
+                            )
+                        }
+
+                        // Always-available way back from full screen.
+                        if (isUiHidden) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(tokens.spaceSmall)
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(tokens.surface.copy(alpha = 0.6f))
+                                    .clickable { isUiHidden = false },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(WishyIcons.RestoreUi),
+                                    contentDescription = "Show interface",
+                                    tint = tokens.onSurface,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
 
@@ -563,6 +625,7 @@ fun EditorScreen(
                                 onDeleteLayer = { idx -> vm.deleteLayer(idx) },
                                 onToggleLock = { idx, locked -> vm.setLayerLocked(idx, locked) },
                                 onCycleBlend = { idx -> vm.layerUi.getOrNull(idx)?.let { vm.setLayerBlend(idx, it.blendMode.next()) } },
+                                onDuplicateLayer = { idx -> vm.duplicateLayer(idx) },
                                 onMergeDown = { idx -> vm.mergeLayerDown(idx) },
                                 maxListHeight = (maxHeight - 140.dp).coerceIn(80.dp, 280.dp),
                                 modifier = Modifier
@@ -598,6 +661,8 @@ fun EditorScreen(
                             onSelectTool = onSelectTool,
                             activeBrush = activeBrush,
                             onBrushClick = onBrushClick,
+                            onToolDoubleTap = onToolDoubleTap,
+                            activeShape = activeShape,
                             mirrorMode = vm.mirrorMode,
                             onMirrorClick = { vm.cycleMirror() },
                             rulerOn = vm.rulerVisible,
@@ -620,6 +685,8 @@ fun EditorScreen(
                             horizontal = true,
                             activeBrush = activeBrush,
                             onBrushClick = onBrushClick,
+                            onToolDoubleTap = onToolDoubleTap,
+                            activeShape = activeShape,
                             mirrorMode = vm.mirrorMode,
                             onMirrorClick = { vm.cycleMirror() },
                             rulerOn = vm.rulerVisible,
@@ -737,15 +804,15 @@ fun EditorScreen(
                 TextButton(onClick = {
                     vm.project?.let { ExportService.start(context, it.id, ExportFormat.MP4) }
                     showExportDialog = false
-                }) { Text("🎬 Export MP4 Video") }
+                }) { Text("Export MP4 video") }
                 TextButton(onClick = {
                     vm.project?.let { ExportService.start(context, it.id, ExportFormat.GIF) }
                     showExportDialog = false
-                }) { Text("🎞 Export Animated GIF") }
+                }) { Text("Export animated GIF") }
                 TextButton(onClick = {
                     vm.project?.let { ExportService.start(context, it.id, ExportFormat.PNG_SEQUENCE) }
                     showExportDialog = false
-                }) { Text("📦 Export PNG Sequence (ZIP)") }
+                }) { Text("Export PNG sequence (ZIP)") }
             }
         }
     }
@@ -761,11 +828,11 @@ fun EditorScreen(
                 TextButton(onClick = {
                     imageSequencePicker.launch("image/*")
                     showImportDialog = false
-                }) { Text("🖼 Import Images as Frames") }
+                }) { Text("Import images as frames") }
                 TextButton(onClick = {
                     videoPicker.launch("video/*")
                     showImportDialog = false
-                }) { Text("🎬 Import Video as Frames") }
+                }) { Text("Import video as frames") }
             }
         }
     }
@@ -855,19 +922,48 @@ fun EditorScreen(
     if (vm.textEditorOpen) {
         var textValue by remember { mutableStateOf(vm.textEditorInitial) }
         WishyDialog(
-            title = "Text",
+            title = "Text Editor",
             onDismissRequest = { vm.dismissTextEditor() },
             confirmText = stringResource(R.string.action_ok),
             onConfirm = { vm.confirmText(textValue) },
             dismissText = stringResource(R.string.action_cancel),
             onDismiss = { vm.dismissTextEditor() }
         ) {
-            OutlinedTextField(
-                value = textValue,
-                onValueChange = { textValue = it },
-                label = { Text("Type here") },
-                modifier = Modifier.fillMaxWidth()
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
+                OutlinedTextField(
+                    value = textValue,
+                    onValueChange = { textValue = it },
+                    label = { Text("Type here") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text("Font Family", style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)
+                ) {
+                    for (font in vm.availableFonts) {
+                        val selected = font == vm.activeFontName
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(tokens.smallRadius))
+                                .background(if (selected) tokens.primaryContainer else tokens.surfaceVariant)
+                                .clickable { vm.activeFontName = font }
+                                .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs)
+                        ) {
+                            Text(
+                                text = font,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (selected) tokens.onPrimaryContainer else tokens.onSurface
+                            )
+                        }
+                    }
+                }
+                TextButton(onClick = { fontPicker.launch("*/*") }) {
+                    Text("+ Import Custom Font (.ttf / .otf)")
+                }
+            }
         }
     }
 

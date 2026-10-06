@@ -3,7 +3,9 @@ package org.wishyclip.app.ui.components
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -31,6 +33,7 @@ fun ToolButton(
     selected: Boolean = false,
     enabled: Boolean = true,
     onClick: () -> Unit,
+    onDoubleClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val tokens = WishyTheme.tokens
@@ -47,7 +50,11 @@ fun ToolButton(
     Box(
         modifier = modifier
             .size(tokens.toolButtonSize)
-            .bouncyClickable(enabled = enabled, onClick = onClick)
+            .then(
+                if (onDoubleClick != null) Modifier.pointerInput(enabled) {
+                    detectTapGestures(onTap = { if (enabled) onClick() }, onDoubleTap = { if (enabled) onDoubleClick() })
+                } else Modifier.bouncyClickable(enabled = enabled, onClick = onClick)
+            )
             .clip(RoundedCornerShape(tokens.mediumRadius))
             .background(bgColor),
         contentAlignment = Alignment.Center

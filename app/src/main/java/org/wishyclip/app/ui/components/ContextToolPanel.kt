@@ -60,7 +60,7 @@ fun ContextToolPanel(
     val tokens = WishyTheme.tokens
 
     GlassSurface(
-        modifier = modifier,
+        modifier = modifier.draggablePanel(),
         shape = RoundedCornerShape(tokens.largeRadius)
     ) {
         Row(
@@ -72,13 +72,13 @@ fun ContextToolPanel(
             when {
                 activeLasso != null -> {
                     TextButton(onClick = onCommitLasso) {
-                        Text("✓ Done", fontWeight = FontWeight.Bold)
+                        Text("Done", fontWeight = FontWeight.Bold)
                     }
                     TextButton(onClick = onCancelLasso) {
-                        Text("↩ Put back")
+                        Text("Put back")
                     }
                     TextButton(onClick = onDeleteLasso) {
-                        Text("🗑 Delete", color = tokens.danger)
+                        Text("Delete", color = tokens.danger)
                     }
                 }
 
@@ -220,19 +220,19 @@ fun ContextToolPanel(
                 tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         ActionIconButton(
-                            iconRes = WishyIcons.Shapes,
+                            iconRes = WishyIcons.ShapeLine,
                             contentDescription = "Line",
                             selected = tool == Tool.LINE,
                             onClick = { onSelectShapeTool?.invoke(Tool.LINE) }
                         )
                         ActionIconButton(
-                            iconRes = WishyIcons.Shapes,
+                            iconRes = WishyIcons.ShapeRect,
                             contentDescription = "Rectangle",
                             selected = tool == Tool.RECT,
                             onClick = { onSelectShapeTool?.invoke(Tool.RECT) }
                         )
                         ActionIconButton(
-                            iconRes = WishyIcons.Shapes,
+                            iconRes = WishyIcons.ShapeEllipse,
                             contentDescription = "Ellipse",
                             selected = tool == Tool.ELLIPSE,
                             onClick = { onSelectShapeTool?.invoke(Tool.ELLIPSE) }

@@ -7,7 +7,9 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.net.Uri
+import java.io.File as JavaFile
 import android.provider.OpenableColumns
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
@@ -210,7 +212,12 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     private fun currentFrameData(): FrameData? =
         frames.getOrNull(currentIndex)?.let { cache[it.id] }
 
-    fun currentLayers(): List<LayerData> = currentFrameData()?.layers ?: emptyList()
+    fun currentLayers(): List<LayerData> = currentFrameData()?.layers?.map {
+        LayerData(it.id, it.name, it.visible, it.opacity, it.bitmap, it.locked, it.blendMode).apply {
+            version = it.version
+            savedVersion = it.savedVersion
+        }
+    } ?: emptyList()
 
     private fun activeLayer(): LayerData? = currentFrameData()?.layers?.getOrNull(activeLayerIndex)
 
@@ -247,7 +254,6 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         if (evicted.isEmpty()) return
         for (fd in evicted) {
             cache.remove(fd.frameId)
-            undoManager.dropFrame(fd.frameId)
         }
         syncUndoFlags()
         viewModelScope.launch {
@@ -919,6 +925,53 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     // ---- text
 
+    var activeFontName by mutableStateOf("Inter")
+    var availableFonts by mutableStateOf(listOf("Inter", "Serif", "Monospace"))
+        private set
+
+    init {
+        loadFonts()
+    }
+
+    private fun loadFonts() {
+        val fontDir = JavaFile(getApplication<Application>().filesDir, "fonts")
+        if (fontDir.exists()) {
+            val custom = fontDir.listFiles()?.filter { it.extension.lowercase() in listOf("ttf", "otf") }?.map { it.name } ?: emptyList()
+            availableFonts = listOf("Inter", "Serif", "Monospace") + custom
+        }
+    }
+
+    fun importFont(uri: Uri) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    val app = getApplication<Application>()
+                    val fontDir = JavaFile(app.filesDir, "fonts").apply { mkdirs() }
+                    val fileName = "custom_${System.currentTimeMillis()}.ttf"
+                    val dest = JavaFile(fontDir, fileName)
+                    app.contentResolver.openInputStream(uri)?.use { input ->
+                        dest.outputStream().use { output -> input.copyTo(output) }
+                    }
+                } catch (_: Exception) {}
+            }
+            loadFonts()
+        }
+    }
+
+    private fun getTypeface(fontName: String): Typeface? {
+        return when (fontName) {
+            "Inter" -> null
+            "Serif" -> Typeface.SERIF
+            "Monospace" -> Typeface.MONOSPACE
+            else -> {
+                val file = JavaFile(getApplication<Application>().filesDir, "fonts/$fontName")
+                if (file.exists()) {
+                    try { Typeface.createFromFile(file) } catch (_: Exception) { null }
+                } else null
+            }
+        }
+    }
+
     private fun defaultTextSize(): Float = ((project?.height ?: 720) / 8f).coerceAtLeast(40f)
 
     private fun openTextEditorAt(x: Float, y: Float) {
@@ -934,6 +987,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val spec = activeLassoSelection?.text ?: return
         textEditingExisting = true
         textEditorInitial = spec.text
+        activeFontName = spec.fontName
         textEditorOpen = true
     }
 
@@ -948,14 +1002,15 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             val sel = activeLassoSelection ?: return
             val spec = sel.text ?: return
             spec.text = text
+            spec.fontName = activeFontName
             rerasterText(sel)
             return
         }
         val layer = activeLayer() ?: return
         if (!layer.visible) return
         commitLassoSelection()
-        val spec = TextSpec(text, defaultTextSize())
-        val bmp = TextRaster.render(spec.text, color, spec.sizePx, opacity)
+        val spec = TextSpec(text, defaultTextSize(), activeFontName)
+        val bmp = TextRaster.render(spec.text, color, spec.sizePx, opacity, getTypeface(spec.fontName))
         val bounds = RectF(
             textPendingX - bmp.width / 2f, textPendingY - bmp.height / 2f,
             textPendingX + bmp.width / 2f, textPendingY + bmp.height / 2f
@@ -969,7 +1024,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val spec = sel.text ?: return
         val cx = sel.bounds.centerX() + sel.translateX
         val cy = sel.bounds.centerY() + sel.translateY
-        val fresh = TextRaster.render(spec.text, color, spec.sizePx, opacity)
+        val fresh = TextRaster.render(spec.text, color, spec.sizePx, opacity, getTypeface(spec.fontName))
         // The old bitmap is left to the GC: it may still be referenced by a frame being drawn.
         sel.pixels = fresh
         sel.bounds = RectF(cx - fresh.width / 2f, cy - fresh.height / 2f, cx + fresh.width / 2f, cy + fresh.height / 2f)
@@ -1203,23 +1258,31 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun undo() {
         if (strokeLayer != null) return
-        commitLassoSelection()
+        if (activeLassoSelection != null) {
+            cancelLassoSelection()
+            return
+        }
         applyHistory(true)
     }
 
     fun redo() {
         if (strokeLayer != null) return
-        commitLassoSelection()
+        if (activeLassoSelection != null) {
+            cancelLassoSelection()
+        }
         applyHistory(false)
     }
 
     private fun applyHistory(isUndo: Boolean) {
-        while (true) {
-            val entry = (if (isUndo) undoManager.popUndo() else undoManager.popRedo()) ?: break
-            val layer = cache[entry.frameId]?.layers?.firstOrNull { it.id == entry.layerId }
+        val entry = (if (isUndo) undoManager.popUndo() else undoManager.popRedo()) ?: return
+        syncUndoFlags()
+        viewModelScope.launch {
+            val frameData = ensureLoaded(entry.frameId)
+            val layer = frameData.layers.firstOrNull { it.id == entry.layerId }
             if (layer == null) {
                 entry.bitmap.recycle()
-                continue
+                syncUndoFlags()
+                return@launch
             }
             val rect = entry.rect
             val counterpart = if (rect != null) {
@@ -1232,15 +1295,17 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             else BitmapOps.replace(layer.bitmap, entry.bitmap)
             entry.bitmap.recycle()
             layer.version++
+
             val idx = frames.indexOfFirst { it.id == entry.frameId }
             if (idx >= 0 && idx != currentIndex) {
-                viewModelScope.launch { gotoFrame(idx) }
+                currentIndex = idx
+                refreshLayerUi()
             }
-            break
+
+            syncUndoFlags()
+            revision++
+            scheduleSave()
         }
-        syncUndoFlags()
-        revision++
-        scheduleSave()
     }
 
     private fun syncUndoFlags() {
@@ -1291,6 +1356,22 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         revision++
         viewModelScope.launch { repo.deleteLayer(projectId, layer.id) }
         scheduleSave()
+    }
+
+    fun duplicateLayer(index: Int) {
+        val fd = currentFrameData() ?: return
+        val source = fd.layers.getOrNull(index) ?: return
+        viewModelScope.launch {
+            val entity = repo.addLayer(fd.frameId, fd.layers.size, "${source.name} (Copy)")
+            val bmp = source.bitmap.snapshot()
+            val newLayer = LayerData(entity.id, entity.name, source.visible, source.opacity, bmp, source.locked, source.blendMode)
+            fd.layers.add(index + 1, newLayer)
+            fd.metaVersion++
+            activeLayerIndex = index + 1
+            refreshLayerUi()
+            revision++
+            scheduleSave()
+        }
     }
 
     fun setLayerVisible(index: Int, visible: Boolean) {

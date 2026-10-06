@@ -3,6 +3,7 @@ package org.wishyclip.app.canvas
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -14,8 +15,9 @@ object TextRaster {
     private const val MAX_DIM = 4096
 
     @Suppress("DEPRECATION")
-    fun render(text: String, argb: Int, sizePx: Float, opacity: Float): Bitmap {
+    fun render(text: String, argb: Int, sizePx: Float, opacity: Float, typeface: Typeface? = null): Bitmap {
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+        if (typeface != null) paint.typeface = typeface
         paint.textSize = sizePx.coerceIn(8f, 1500f)
         paint.color = argb
         paint.alpha = (opacity.coerceIn(0f, 1f) * 255f).roundToInt()

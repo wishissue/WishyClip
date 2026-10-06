@@ -203,6 +203,7 @@ fun StudioTimeline(
     // Floating glass card that hovers above the bottom edge.
     Box(
         modifier = modifier
+            .draggablePanel()
             .fillMaxWidth()
             .padding(horizontal = tokens.floatMargin, vertical = tokens.floatMargin / 2)
     ) {

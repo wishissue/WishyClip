@@ -102,7 +102,7 @@ fun NewProjectScreen(
 
                 SectionHeader(title = "Preset Canvas Size")
                 Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)) {
-                    for (p in AspectPreset.values()) {
+                    for (p in AspectPreset.entries) {
                         TextButton(
                             onClick = {
                                 preset = p
@@ -151,7 +151,7 @@ fun NewProjectScreen(
                 )
 
                 Text(
-                    text = "Estimated Cache Memory: ~$estMb MB" + if (estMb > 120) " ⚠️ High resolution requires 3GB+ RAM" else "",
+                    text = "Estimated Cache Memory: ~$estMb MB" + if (estMb > 120) " (Warning: High resolution requires 3GB+ RAM)" else "",
                     style = MaterialTheme.typography.labelSmall,
                     color = if (estMb > 120) tokens.danger else tokens.onSurfaceVariant
                 )

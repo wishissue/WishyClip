@@ -107,4 +107,18 @@ class UndoManagerTest {
         assertEquals(2L, remaining?.frameId)
         assertNull(undoManager.popUndo())
     }
+
+    @Test
+    fun testBitmapOpsReplaceStroke() {
+        val target = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888)
+        target.setPixel(2, 2, android.graphics.Color.BLACK)
+        assertEquals(android.graphics.Color.BLACK, target.getPixel(2, 2))
+
+        val preStrokePatch = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888)
+        preStrokePatch.eraseColor(android.graphics.Color.TRANSPARENT)
+
+        BitmapOps.putAt(target, preStrokePatch, 0, 0)
+
+        assertEquals(android.graphics.Color.TRANSPARENT, target.getPixel(2, 2))
+    }
 }

@@ -40,6 +40,7 @@ fun LayerPanel(
     modifier: Modifier = Modifier,
     onToggleLock: (Int, Boolean) -> Unit = { _, _ -> },
     onCycleBlend: (Int) -> Unit = {},
+    onDuplicateLayer: (Int) -> Unit = {},
     onMergeDown: (Int) -> Unit = {},
     /** Cap for the list; the editor lowers it in short (landscape) windows. */
     maxListHeight: Dp = 280.dp
@@ -47,6 +48,7 @@ fun LayerPanel(
     val tokens = WishyTheme.tokens
     Column(
         modifier = modifier
+            .draggablePanel()
             .fillMaxWidth()
             .shadow(tokens.elevationMedium, RoundedCornerShape(tokens.largeRadius))
             .clip(RoundedCornerShape(tokens.largeRadius))
@@ -73,6 +75,7 @@ fun LayerPanel(
                     onDelete = { onDeleteLayer(idx) },
                     onToggleLock = { onToggleLock(idx, it) },
                     onCycleBlend = { onCycleBlend(idx) },
+                    onDuplicate = { onDuplicateLayer(idx) },
                     onMergeDown = if (idx > 0) ({ onMergeDown(idx) }) else null
                 )
             }
@@ -88,7 +91,7 @@ fun LayerPanel(
                 Text("+ Add Layer", style = MaterialTheme.typography.labelLarge)
             }
             TextButton(onClick = onImportImageLayer) {
-                Text("🖼 Import Image", style = MaterialTheme.typography.labelLarge)
+                Text("Import image", style = MaterialTheme.typography.labelLarge)
             }
         }
     }

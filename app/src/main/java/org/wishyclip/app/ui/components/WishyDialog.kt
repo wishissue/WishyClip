@@ -1,21 +1,31 @@
 package org.wishyclip.app.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
@@ -31,26 +41,78 @@ fun WishyDialog(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismissRequest,
-        modifier = modifier,
-        shape = RoundedCornerShape(WishyTheme.tokens.largeRadius),
-        containerColor = WishyTheme.tokens.surface,
-        title = { Text(text = title, style = MaterialTheme.typography.titleLarge) },
-        text = content,
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(text = confirmText)
-            }
-        },
-        dismissButton = {
-            if (dismissText != null && onDismiss != null) {
-                TextButton(onClick = onDismiss) {
-                    Text(text = dismissText)
+    val tokens = WishyTheme.tokens
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.4f))
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onDismissRequest() })
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        GlassSurface(
+            modifier = modifier
+                .padding(tokens.spaceLarge)
+                .widthIn(max = 380.dp)
+                .pointerInput(Unit) { detectTapGestures { } },
+            shape = RoundedCornerShape(tokens.largeRadius)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(tokens.spaceLarge)
+                    .heightIn(max = 480.dp),
+                verticalArrangement = Arrangement.spacedBy(tokens.spaceMedium)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = tokens.onSurface
+                )
+
+                Box(modifier = Modifier.weight(1f, fill = false)) {
+                    content()
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (dismissText != null && onDismiss != null) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(tokens.smallRadius))
+                                .clickable { onDismiss() }
+                                .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceSmall)
+                        ) {
+                            Text(
+                                text = dismissText,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = tokens.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(tokens.smallRadius))
+                            .background(tokens.primary)
+                            .clickable { onConfirm() }
+                            .padding(horizontal = tokens.spaceLarge, vertical = tokens.spaceSmall)
+                    ) {
+                        Text(
+                            text = confirmText,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = tokens.onPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
-    )
+    }
 }
 
 @Composable

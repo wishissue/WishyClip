@@ -2,6 +2,7 @@
 
 | Asset Name | Category | Source URL | License | License File / URL | Modification Status | App Location / Usage | Attribution Req? |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Phosphor Icons** | Vector Icons | https://phosphoricons.com | MIT | `assets/icons/LICENSES/PHOSPHOR_LICENSE.txt` | Bold weight vector drawables styled to WishyClip tokens | Primary action, drawing tool, & toolbar icons (`res/drawable/ic_*.xml`) | No (MIT) |
 | **Tabler Icons** | Vector Icons | https://tabler.io/icons | MIT | `assets/icons/LICENSES/TABLER_LICENSE.txt` | Vector colors/strokes styled to WishyClip tokens (24x24dp, 2dp stroke) | Primary action & toolbar icons (`res/drawable/ic_*.xml`) | No (MIT) |
 | **Lucide Icons** | Vector Icons | https://lucide.dev/ | ISC / MIT | `assets/icons/LICENSES/LUCIDE_LICENSE.txt` | Stroke width & caps standardized to 24x24dp | Secondary action icons (ruler, mirror, audio waveform) | No (ISC) |
 | **Material Symbols** | Vector Icons | https://fonts.google.com/icons | Apache-2.0 | `https://www.apache.org/licenses/LICENSE-2.0` | Adapted stroke & size | Fallback icons for system settings/more menu | No (Apache) |
