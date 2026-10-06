@@ -1,6 +1,6 @@
 # Wishy Clip
 
-![Wishy Clip Banner](app/src/main/res/drawable/ic_logo.xml)
+![Wishy Clip Banner](app/src/main/res/drawable/ic_logo.png)
 
 **Wishy Clip** is a free, open-source frame-by-frame 2D animation app for Android. No ads, no paywalls, no subscriptions.
 

@@ -152,7 +152,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     private var undoManager = UndoManager(40, 64L * 1024 * 1024)
     private val renderer = StrokeRenderer()
     private val lassoTool = StandardLassoTool()
-    private val audioManager = ExoPlayerAudioTrackManager(app)
+    private val audioManager = org.wishyclip.app.audio.MultiTrackAudioPlayer(app)
     private val saveMutex = Mutex()
     private var smoothedX = 0f
     private var smoothedY = 0f
@@ -396,6 +396,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     // ---------------------------------------------------------------- playback
 
+    /** Timeline position of a frame, counting holds. Audio start positions use this unit. */
+    private fun timelineFrameOf(index: Int): Int =
+        frames.take(index.coerceAtLeast(0)).sumOf { it.exposureDuration.coerceAtLeast(1) }
+
     fun togglePlay() {
         commitLassoSelection()
         if (isPlaying) stopPlay() else startPlay()
@@ -404,15 +408,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     private fun startPlay() {
         if (strokeLayer != null || frames.size < 2) return
         isPlaying = true
-        val track = audioTracks.firstOrNull()
-        if (track != null) {
-            val fps = (project?.fps ?: 12).coerceAtLeast(1)
-            val startMs = (currentIndex - track.startFrame) * 1000L / fps + track.trimStartMs
-            if (startMs in track.trimStartMs..(track.trimStartMs + track.durationMs)) {
-                audioManager.prepare(track.filePath, track.volume)
-                audioManager.playAtOffset(startMs, track.volume)
-            }
-        }
+        audioManager.sync(audioTracks, timelineFrameOf(currentIndex), (project?.fps ?: 12).coerceAtLeast(1))
         playJob = viewModelScope.launch {
             val fps = (project?.fps ?: 12).coerceAtLeast(1)
             val frameMs = 1000L / fps
@@ -426,6 +422,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                     holdTicks = 0
                     val next = (currentIndex + 1) % frames.size
                     gotoFrame(next)
+                    audioManager.sync(audioTracks, timelineFrameOf(next), fps)
                 }
                 val spent = SystemClock.elapsedRealtime() - t0
                 delay((frameMs - spent).coerceAtLeast(1L))
@@ -435,7 +432,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     private fun stopPlay() {
         isPlaying = false
-        audioManager.pause()
+        audioManager.pauseAll()
         playJob?.cancel()
         playJob = null
     }
@@ -696,6 +693,28 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         }
     }
 
+    /** Drops an image onto the canvas as a floating selection: drag, scale and rotate it, tap outside to commit. */
+    fun importImageForPlacement(uri: Uri) {
+        val p = project ?: return
+        viewModelScope.launch {
+            val layer = activeLayer()
+            if (layer == null || !layer.visible || layer.locked) {
+                showMessage("Pick an unlocked, visible layer first")
+                return@launch
+            }
+            val bmp = Importer.importImageTight(
+                getApplication(), uri, (p.width * 0.7f).toInt(), (p.height * 0.7f).toInt()
+            ) ?: run { showMessage("Could not open that image"); return@launch }
+            commitLassoSelection()
+            selectTool(Tool.LASSO)
+            val cx = p.width / 2f
+            val cy = p.height / 2f
+            val bounds = RectF(cx - bmp.width / 2f, cy - bmp.height / 2f, cx + bmp.width / 2f, cy + bmp.height / 2f)
+            activeLassoSelection = LassoSelection(bmp, bounds, Path())
+            revision++
+        }
+    }
+
     fun importImageSequence(uris: List<Uri>) {
         val p = project ?: return
         viewModelScope.launch {
@@ -755,7 +774,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                 projectId = projectId,
                 filePath = destFile.absolutePath,
                 name = name,
-                startFrame = currentIndex,
+                startFrame = timelineFrameOf(currentIndex),
                 durationMs = duration
             )
             repo.addAudioTrack(entity)
@@ -771,12 +790,38 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                 projectId = projectId,
                 filePath = recordedFile.absolutePath,
                 name = "Voice Record",
-                startFrame = currentIndex,
+                startFrame = timelineFrameOf(currentIndex),
                 durationMs = duration
             )
             repo.addAudioTrack(entity)
             audioTracks = repo.getAudioTracks(projectId)
             revision++
+        }
+    }
+
+    /** Live volume while dragging the slider (no database write). */
+    fun setAudioVolumeLive(trackId: Long, volume: Float) = audioManager.setVolume(trackId, volume)
+
+    /** Cuts the clip at the playhead into two clips, like Split in a video editor. */
+    fun splitAudioTrackAtPlayhead(track: AudioTrackEntity) {
+        val fps = (project?.fps ?: 12).coerceAtLeast(1)
+        val here = timelineFrameOf(currentIndex)
+        val offsetMs = (here - track.startFrame) * 1000L / fps
+        if (offsetMs <= 100L || offsetMs >= track.durationMs - 100L) {
+            showMessage("Move the playhead inside the clip to split it")
+            return
+        }
+        viewModelScope.launch {
+            repo.updateAudioTrack(track.copy(durationMs = offsetMs))
+            repo.addAudioTrack(
+                track.copy(
+                    id = 0,
+                    startFrame = here,
+                    trimStartMs = track.trimStartMs + offsetMs,
+                    durationMs = track.durationMs - offsetMs
+                )
+            )
+            audioTracks = repo.getAudioTracks(projectId)
         }
     }
 
@@ -789,11 +834,16 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     }
 
     fun deleteAudioTrack(id: Long) {
+        audioManager.remove(id)
         viewModelScope.launch {
             repo.deleteAudioTrack(id)
             audioTracks = repo.getAudioTracks(projectId)
             revision++
         }
+    }
+
+    fun setAudioTrackStart(track: AudioTrackEntity, startFrame: Int) {
+        updateAudioTrack(track.copy(startFrame = startFrame.coerceAtLeast(0)))
     }
 
     // ---------------------------------------------------------------- floating selection (lasso / text)

@@ -201,3 +201,63 @@ object NoOpAudioTrackManager : AudioTrackManager {
     override fun pause() {}
     override fun release() {}
 }
+
+
+/**
+ * Plays every audio clip of a project at once, one ExoPlayer per clip, kept in step with the timeline.
+ * Call [sync] whenever the playhead frame changes during playback. Must be used on the main thread.
+ */
+class MultiTrackAudioPlayer(private val context: Context) {
+    private class Slot(val player: ExoPlayer, val path: String)
+
+    private val slots = HashMap<Long, Slot>()
+
+    private fun slotFor(track: org.wishyclip.app.data.AudioTrackEntity): Slot {
+        val existing = slots[track.id]
+        if (existing != null && existing.path == track.filePath) return existing
+        existing?.player?.release()
+        val p = ExoPlayer.Builder(context).build()
+        p.setMediaItem(MediaItem.fromUri(Uri.fromFile(File(track.filePath))))
+        p.prepare()
+        return Slot(p, track.filePath).also { slots[track.id] = it }
+    }
+
+    private fun clipFrames(track: org.wishyclip.app.data.AudioTrackEntity, fps: Int): Int =
+        (track.durationMs * fps / 1000L).toInt().coerceAtLeast(1)
+
+    /** Starts, seeks or stops each clip so it matches [frame]. */
+    fun sync(tracks: List<org.wishyclip.app.data.AudioTrackEntity>, frame: Int, fps: Int) {
+        val liveIds = tracks.map { it.id }.toSet()
+        slots.keys.filter { it !in liveIds }.forEach { remove(it) }
+        for (t in tracks) {
+            val slot = slotFor(t)
+            val active = frame >= t.startFrame && frame < t.startFrame + clipFrames(t, fps) && t.volume > 0f
+            slot.player.volume = t.volume
+            if (active) {
+                if (!slot.player.isPlaying) {
+                    val posMs = (frame - t.startFrame) * 1000L / fps + t.trimStartMs
+                    slot.player.seekTo(posMs.coerceAtLeast(0L))
+                    slot.player.playWhenReady = true
+                }
+            } else if (slot.player.playWhenReady) {
+                slot.player.playWhenReady = false
+            }
+        }
+    }
+
+    /** Applies a volume change immediately, even while playing. */
+    fun setVolume(trackId: Long, volume: Float) {
+        slots[trackId]?.player?.volume = volume.coerceIn(0f, 1f)
+    }
+
+    fun pauseAll() = slots.values.forEach { it.player.playWhenReady = false }
+
+    fun remove(trackId: Long) {
+        slots.remove(trackId)?.player?.release()
+    }
+
+    fun release() {
+        slots.values.forEach { it.player.release() }
+        slots.clear()
+    }
+}

@@ -33,6 +33,27 @@ object Importer {
         return result
     }
 
+    /** Decodes an image and scales it down (never up) to fit the box, keeping its own aspect ratio. */
+    suspend fun importImageTight(context: Context, uri: Uri, maxWidth: Int, maxHeight: Int): Bitmap? =
+        withContext(Dispatchers.IO) {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val original = BitmapFactory.decodeStream(stream) ?: return@withContext null
+                    val scale = minOf(maxWidth / original.width.toFloat(), maxHeight / original.height.toFloat(), 1f)
+                    if (scale >= 1f) original
+                    else {
+                        val w = (original.width * scale).toInt().coerceAtLeast(1)
+                        val h = (original.height * scale).toInt().coerceAtLeast(1)
+                        val out = Bitmap.createScaledBitmap(original, w, h, true)
+                        if (out !== original) original.recycle()
+                        out
+                    }
+                }
+            } catch (e: Exception) {
+                null
+            }
+        }
+
     suspend fun importImage(context: Context, uri: Uri, targetWidth: Int, targetHeight: Int): Bitmap? =
         withContext(Dispatchers.IO) {
             try {

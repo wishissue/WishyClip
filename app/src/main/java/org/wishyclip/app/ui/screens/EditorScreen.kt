@@ -135,7 +135,7 @@ fun EditorScreen(
     var isStudioExpanded by rememberSaveable { mutableStateOf(false) }
 
     val imageLayerPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) vm.importImageAsLayer(uri)
+        if (uri != null) vm.importImageForPlacement(uri)
     }
     val imageSequencePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (!uris.isNullOrEmpty()) vm.importImageSequence(uris)
@@ -731,6 +731,8 @@ fun EditorScreen(
                             onAddLayer = { vm.addLayer() },
                             onFpsRequested = { showFpsDialog = true },
                             onAudioRequested = { showAudioDialog = true },
+                            onUpdateAudioTrack = { vm.updateAudioTrack(it) },
+                            onDeleteAudioTrack = { vm.deleteAudioTrack(it) },
                             onUpdateFrameExposure = { index, duration -> vm.updateFrameExposure(index, duration) }
                         )
                     }

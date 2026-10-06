@@ -98,12 +98,21 @@ class ExportService : Service() {
 
         when (format) {
             ExportFormat.MP4 -> {
+                // Repeat each frame for its hold (exposure) so the video lasts as long as the preview.
+                val timeline = ArrayList<Bitmap>()
+                for (i in compositeFrames.indices) {
+                    repeat(frames[i].exposureDuration.coerceAtLeast(1)) { timeline.add(compositeFrames[i]) }
+                }
+                val fps = project.fps.coerceAtLeast(1)
+                val totalUs = timeline.size * 1_000_000L / fps
+                val audio = AudioMixer.mixAndEncode(repo.getAudioTracks(projectId), fps, totalUs)
                 Mp4Encoder.encodeMp4(
                     outputFile = outputFile,
                     width = project.width,
                     height = project.height,
                     fps = project.fps,
-                    frames = compositeFrames,
+                    frames = timeline,
+                    audio = audio,
                     onProgress = { p -> updateProgress(50 + (p * 50).toInt()) }
                 )
             }

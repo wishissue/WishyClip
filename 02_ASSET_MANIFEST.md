@@ -2,6 +2,7 @@
 
 | Asset Name | Category | Source URL | License | License File Path | Modification Status | Application Usage |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **WishyClip Logo** | App Branding | User Provided | Custom | `design/logo/logo_source.png` | Custom doodle cat branding asset | App launcher, splash, store, and in-app branding |
 | **Phosphor Icons** | Vector SVG Icons | https://phosphoricons.com | MIT | `assets/icons/LICENSES/PHOSPHOR_LICENSE.txt` | Bold weight vector drawables styled to WishyClip tokens | Primary drawing tools, navigation, frame actions |
 | **Tabler Icons** | Vector SVG Icons | https://tabler.io/icons | MIT | `assets/icons/LICENSES/TABLER_LICENSE.txt` | Colors/strokes mapped to WishyClip tokens (24x24 viewBox, 2px stroke) | Primary drawing tools, navigation, frame actions |
 | **Lucide Icons** | Vector SVG Icons | https://lucide.dev | ISC / MIT | `assets/icons/LICENSES/LUCIDE_LICENSE.txt` | Customized stroke and cap styling | Secondary tools (ruler, mirror, audio track, sliders) |

@@ -1,0 +1,430 @@
+diff --git a/app/src/main/java/org/wishyclip/app/export/AudioMixer.kt b/app/src/main/java/org/wishyclip/app/export/AudioMixer.kt
+new file mode 100644
+index 0000000..7df57cd
+--- /dev/null
++++ b/app/src/main/java/org/wishyclip/app/export/AudioMixer.kt
+@@ -0,0 +1,205 @@
++package org.wishyclip.app.export
++
++import android.media.MediaCodec
++import android.media.MediaCodecInfo
++import android.media.MediaExtractor
++import android.media.MediaFormat
++import org.wishyclip.app.data.AudioTrackEntity
++import java.io.File
++import kotlin.math.max
++import kotlin.math.min
++
++/** One encoded AAC access unit, ready to hand to the muxer. */
++class AudioSample(val data: ByteArray, val ptsUs: Long, val flags: Int)
++
++class EncodedAudio(val format: MediaFormat, val samples: List<AudioSample>)
++
++/**
++ * Mixes every audio clip of a project into one stereo track and encodes it as AAC for the MP4 export.
++ * Each clip honours its start position, trim in/out points and volume, exactly like the editor preview.
++ * Resampling is nearest-neighbour, which is fine for animation soundtracks and voice.
++ */
++object AudioMixer {
++    private const val RATE = 44100
++    private const val CHANNELS = 2
++    private const val TIMEOUT_US = 10_000L
++
++    /** Returns null when there is nothing audible to export or encoding fails (video is still exported). */
++    fun mixAndEncode(tracks: List<AudioTrackEntity>, fps: Int, totalDurationUs: Long): EncodedAudio? {
++        val audible = tracks.filter { it.volume > 0f && it.durationMs > 0L && File(it.filePath).exists() }
++        if (audible.isEmpty() || totalDurationUs <= 0L) return null
++        return try {
++            val totalFrames = (totalDurationUs * RATE / 1_000_000L).toInt().coerceAtLeast(1)
++            val mix = IntArray(totalFrames * CHANNELS)
++            for (t in audible) {
++                try {
++                    mixClip(mix, t, fps)
++                } catch (e: Exception) {
++                    e.printStackTrace() // a broken clip is skipped, the rest still exports
++                }
++            }
++            encodeAac(mix)
++        } catch (e: Exception) {
++            e.printStackTrace()
++            null
++        }
++    }
++
++    private fun mixClip(mix: IntArray, track: AudioTrackEntity, fps: Int) {
++        val extractor = MediaExtractor()
++        extractor.setDataSource(track.filePath)
++        var audioIndex = -1
++        for (i in 0 until extractor.trackCount) {
++            if (extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
++                audioIndex = i
++                break
++            }
++        }
++        if (audioIndex < 0) { extractor.release(); return }
++        extractor.selectTrack(audioIndex)
++        val inFormat = extractor.getTrackFormat(audioIndex)
++        val mime = inFormat.getString(MediaFormat.KEY_MIME) ?: run { extractor.release(); return }
++
++        val trimStartUs = track.trimStartMs * 1000L
++        val trimEndUs = trimStartUs + track.durationMs * 1000L
++        val clipStartUs = track.startFrame.toLong() * 1_000_000L / fps.coerceAtLeast(1)
++        extractor.seekTo(trimStartUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
++
++        val decoder = MediaCodec.createDecoderByType(mime)
++        decoder.configure(inFormat, null, null, 0)
++        decoder.start()
++
++        var srcRate = inFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
++        var srcChannels = inFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
++        val info = MediaCodec.BufferInfo()
++        var inputDone = false
++        var outputDone = false
++        var lastDst = -1
++        val gain = track.volume.coerceIn(0f, 1f)
++        val totalFrames = mix.size / CHANNELS
++
++        try {
++            while (!outputDone) {
++                if (!inputDone) {
++                    val inIdx = decoder.dequeueInputBuffer(TIMEOUT_US)
++                    if (inIdx >= 0) {
++                        val buf = decoder.getInputBuffer(inIdx)!!
++                        val size = extractor.readSampleData(buf, 0)
++                        if (size < 0 || extractor.sampleTime > trimEndUs) {
++                            decoder.queueInputBuffer(inIdx, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
++                            inputDone = true
++                        } else {
++                            decoder.queueInputBuffer(inIdx, 0, size, extractor.sampleTime, 0)
++                            extractor.advance()
++                        }
++                    }
++                }
++                val outIdx = decoder.dequeueOutputBuffer(info, TIMEOUT_US)
++                when {
++                    outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
++                        val f = decoder.outputFormat
++                        srcRate = f.getInteger(MediaFormat.KEY_SAMPLE_RATE)
++                        srcChannels = f.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
++                    }
++                    outIdx >= 0 -> {
++                        val out = decoder.getOutputBuffer(outIdx)
++                        if (out != null && info.size > 0) {
++                            out.position(info.offset)
++                            out.limit(info.offset + info.size)
++                            val shorts = out.asShortBuffer()
++                            val frameCount = shorts.remaining() / srcChannels.coerceAtLeast(1)
++                            for (i in 0 until frameCount) {
++                                val tUs = info.presentationTimeUs + i * 1_000_000L / srcRate
++                                if (tUs < trimStartUs) continue
++                                if (tUs >= trimEndUs) { outputDone = true; break }
++                                val dstUs = clipStartUs + (tUs - trimStartUs)
++                                val dst = (dstUs * RATE / 1_000_000L).toInt()
++                                if (dst >= totalFrames) { outputDone = true; break }
++                                if (dst <= lastDst) continue // downsampling: one write per output sample
++                                val l = shorts.get(i * srcChannels).toInt()
++                                val r = if (srcChannels >= 2) shorts.get(i * srcChannels + 1).toInt() else l
++                                val lg = (l * gain).toInt()
++                                val rg = (r * gain).toInt()
++                                // Hold the sample over any gap (upsampling) so there are no clicks.
++                                for (d in max(lastDst + 1, 0)..dst) {
++                                    mix[d * CHANNELS] += lg
++                                    mix[d * CHANNELS + 1] += rg
++                                }
++                                lastDst = dst
++                            }
++                        }
++                        decoder.releaseOutputBuffer(outIdx, false)
++                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
++                    }
++                }
++            }
++        } finally {
++            try { decoder.stop() } catch (_: Exception) {}
++            decoder.release()
++            extractor.release()
++        }
++    }
++
++    private fun encodeAac(mix: IntArray): EncodedAudio? {
++        val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, RATE, CHANNELS).apply {
++            setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
++            setInteger(MediaFormat.KEY_BIT_RATE, 128_000)
++            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
++        }
++        val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
++        encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
++        encoder.start()
++
++        val samples = ArrayList<AudioSample>()
++        var outFormat: MediaFormat? = null
++        val info = MediaCodec.BufferInfo()
++        var pos = 0 // index into mix (shorts)
++        var inputDone = false
++        var outputDone = false
++        try {
++            while (!outputDone) {
++                if (!inputDone) {
++                    val inIdx = encoder.dequeueInputBuffer(TIMEOUT_US)
++                    if (inIdx >= 0) {
++                        val buf = encoder.getInputBuffer(inIdx)!!
++                        buf.clear()
++                        val ptsUs = (pos / CHANNELS).toLong() * 1_000_000L / RATE
++                        val count = min(buf.capacity() / 2, mix.size - pos)
++                        if (count <= 0) {
++                            encoder.queueInputBuffer(inIdx, 0, 0, ptsUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
++                            inputDone = true
++                        } else {
++                            val sb = buf.asShortBuffer()
++                            for (i in 0 until count) {
++                                sb.put(mix[pos + i].coerceIn(-32768, 32767).toShort())
++                            }
++                            encoder.queueInputBuffer(inIdx, 0, count * 2, ptsUs, 0)
++                            pos += count
++                        }
++                    }
++                }
++                val outIdx = encoder.dequeueOutputBuffer(info, TIMEOUT_US)
++                when {
++                    outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> outFormat = encoder.outputFormat
++                    outIdx >= 0 -> {
++                        val out = encoder.getOutputBuffer(outIdx)
++                        if (out != null && info.size > 0 && info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
++                            out.position(info.offset)
++                            out.limit(info.offset + info.size)
++                            val bytes = ByteArray(info.size)
++                            out.get(bytes)
++                            samples.add(AudioSample(bytes, info.presentationTimeUs, info.flags))
++                        }
++                        encoder.releaseOutputBuffer(outIdx, false)
++                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
++                    }
++                }
++            }
++        } finally {
++            try { encoder.stop() } catch (_: Exception) {}
++            encoder.release()
++        }
++        val f = outFormat ?: return null
++        return EncodedAudio(f, samples)
++    }
++}
+diff --git a/app/src/main/java/org/wishyclip/app/export/ExportService.kt b/app/src/main/java/org/wishyclip/app/export/ExportService.kt
+index 2ed620d..b89d069 100644
+--- a/app/src/main/java/org/wishyclip/app/export/ExportService.kt
++++ b/app/src/main/java/org/wishyclip/app/export/ExportService.kt
+@@ -98,12 +98,21 @@ class ExportService : Service() {
+ 
+         when (format) {
+             ExportFormat.MP4 -> {
++                // Repeat each frame for its hold (exposure) so the video lasts as long as the preview.
++                val timeline = ArrayList<Bitmap>()
++                for (i in compositeFrames.indices) {
++                    repeat(frames[i].exposureDuration.coerceAtLeast(1)) { timeline.add(compositeFrames[i]) }
++                }
++                val fps = project.fps.coerceAtLeast(1)
++                val totalUs = timeline.size * 1_000_000L / fps
++                val audio = AudioMixer.mixAndEncode(repo.getAudioTracks(projectId), fps, totalUs)
+                 Mp4Encoder.encodeMp4(
+                     outputFile = outputFile,
+                     width = project.width,
+                     height = project.height,
+                     fps = project.fps,
+-                    frames = compositeFrames,
++                    frames = timeline,
++                    audio = audio,
+                     onProgress = { p -> updateProgress(50 + (p * 50).toInt()) }
+                 )
+             }
+diff --git a/app/src/main/java/org/wishyclip/app/export/Mp4Encoder.kt b/app/src/main/java/org/wishyclip/app/export/Mp4Encoder.kt
+index 1f14b6a..dd8771a 100644
+--- a/app/src/main/java/org/wishyclip/app/export/Mp4Encoder.kt
++++ b/app/src/main/java/org/wishyclip/app/export/Mp4Encoder.kt
+@@ -17,6 +17,7 @@ object Mp4Encoder {
+         height: Int,
+         fps: Int,
+         frames: List<Bitmap>,
++        audio: EncodedAudio? = null,
+         onProgress: (Float) -> Unit = {}
+     ): Boolean {
+         val encWidth = if (width % 2 != 0) width - 1 else width
+@@ -36,10 +37,56 @@ object Mp4Encoder {
+ 
+         val muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+         var trackIndex = -1
++        var audioTrackIndex = -1
+         var muxerStarted = false
+ 
+         val bufferInfo = MediaCodec.BufferInfo()
+         val frameDurationUs = 1_000_000L / fps.coerceAtLeast(1)
++        var videoSamples = 0L
++        var audioPos = 0
++        val audioInfo = MediaCodec.BufferInfo()
++
++        // Writes queued audio up to [untilUs] so audio and video stay interleaved in the file.
++        fun flushAudio(untilUs: Long) {
++            val a = audio ?: return
++            if (!muxerStarted || audioTrackIndex < 0) return
++            while (audioPos < a.samples.size && a.samples[audioPos].ptsUs <= untilUs) {
++                val smp = a.samples[audioPos++]
++                audioInfo.set(0, smp.data.size, smp.ptsUs, smp.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM.inv())
++                muxer.writeSampleData(audioTrackIndex, java.nio.ByteBuffer.wrap(smp.data), audioInfo)
++            }
++        }
++
++        // Returns true once the encoder reports end of stream.
++        fun drain(timeoutUs: Long): Boolean {
++            while (true) {
++                val status = codec.dequeueOutputBuffer(bufferInfo, timeoutUs)
++                if (status == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
++                    trackIndex = muxer.addTrack(codec.outputFormat)
++                    // The audio track must be added before the muxer starts.
++                    if (audio != null) audioTrackIndex = muxer.addTrack(audio.format)
++                    muxer.start()
++                    muxerStarted = true
++                } else if (status >= 0) {
++                    val encodedData = codec.getOutputBuffer(status)
++                    if (encodedData != null && muxerStarted) {
++                        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
++                            bufferInfo.size = 0
++                        }
++                        if (bufferInfo.size != 0) {
++                            bufferInfo.presentationTimeUs = videoSamples * frameDurationUs
++                            flushAudio(bufferInfo.presentationTimeUs)
++                            muxer.writeSampleData(trackIndex, encodedData, bufferInfo)
++                            videoSamples++
++                        }
++                    }
++                    codec.releaseOutputBuffer(status, false)
++                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return true
++                } else {
++                    return false
++                }
++            }
++        }
+ 
+         try {
+             for (i in frames.indices) {
+@@ -47,32 +94,16 @@ object Mp4Encoder {
+                 val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+                 canvas.drawBitmap(frames[i], null, Rect(0, 0, encWidth, encHeight), paint)
+                 surface.unlockCanvasAndPost(canvas)
+-
+-                while (true) {
+-                    val status = codec.dequeueOutputBuffer(bufferInfo, 10000)
+-                    if (status == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+-                        trackIndex = muxer.addTrack(codec.outputFormat)
+-                        muxer.start()
+-                        muxerStarted = true
+-                    } else if (status >= 0) {
+-                        val encodedData = codec.getOutputBuffer(status)
+-                        if (encodedData != null && muxerStarted) {
+-                            if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
+-                                bufferInfo.size = 0
+-                            }
+-                            if (bufferInfo.size != 0) {
+-                                bufferInfo.presentationTimeUs = i * frameDurationUs
+-                                muxer.writeSampleData(trackIndex, encodedData, bufferInfo)
+-                            }
+-                            codec.releaseOutputBuffer(status, false)
+-                        }
+-                    } else {
+-                        break
+-                    }
+-                }
++                drain(10000)
+                 onProgress((i + 1).toFloat() / frames.size)
+             }
+             codec.signalEndOfInputStream()
++            // Drain what is left in the encoder so the last frames are not lost.
++            var done = false
++            var guard = 0
++            while (!done && guard++ < 500) done = drain(10000)
++            // Any audio beyond the last video frame.
++            flushAudio(Long.MAX_VALUE)
+         } catch (e: Exception) {
+             e.printStackTrace()
+             return false
+diff --git a/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt b/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt
+index f76b5c7..91b3cb9 100644
+--- a/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt
++++ b/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt
+@@ -396,6 +396,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+ 
+     // ---------------------------------------------------------------- playback
+ 
++    /** Timeline position of a frame, counting holds. Audio start positions use this unit. */
++    private fun timelineFrameOf(index: Int): Int =
++        frames.take(index.coerceAtLeast(0)).sumOf { it.exposureDuration.coerceAtLeast(1) }
++
+     fun togglePlay() {
+         commitLassoSelection()
+         if (isPlaying) stopPlay() else startPlay()
+@@ -404,7 +408,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+     private fun startPlay() {
+         if (strokeLayer != null || frames.size < 2) return
+         isPlaying = true
+-        audioManager.sync(audioTracks, currentIndex, (project?.fps ?: 12).coerceAtLeast(1))
++        audioManager.sync(audioTracks, timelineFrameOf(currentIndex), (project?.fps ?: 12).coerceAtLeast(1))
+         playJob = viewModelScope.launch {
+             val fps = (project?.fps ?: 12).coerceAtLeast(1)
+             val frameMs = 1000L / fps
+@@ -418,7 +422,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+                     holdTicks = 0
+                     val next = (currentIndex + 1) % frames.size
+                     gotoFrame(next)
+-                    audioManager.sync(audioTracks, next, fps)
++                    audioManager.sync(audioTracks, timelineFrameOf(next), fps)
+                 }
+                 val spent = SystemClock.elapsedRealtime() - t0
+                 delay((frameMs - spent).coerceAtLeast(1L))
+@@ -770,7 +774,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+                 projectId = projectId,
+                 filePath = destFile.absolutePath,
+                 name = name,
+-                startFrame = currentIndex,
++                startFrame = timelineFrameOf(currentIndex),
+                 durationMs = duration
+             )
+             repo.addAudioTrack(entity)
+@@ -786,7 +790,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+                 projectId = projectId,
+                 filePath = recordedFile.absolutePath,
+                 name = "Voice Record",
+-                startFrame = currentIndex,
++                startFrame = timelineFrameOf(currentIndex),
+                 durationMs = duration
+             )
+             repo.addAudioTrack(entity)
+@@ -801,7 +805,8 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+     /** Cuts the clip at the playhead into two clips, like Split in a video editor. */
+     fun splitAudioTrackAtPlayhead(track: AudioTrackEntity) {
+         val fps = (project?.fps ?: 12).coerceAtLeast(1)
+-        val offsetMs = (currentIndex - track.startFrame) * 1000L / fps
++        val here = timelineFrameOf(currentIndex)
++        val offsetMs = (here - track.startFrame) * 1000L / fps
+         if (offsetMs <= 100L || offsetMs >= track.durationMs - 100L) {
+             showMessage("Move the playhead inside the clip to split it")
+             return
+@@ -811,7 +816,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+             repo.addAudioTrack(
+                 track.copy(
+                     id = 0,
+-                    startFrame = currentIndex,
++                    startFrame = here,
+                     trimStartMs = track.trimStartMs + offsetMs,
+                     durationMs = track.durationMs - offsetMs
+                 )
+diff --git a/app/src/main/java/org/wishyclip/app/ui/components/StudioTimeline.kt b/app/src/main/java/org/wishyclip/app/ui/components/StudioTimeline.kt
+index 48db824..e5c44f1 100644
+--- a/app/src/main/java/org/wishyclip/app/ui/components/StudioTimeline.kt
++++ b/app/src/main/java/org/wishyclip/app/ui/components/StudioTimeline.kt
+@@ -319,7 +319,7 @@ fun StudioTimeline(
+                         tracks = audioTracks,
+                         totalFrames = frames.sumOf { it.exposureDuration.coerceAtLeast(1) },
+                         fps = fps,
+-                        currentFrame = currentIndex,
++                        currentFrame = frames.take(currentIndex.coerceAtLeast(0)).sumOf { it.exposureDuration.coerceAtLeast(1) },
+                         onUpdate = onUpdateAudioTrack,
+                         onDelete = onDeleteAudioTrack,
+                         onAdd = onAudioRequested,

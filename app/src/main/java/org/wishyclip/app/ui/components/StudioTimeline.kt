@@ -83,6 +83,8 @@ fun StudioTimeline(
     onAddLayer: () -> Unit,
     onFpsRequested: () -> Unit,
     onAudioRequested: () -> Unit,
+    onUpdateAudioTrack: (AudioTrackEntity) -> Unit = {},
+    onDeleteAudioTrack: (Long) -> Unit = {},
     onUpdateFrameExposure: (Int, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -309,6 +311,18 @@ fun StudioTimeline(
                             }
                         }
                     }
+
+                    // ---- Audio lane: drag a clip to move it, adjust volume, mute or remove ----
+                    AudioLane(
+                        tracks = audioTracks,
+                        totalFrames = frames.sumOf { it.exposureDuration.coerceAtLeast(1) },
+                        fps = fps,
+                        currentFrame = currentIndex,
+                        onUpdate = onUpdateAudioTrack,
+                        onDelete = onDeleteAudioTrack,
+                        onAdd = onAudioRequested,
+                        modifier = Modifier.padding(horizontal = tokens.spaceMedium)
+                    )
 
                     // ---- Horizontally scrolling frame track ----
                     LazyRow(
