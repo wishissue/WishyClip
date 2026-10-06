@@ -24,6 +24,18 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import org.wishyclip.app.ui.components.bouncyClickable
+import org.wishyclip.app.ui.design.themes.CloudTokens
+import org.wishyclip.app.ui.design.themes.MidnightTokens
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.Box
 import org.wishyclip.app.R
 import org.wishyclip.app.ui.components.ActionIconButton
 import org.wishyclip.app.ui.components.SectionHeader
@@ -84,24 +96,21 @@ fun SettingsScreen(
 
                 SectionHeader(title = stringResource(R.string.setting_theme))
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = tokens.spaceLarge, vertical = tokens.spaceXs),
+                    horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
                 ) {
-                    TextButton(onClick = { onSelectTokens(FlipDarkTokens) }) {
-                        Text("Flip Dark", color = if (currentTokens.name == "Flip Dark") tokens.primary else tokens.onSurface)
-                    }
-                    TextButton(onClick = { onSelectTokens(LightTokens) }) {
-                        Text("Light", color = if (currentTokens.name == "Light") tokens.primary else tokens.onSurface)
-                    }
-                    TextButton(onClick = { onSelectTokens(DarkTokens) }) {
-                        Text("Dark", color = if (currentTokens.name == "Dark") tokens.primary else tokens.onSurface)
-                    }
-                    TextButton(onClick = { onSelectTokens(AmoledTokens) }) {
-                        Text("AMOLED", color = if (currentTokens.name == "AMOLED Black") tokens.primary else tokens.onSurface)
-                    }
-                    TextButton(onClick = { onSelectTokens(CandyTokens) }) {
-                        Text("Candy", color = if (currentTokens.name == "Candy") tokens.primary else tokens.onSurface)
-                    }
+                    listOf(CloudTokens, MidnightTokens, FlipDarkTokens, LightTokens, DarkTokens, AmoledTokens, CandyTokens)
+                        .forEach { option ->
+                            ThemeChip(
+                                name = option.name,
+                                dot = option.primary,
+                                selected = currentTokens.name == option.name,
+                                onClick = { onSelectTokens(option) }
+                            )
+                        }
                 }
 
                 SectionHeader(title = stringResource(R.string.setting_icon_pack))
@@ -181,6 +190,39 @@ private fun SettingsScreenLightPreview() {
             onToggleLeftHanded = {},
             onOpenDesignGallery = {},
             onBack = {}
+        )
+    }
+}
+
+
+/** Big rounded chip showing a theme's accent color and name. */
+@Composable
+private fun ThemeChip(name: String, dot: Color, selected: Boolean, onClick: () -> Unit) {
+    val tokens = WishyTheme.tokens
+    Row(
+        modifier = Modifier
+            .bouncyClickable(onClick = onClick)
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) tokens.primaryContainer else tokens.surfaceVariant)
+            .border(
+                width = 2.dp,
+                color = if (selected) tokens.primary else Color.Transparent,
+                shape = RoundedCornerShape(50)
+            )
+            .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceSmall),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .background(dot)
+        )
+        Text(
+            text = name,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) tokens.onPrimaryContainer else tokens.onSurface
         )
     }
 }

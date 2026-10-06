@@ -75,6 +75,7 @@ fun WishyTheme(
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
+            typography = WishyTypography,
             content = content
         )
     }

@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -14,7 +15,9 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.IBinder
+import android.provider.MediaStore
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CoroutineScope
@@ -136,15 +139,84 @@ class ExportService : Service() {
 
         compositeFrames.forEach { if (!it.isRecycled) it.recycle() }
 
-        val shareUri = FileProvider.getUriForFile(
-            this,
-            "$packageName.fileprovider",
-            outputFile
-        )
+        val savedUri = saveToPublicStorage(outputFile, format)
+        val fileUri = savedUri ?: try {
+            FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                outputFile
+            )
+        } catch (e: Exception) {
+            null
+        }
 
-        showCompletionNotification(shareUri, format)
+        showCompletionNotification(fileUri, outputFile.name, format)
         stopForeground(STOP_FOREGROUND_DETACH)
         stopSelf()
+    }
+
+    private fun saveToPublicStorage(outputFile: File, format: ExportFormat): Uri? {
+        val mimeType = when (format) {
+            ExportFormat.MP4 -> "video/mp4"
+            ExportFormat.GIF -> "image/gif"
+            ExportFormat.PNG_SEQUENCE -> "application/zip"
+            ExportFormat.PNG_CURRENT_FRAME -> "image/png"
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val resolver = contentResolver
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, outputFile.name)
+                    put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                    val subDir = when (format) {
+                        ExportFormat.MP4 -> Environment.DIRECTORY_MOVIES
+                        ExportFormat.GIF, ExportFormat.PNG_CURRENT_FRAME -> Environment.DIRECTORY_PICTURES
+                        ExportFormat.PNG_SEQUENCE -> Environment.DIRECTORY_DOWNLOADS
+                    }
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, "$subDir/WishyClip")
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+
+                val collectionUri = when (format) {
+                    ExportFormat.MP4 -> MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                    ExportFormat.GIF, ExportFormat.PNG_CURRENT_FRAME -> MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                    ExportFormat.PNG_SEQUENCE -> MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                }
+
+                val uri = resolver.insert(collectionUri, contentValues)
+                if (uri != null) {
+                    resolver.openOutputStream(uri)?.use { os ->
+                        outputFile.inputStream().use { it.copyTo(os) }
+                    }
+                    contentValues.clear()
+                    contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    resolver.update(uri, contentValues, null, null)
+                    return uri
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        return try {
+            val publicDirType = when (format) {
+                ExportFormat.MP4 -> Environment.DIRECTORY_MOVIES
+                ExportFormat.GIF, ExportFormat.PNG_CURRENT_FRAME -> Environment.DIRECTORY_PICTURES
+                ExportFormat.PNG_SEQUENCE -> Environment.DIRECTORY_DOWNLOADS
+            }
+            val targetDir = File(Environment.getExternalStoragePublicDirectory(publicDirType), "WishyClip").apply { mkdirs() }
+            val destFile = File(targetDir, outputFile.name)
+            outputFile.copyTo(destFile, overwrite = true)
+            FileProvider.getUriForFile(this, "$packageName.fileprovider", destFile)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            try {
+                FileProvider.getUriForFile(this, "$packageName.fileprovider", outputFile)
+            } catch (e2: Exception) {
+                null
+            }
+        }
     }
 
     private fun updateProgress(progress: Int) {
@@ -160,7 +232,7 @@ class ExportService : Service() {
         manager.notify(NOTIFICATION_ID, notification)
     }
 
-    private fun showCompletionNotification(uri: Uri, format: ExportFormat) {
+    private fun showCompletionNotification(uri: Uri?, fileName: String, format: ExportFormat) {
         val mimeType = when (format) {
             ExportFormat.MP4 -> "video/mp4"
             ExportFormat.GIF -> "image/gif"
@@ -168,35 +240,29 @@ class ExportService : Service() {
             ExportFormat.PNG_CURRENT_FRAME -> "image/png"
         }
 
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = mimeType
-            putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent.createChooser(shareIntent, "Share Export"),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Export Complete!")
-            .setContentText("Tap to share your animation")
-            .setSmallIcon(R.drawable.ic_menu_share)
-            .setContentIntent(pendingIntent)
+            .setContentText("Saved $fileName to device")
+            .setSmallIcon(R.drawable.ic_menu_save)
             .setAutoCancel(true)
             .setOngoing(false)
-            .build()
+
+        if (uri != null) {
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mimeType)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                viewIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            notificationBuilder.setContentIntent(pendingIntent)
+        }
 
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID + 1, notification)
-
-        val chooser = Intent.createChooser(shareIntent, "Share Export").apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        startActivity(chooser)
+        manager.notify(NOTIFICATION_ID + 1, notificationBuilder.build())
     }
 
     private fun createNotificationChannel() {

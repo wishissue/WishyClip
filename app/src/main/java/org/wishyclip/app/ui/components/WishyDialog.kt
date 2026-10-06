@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -33,7 +34,9 @@ fun WishyDialog(
     AlertDialog(
         onDismissRequest = onDismissRequest,
         modifier = modifier,
-        title = { Text(text = title) },
+        shape = RoundedCornerShape(WishyTheme.tokens.largeRadius),
+        containerColor = WishyTheme.tokens.surface,
+        title = { Text(text = title, style = MaterialTheme.typography.titleLarge) },
         text = content,
         confirmButton = {
             TextButton(onClick = onConfirm) {

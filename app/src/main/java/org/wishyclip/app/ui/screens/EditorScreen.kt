@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -77,6 +78,7 @@ import org.wishyclip.app.ui.components.ActionIconButton
 import org.wishyclip.app.ui.components.ColorPickerSheet
 import org.wishyclip.app.ui.components.ColorSwatch
 import org.wishyclip.app.ui.components.ContextToolPanel
+import org.wishyclip.app.ui.components.GlassSurface
 import org.wishyclip.app.ui.components.LayerPanel
 import org.wishyclip.app.ui.components.ShortcutDialog
 import org.wishyclip.app.ui.components.StudioTimeline
@@ -137,6 +139,8 @@ fun EditorScreen(
     }
 
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    // Five big top-bar buttons leave no room for the title on narrow phones.
+    val showTitle = LocalConfiguration.current.screenWidthDp >= 420
     val brushPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         vm.importBrushFiles(uris)
     }
@@ -167,13 +171,13 @@ fun EditorScreen(
         ColorSwatch(
             color = Color(vm.color),
             onClick = { showColorPicker = true },
-            size = 36.dp
+            size = 48.dp
         )
     }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = tokens.surface
+        color = tokens.canvasBackdrop
     ) {
         if (vm.loadError) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -195,11 +199,17 @@ fun EditorScreen(
                     enter = fadeIn(),
                     exit = fadeOut()
                 ) {
+                  // Floating glass capsule: big Back, Undo, Redo, Layers and More buttons.
+                  Box(
+                      modifier = Modifier
+                          .fillMaxWidth()
+                          .padding(horizontal = tokens.floatMargin, vertical = tokens.floatMargin / 2)
+                  ) {
+                    GlassSurface(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(tokens.topBarHeight)
-                            .background(tokens.surface)
                             .padding(horizontal = tokens.spaceXs),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -208,17 +218,21 @@ fun EditorScreen(
                             contentDescription = "Back",
                             onClick = { vm.saveAndExit(onExit) }
                         )
-                        Text(
-                            text = vm.project?.name ?: "",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = tokens.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = tokens.spaceSmall)
-                        )
+                        if (showTitle) {
+                            Text(
+                                text = vm.project?.name ?: "",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = tokens.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = tokens.spaceSmall)
+                            )
+                        } else {
+                            Spacer(Modifier.weight(1f))
+                        }
                         ActionIconButton(
                             iconRes = WishyIcons.Undo,
                             contentDescription = stringResource(R.string.action_undo),
@@ -230,12 +244,6 @@ fun EditorScreen(
                             contentDescription = stringResource(R.string.action_redo),
                             enabled = vm.canRedo,
                             onClick = { vm.redo() }
-                        )
-                        ActionIconButton(
-                            iconRes = if (vm.isPlaying) WishyIcons.Pause else WishyIcons.Play,
-                            contentDescription = if (vm.isPlaying) "Pause" else "Play",
-                            selected = vm.isPlaying,
-                            onClick = { vm.togglePlay() }
                         )
                         ActionIconButton(
                             iconRes = WishyIcons.Layers,
@@ -314,6 +322,8 @@ fun EditorScreen(
                             }
                         }
                     }
+                    }
+                  }
                 }
 
                 // ---- Workspace: (landscape tool rail) + canvas ----
@@ -452,7 +462,7 @@ fun EditorScreen(
                         }
 
                         if (showToolOptions && !vm.tool.isBrush && !isUiHidden) {
-                            Surface(
+                            GlassSurface(
                                 modifier = Modifier
                                     .align(
                                         when {
@@ -463,13 +473,11 @@ fun EditorScreen(
                                     )
                                     .padding(tokens.spaceSmall)
                                     .then(
-                                        if (isLandscape) Modifier.width(220.dp)
-                                        else Modifier.fillMaxWidth().widthIn(max = 360.dp)
+                                        if (isLandscape) Modifier.width(240.dp)
+                                        else Modifier.fillMaxWidth().widthIn(max = 380.dp)
                                     )
                                     .heightIn(max = maxHeight - tokens.spaceSmall * 2),
-                                shape = RoundedCornerShape(tokens.mediumRadius),
-                                color = tokens.toolRail,
-                                shadowElevation = tokens.elevationMedium
+                                shape = RoundedCornerShape(tokens.largeRadius)
                             ) {
                                 Column(
                                     modifier = Modifier
@@ -628,12 +636,6 @@ fun EditorScreen(
                     exit = fadeOut()
                 ) {
                     Column {
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(tokens.surfaceVariant)
-                        )
                         StudioTimeline(
                             frames = vm.frames,
                             currentIndex = vm.currentIndex,

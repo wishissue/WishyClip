@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -47,8 +48,9 @@ fun LayerPanel(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(tokens.mediumRadius))
-            .background(tokens.surface)
+            .shadow(tokens.elevationMedium, RoundedCornerShape(tokens.largeRadius))
+            .clip(RoundedCornerShape(tokens.largeRadius))
+            .background(tokens.toolRail)
             .padding(tokens.spaceMedium)
     ) {
         SectionHeader(title = "Layers (Current Frame)")

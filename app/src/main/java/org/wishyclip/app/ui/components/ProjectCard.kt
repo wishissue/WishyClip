@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -46,7 +47,8 @@ fun ProjectCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(tokens.mediumRadius))
+            .shadow(tokens.elevationSmall, RoundedCornerShape(tokens.largeRadius))
+            .clip(RoundedCornerShape(tokens.largeRadius))
             .background(tokens.toolRail)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
@@ -73,10 +75,10 @@ fun ProjectCard(
                 )
             }
         }
-        Column(modifier = Modifier.padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceSmall)) {
+        Column(modifier = Modifier.padding(horizontal = tokens.spaceMedium + 2.dp, vertical = tokens.spaceMedium)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = tokens.onSurface,
                 maxLines = 1,
@@ -84,7 +86,7 @@ fun ProjectCard(
             )
             Text(
                 text = info,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = tokens.onSurfaceVariant
             )
         }

@@ -37,4 +37,13 @@ class ExporterTest {
         assertEquals('I'.code.toByte(), bytes[1])
         assertEquals('F'.code.toByte(), bytes[2])
     }
+
+    @Test
+    fun testExportFormats() {
+        assertEquals(4, ExportFormat.entries.size)
+        assertEquals(ExportFormat.MP4, ExportFormat.valueOf("MP4"))
+        assertEquals(ExportFormat.GIF, ExportFormat.valueOf("GIF"))
+        assertEquals(ExportFormat.PNG_SEQUENCE, ExportFormat.valueOf("PNG_SEQUENCE"))
+        assertEquals(ExportFormat.PNG_CURRENT_FRAME, ExportFormat.valueOf("PNG_CURRENT_FRAME"))
+    }
 }

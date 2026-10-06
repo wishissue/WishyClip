@@ -34,16 +34,16 @@ fun TimelineFrameCell(
     onDecreaseExposure: (() -> Unit)? = null
 ) {
     val tokens = WishyTheme.tokens
-    val shape = RoundedCornerShape(6.dp)
-    val cellWidth = (64 + (exposureDuration - 1) * 20).coerceAtMost(160).dp
+    val shape = RoundedCornerShape(tokens.smallRadius + 2.dp)
+    val cellWidth = tokens.frameCellWidth + (20 * (exposureDuration - 1).coerceIn(0, 4)).dp
 
     Box(
         modifier = modifier
-            .size(width = cellWidth, height = 46.dp)
+            .size(width = cellWidth, height = tokens.frameCellHeight)
             .clip(shape)
             .background(tokens.paper)
             .border(
-                width = if (selected) 2.5.dp else 1.dp,
+                width = if (selected) 3.dp else 1.dp,
                 color = if (selected) tokens.primary else tokens.surfaceVariant,
                 shape = shape
             )
@@ -52,11 +52,11 @@ fun TimelineFrameCell(
         Text(
             text = "${frameIndex + 1}",
             style = MaterialTheme.typography.labelMedium,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             color = if (selected) tokens.primary else Color(0xFF6B6B73),
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 6.dp, bottom = 3.dp)
+                .padding(start = 8.dp, bottom = 5.dp)
         )
         if (selected) {
             Row(
@@ -68,8 +68,8 @@ fun TimelineFrameCell(
                 if (exposureDuration > 1 && onDecreaseExposure != null) {
                     Box(
                         modifier = Modifier
-                            .size(16.dp)
-                            .clip(RoundedCornerShape(3.dp))
+                            .size(26.dp)
+                            .clip(RoundedCornerShape(8.dp))
                             .background(tokens.surfaceVariant)
                             .clickable { onDecreaseExposure() },
                         contentAlignment = Alignment.Center
@@ -89,8 +89,8 @@ fun TimelineFrameCell(
                 if (onIncreaseExposure != null) {
                     Box(
                         modifier = Modifier
-                            .size(16.dp)
-                            .clip(RoundedCornerShape(3.dp))
+                            .size(26.dp)
+                            .clip(RoundedCornerShape(8.dp))
                             .background(tokens.surfaceVariant)
                             .clickable { onIncreaseExposure() },
                         contentAlignment = Alignment.Center

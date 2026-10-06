@@ -90,11 +90,9 @@ fun BrushMenu(
     onImportBrushes: (() -> Unit)? = null
 ) {
     val tokens = WishyTheme.tokens
-    Surface(
+    GlassSurface(
         modifier = modifier,
-        shape = RoundedCornerShape(tokens.mediumRadius),
-        color = tokens.toolRail,
-        shadowElevation = tokens.elevationMedium
+        shape = RoundedCornerShape(tokens.largeRadius)
     ) {
         Column(
             // Scrolls as a whole so it stays usable in short (landscape) windows.

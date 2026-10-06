@@ -1,15 +1,17 @@
 package org.wishyclip.app.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -43,48 +45,65 @@ fun ToolRail(
     trailing: (@Composable () -> Unit)? = null
 ) {
     val tokens = WishyTheme.tokens
+    val dockShape = RoundedCornerShape(tokens.largeRadius)
 
     if (horizontal) {
-        Row(
+        // Floating capsule that hovers above the timeline.
+        Box(
             modifier = modifier
                 .fillMaxWidth()
-                .background(tokens.toolRail)
-                .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = tokens.floatMargin, vertical = tokens.floatMargin / 2)
         ) {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)
-            ) {
-                ToolItems(selectedTool, onSelectTool, activeBrush, onBrushClick, mirrorMode, onMirrorClick, rulerOn, onRulerClick)
-            }
-            if (trailing != null) {
-                Row(modifier = Modifier.padding(start = tokens.spaceSmall)) { trailing() }
+            GlassSurface(modifier = Modifier.fillMaxWidth(), shape = dockShape) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)
+                    ) {
+                        ToolItems(selectedTool, onSelectTool, activeBrush, onBrushClick, mirrorMode, onMirrorClick, rulerOn, onRulerClick)
+                    }
+                    if (trailing != null) {
+                        Row(modifier = Modifier.padding(start = tokens.spaceSmall)) { trailing() }
+                    }
+                }
             }
         }
     } else {
-        Column(
+        // Floating vertical dock beside the canvas (landscape / tablets).
+        Box(
             modifier = modifier
-                .width(tokens.toolRailWidth)
+                .width(tokens.toolRailWidth + tokens.floatMargin * 2)
                 .fillMaxHeight()
-                .background(tokens.toolRail)
-                .padding(vertical = tokens.spaceSmall),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(tokens.floatMargin)
         ) {
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)
-            ) {
-                ToolItems(selectedTool, onSelectTool, activeBrush, onBrushClick, mirrorMode, onMirrorClick, rulerOn, onRulerClick)
-            }
-            if (trailing != null) {
-                Column(modifier = Modifier.padding(top = tokens.spaceSmall)) { trailing() }
+            GlassSurface(modifier = Modifier.fillMaxSize(), shape = dockShape) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(vertical = tokens.spaceSmall),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)
+                    ) {
+                        ToolItems(selectedTool, onSelectTool, activeBrush, onBrushClick, mirrorMode, onMirrorClick, rulerOn, onRulerClick)
+                    }
+                    if (trailing != null) {
+                        Column(modifier = Modifier.padding(top = tokens.spaceSmall)) { trailing() }
+                    }
+                }
             }
         }
     }

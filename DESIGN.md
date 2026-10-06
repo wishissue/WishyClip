@@ -78,3 +78,25 @@ Simply set `isLeftHanded = true` in settings. The UI layout automatically aligns
 ## 5. Design Gallery
 
 In debug builds, open **Settings > Design Gallery** to preview all components, themes, and icon packs side-by-side in real time!
+
+
+---
+
+## 6. The "Cloud" look (cute, big, Apple-style)
+
+The default theme is **Cloud** (light) with **Midnight** as its dark twin. The look is built from a few
+shared pieces, so re-skinning stays a tokens-only job:
+
+| Piece | File | What it does |
+|---|---|---|
+| `GlassSurface` | `ui/components/GlassSurface.kt` | Floating rounded panel: translucent tint, hairline border, soft shadow. Used by the top bar, tool dock, timeline and pop-over panels. |
+| `bouncyClickable` | `ui/components/BouncyClickable.kt` | Spring "squish" on press plus a light haptic tick. Used by every button. |
+| `PrimaryRoundButton` | `ui/components/PrimaryRoundButton.kt` | The one big filled circle in a bar (Play / Pause). |
+| `InterFamily` / `WishyTypography` | `ui/design/WishyTypography.kt` | Inter text styles, plus the iOS-style large title (`headlineMedium`). |
+
+New tokens: `floatMargin`, `glassAlpha`, `glassBorder`, `primaryButtonSize`, `frameCellWidth`, `frameCellHeight`.
+Defaults are now bigger and rounder: tool buttons 56dp, touch targets 52dp, radii 12 / 20 / 32dp.
+
+Notes:
+- The "glass" is a translucent tint, not a live background blur. Blurring behind the canvas would cost drawing performance.
+- Apple's San Francisco font and SF Symbols can't be redistributed in an Android app, so Inter and the existing open icon packs are used.

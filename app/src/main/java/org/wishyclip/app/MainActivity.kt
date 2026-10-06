@@ -24,7 +24,7 @@ import org.wishyclip.app.ui.EditorViewModelFactory
 import org.wishyclip.app.ui.HomeViewModel
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.WishyTokens
-import org.wishyclip.app.ui.design.themes.FlipDarkTokens
+import org.wishyclip.app.ui.design.themes.CloudTokens
 import org.wishyclip.app.ui.screens.DesignGalleryScreen
 import org.wishyclip.app.ui.screens.EditorScreen
 import org.wishyclip.app.ui.screens.ExportScreen
@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            var currentTokens by remember { mutableStateOf<WishyTokens>(FlipDarkTokens) }
+            var currentTokens by remember { mutableStateOf<WishyTokens>(CloudTokens) }
             var isLeftHanded by remember { mutableStateOf(false) }
 
             // Keep status/navigation bar icons readable against the active theme.

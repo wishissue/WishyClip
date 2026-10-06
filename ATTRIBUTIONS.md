@@ -16,6 +16,12 @@ Wishy Clip is licensed under the Apache License 2.0 (see `LICENSE`).
 Not used: FFmpegKit (retired), Krita or any other GPL code. `androidx.graphics:graphics-core` and
 skydoves ColorPicker are allowed by the project rules but are not used yet (see PROGRESS.md).
 
+## Fonts
+
+| Font | License | Source | Usage |
+|---|---|---|---|
+| **Inter** (Regular, Medium, SemiBold, Bold) | SIL Open Font License 1.1 (`docs/licenses/Inter-OFL.txt`) | https://github.com/rsms/inter | All UI text. Chosen as a free, open-source stand-in for a clean system-UI look. |
+
 ## Icons
 
 All UI icons use permissive open-source vector icon systems:

@@ -34,30 +34,41 @@ data class WishyTokens(
     /** Color of the drawing paper / frame cells (what the animation is drawn on). */
     val paper: Color = Color(0xFFFFFFFF),
 
-    // Radii
-    val smallRadius: Dp = 8.dp,
-    val mediumRadius: Dp = 16.dp,
-    val largeRadius: Dp = 28.dp,
+    /** Hairline used on floating "glass" panels so they separate from the canvas backdrop. */
+    val glassBorder: Color = Color(0x1F000000),
+    /** Opacity of floating panels (toolbars, timeline). Lower = more frosted/see-through. */
+    val glassAlpha: Float = 0.94f,
+
+    // Radii (soft, Apple-style squircle feel)
+    val smallRadius: Dp = 12.dp,
+    val mediumRadius: Dp = 20.dp,
+    val largeRadius: Dp = 32.dp,
 
     // Spacing
-    val spaceXs: Dp = 4.dp,
-    val spaceSmall: Dp = 8.dp,
-    val spaceMedium: Dp = 12.dp,
-    val spaceLarge: Dp = 16.dp,
-    val spaceXl: Dp = 24.dp,
+    val spaceXs: Dp = 6.dp,
+    val spaceSmall: Dp = 10.dp,
+    val spaceMedium: Dp = 14.dp,
+    val spaceLarge: Dp = 20.dp,
+    val spaceXl: Dp = 28.dp,
+    /** Gap between a floating panel and the screen edge / neighbouring panels. */
+    val floatMargin: Dp = 10.dp,
 
-    // Dimensions
-    val toolIconSize: Dp = 26.dp,
-    val actionIconSize: Dp = 24.dp,
-    val toolButtonSize: Dp = 44.dp,
-    val minTouchTarget: Dp = 48.dp,
-    val topBarHeight: Dp = 52.dp,
-    val toolRailWidth: Dp = 56.dp,
+    // Dimensions (big, easy-to-hit targets)
+    val toolIconSize: Dp = 28.dp,
+    val actionIconSize: Dp = 28.dp,
+    val toolButtonSize: Dp = 56.dp,
+    val minTouchTarget: Dp = 52.dp,
+    /** Large primary action (play, new project): the biggest thing on screen. */
+    val primaryButtonSize: Dp = 64.dp,
+    val topBarHeight: Dp = 64.dp,
+    val toolRailWidth: Dp = 72.dp,
     val timelineHeight: Dp = 120.dp,
+    val frameCellWidth: Dp = 80.dp,
+    val frameCellHeight: Dp = 68.dp,
 
     // Elevation
     val elevationSmall: Dp = 2.dp,
-    val elevationMedium: Dp = 6.dp,
+    val elevationMedium: Dp = 8.dp,
 
     // Animations (ms)
     val animFastMs: Int = 150,

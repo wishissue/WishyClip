@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (UI redesign: "Cloud")
+- New default **Cloud** (light) and **Midnight** (dark) themes: soft pastel palette, rounded corners, airy spacing.
+- Bigger controls everywhere: 56dp tool buttons, 52dp minimum touch targets, 64dp Play button.
+- Floating glass panels for the top bar, tool dock, timeline and pop-overs.
+- Springy press animation and light haptics on all buttons.
+- Timeline: two-row compact layout on phones (no more overflow), one-row on wide screens; bigger frame cells and exposure +/- buttons; one big Play button.
+- Top bar: Play moved to the timeline; project title hidden on narrow phones to make room for bigger buttons.
+- Home: iOS-style large title, big "New Animation" button, friendlier empty state, rounder project cards.
+- Settings: theme picker is now a scrollable row of chips.
+- Typography: bundled Inter (SIL OFL 1.1).
+
 ### Added
 - Mirror drawing (left/right, top/bottom, 4-way) for brushes, eraser, shapes and imported brushes.
 - Ruler: movable / rotatable straight edge with stroke snapping.

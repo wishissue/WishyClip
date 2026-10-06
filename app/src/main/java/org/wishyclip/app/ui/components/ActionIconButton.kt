@@ -2,7 +2,6 @@ package org.wishyclip.app.ui.components
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.size
@@ -20,7 +19,10 @@ import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 
-/** Flat, tinted icon button used in top bars, timeline and panels. */
+/**
+ * Big, soft icon button used in the top bar, timeline and panels. When [selected] it gets a pastel
+ * pill behind the accent-colored icon. Presses squish slightly and give a light haptic tick.
+ */
 @Composable
 fun ActionIconButton(
     @DrawableRes iconRes: Int,
@@ -33,7 +35,7 @@ fun ActionIconButton(
 ) {
     val tokens = WishyTheme.tokens
     val iconColor = when {
-        !enabled -> tokens.onSurface.copy(alpha = 0.35f)
+        !enabled -> tokens.onSurface.copy(alpha = 0.3f)
         tint != null -> tint
         selected -> tokens.primary
         else -> tokens.onSurface
@@ -41,9 +43,9 @@ fun ActionIconButton(
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = tokens.minTouchTarget, minHeight = tokens.minTouchTarget)
-            .clip(RoundedCornerShape(tokens.smallRadius))
-            .background(if (selected) tokens.primaryContainer else Color.Transparent)
-            .clickable(enabled = enabled, onClick = onClick),
+            .bouncyClickable(enabled = enabled, onClick = onClick)
+            .clip(RoundedCornerShape(tokens.mediumRadius))
+            .background(if (selected) tokens.primaryContainer else Color.Transparent),
         contentAlignment = Alignment.Center
     ) {
         Icon(

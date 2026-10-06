@@ -122,7 +122,7 @@ fun ExportScreen(
                     },
                     modifier = Modifier.fillMaxWidth().padding(top = tokens.spaceMedium)
                 ) {
-                    Text(text = "Start Export & Share")
+                    Text(text = "Export to Device")
                 }
             }
         }

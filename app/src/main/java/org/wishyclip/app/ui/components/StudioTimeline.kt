@@ -6,18 +6,22 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -95,232 +99,257 @@ fun StudioTimeline(
     val currentSec = if (fps > 0) currentIndex.toFloat() / fps else 0f
     val timecode = String.format(Locale.US, "%02d:%02d.%01d", (currentSec / 60).toInt(), (currentSec % 60).toInt(), ((currentSec * 10) % 10).toInt())
 
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = tokens.timeline,
-        shadowElevation = tokens.elevationMedium
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            // ---- Top Header: Transport & Controls Bar ----
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Playback Transport Controls
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    ActionIconButton(
-                        iconRes = WishyIcons.SkipBack,
-                        contentDescription = "Previous Frame",
-                        onClick = onPreviousFrame
-                    )
-                    ActionIconButton(
-                        iconRes = if (isPlaying) WishyIcons.Pause else WishyIcons.Play,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        selected = isPlaying,
-                        onClick = onTogglePlay
-                    )
-                    ActionIconButton(
-                        iconRes = WishyIcons.SkipForward,
-                        contentDescription = "Next Frame",
-                        onClick = onNextFrame
-                    )
-                }
-
-                Spacer(Modifier.width(tokens.spaceSmall))
-
-                // Timecode & Frame Badge
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(tokens.smallRadius))
-                        .background(tokens.surfaceVariant)
-                        .padding(horizontal = tokens.spaceSmall, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "${currentIndex + 1}/${frames.size}",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = tokens.primary
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = timecode,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = tokens.onSurfaceVariant
-                    )
-                }
-
-                Spacer(Modifier.width(tokens.spaceSmall))
-
-                // FPS Selector Chip
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(tokens.smallRadius))
-                        .background(tokens.surfaceVariant)
-                        .clickable(onClick = onFpsRequested)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "$fps fps",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = tokens.onSurface
-                    )
-                }
-
-                Spacer(Modifier.weight(1f))
-
-                // Onion Skin Toggle Action
+    // The pieces of the header, shared by the compact (phone) and wide (tablet / landscape) layouts.
+    val transport: @Composable () -> Unit = {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            ActionIconButton(
+                iconRes = WishyIcons.SkipBack,
+                contentDescription = "Previous Frame",
+                onClick = onPreviousFrame
+            )
+            PrimaryRoundButton(
+                iconRes = if (isPlaying) WishyIcons.Pause else WishyIcons.Play,
+                contentDescription = if (isPlaying) "Pause" else "Play",
+                onClick = onTogglePlay
+            )
+            ActionIconButton(
+                iconRes = WishyIcons.SkipForward,
+                contentDescription = "Next Frame",
+                onClick = onNextFrame
+            )
+        }
+    }
+    // One tappable pill: frame counter on top, fps (and time) underneath. Tap to change the fps.
+    val counterPill: @Composable (Boolean) -> Unit = { showTime ->
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .heightIn(min = tokens.minTouchTarget)
+                .bouncyClickable(haptic = false, pressedScale = 0.95f, onClick = onFpsRequested)
+                .clip(RoundedCornerShape(tokens.mediumRadius))
+                .background(tokens.surfaceVariant)
+                .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "${currentIndex + 1} / ${frames.size}",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = tokens.primary
+            )
+            Text(
+                text = if (showTime) "$fps fps · $timecode" else "$fps fps",
+                style = MaterialTheme.typography.labelSmall,
+                color = tokens.onSurfaceVariant
+            )
+        }
+    }
+    val actions: @Composable () -> Unit = {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            ActionIconButton(
+                iconRes = WishyIcons.Onion,
+                contentDescription = "Toggle Onion Skin",
+                selected = onionEnabled,
+                onClick = onToggleOnion
+            )
+            ActionIconButton(
+                iconRes = WishyIcons.Layers,
+                contentDescription = "Studio Multi-Track View",
+                selected = isStudioExpanded,
+                onClick = onToggleStudioExpanded
+            )
+            ActionIconButton(
+                iconRes = WishyIcons.Duplicate,
+                contentDescription = "Duplicate frame",
+                onClick = onDuplicateFrame
+            )
+            ActionIconButton(
+                iconRes = WishyIcons.Delete,
+                contentDescription = "Delete frame",
+                tint = tokens.danger,
+                onClick = onDeleteFrame
+            )
+            Box {
                 ActionIconButton(
-                    iconRes = WishyIcons.Onion,
-                    contentDescription = "Toggle Onion Skin",
-                    selected = onionEnabled,
-                    onClick = onToggleOnion
+                    iconRes = WishyIcons.More,
+                    contentDescription = "More Frame Options",
+                    onClick = { showMenu = true }
                 )
-
-                // Expand / Collapse Studio Multi-Track View Toggle
-                ActionIconButton(
-                    iconRes = WishyIcons.Layers,
-                    contentDescription = "Studio Multi-Track View",
-                    selected = isStudioExpanded,
-                    onClick = onToggleStudioExpanded
-                )
-
-                ActionIconButton(
-                    iconRes = WishyIcons.Duplicate,
-                    contentDescription = "Duplicate frame",
-                    onClick = onDuplicateFrame
-                )
-
-                ActionIconButton(
-                    iconRes = WishyIcons.Delete,
-                    contentDescription = "Delete frame",
-                    onClick = onDeleteFrame
-                )
-
-                Box {
-                    ActionIconButton(
-                        iconRes = WishyIcons.More,
-                        contentDescription = "More Frame Options",
-                        onClick = { showMenu = true }
+                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Copy Frame") },
+                        onClick = { showMenu = false; onCopyFrame() }
                     )
-                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Copy Frame") },
-                            onClick = { showMenu = false; onCopyFrame() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Paste Frame") },
-                            enabled = canPaste,
-                            onClick = { showMenu = false; onPasteFrame() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Audio Track Manager") },
-                            onClick = { showMenu = false; onAudioRequested() }
-                        )
-                    }
+                    DropdownMenuItem(
+                        text = { Text("Paste Frame") },
+                        enabled = canPaste,
+                        onClick = { showMenu = false; onPasteFrame() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Audio Track Manager") },
+                        onClick = { showMenu = false; onAudioRequested() }
+                    )
                 }
             }
+        }
+    }
 
-            // ---- Studio Multi-Track View / Single Row Strip ----
-            AnimatedVisibility(visible = isStudioExpanded) {
+    // Floating glass card that hovers above the bottom edge.
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = tokens.floatMargin, vertical = tokens.floatMargin / 2)
+    ) {
+        GlassSurface(modifier = Modifier.fillMaxWidth()) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val wide = maxWidth >= 640.dp
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs)
+                        .padding(vertical = tokens.spaceXs)
                 ) {
-                    Text(
-                        text = "STUDIO LAYERS & TRACKS",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = tokens.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 4.dp)
-                    )
-                    layers.indices.reversed().forEach { idx ->
-                        val layer = layers[idx]
-                        val isSelected = idx == activeLayerIndex
+                    // ---- Header: transport + counter + actions ----
+                    if (wide) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 2.dp)
-                                .clip(RoundedCornerShape(tokens.smallRadius))
-                                .background(if (isSelected) tokens.primaryContainer.copy(alpha = 0.4f) else tokens.surfaceVariant.copy(alpha = 0.5f))
-                                .clickable { onSelectLayer(idx) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                .padding(horizontal = tokens.spaceMedium),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            ActionIconButton(
-                                iconRes = if (layer.visible) WishyIcons.VisibilityOn else WishyIcons.VisibilityOff,
-                                contentDescription = "Toggle Visibility",
-                                onClick = { onToggleLayerVisibility(idx, !layer.visible) }
-                            )
-                            ActionIconButton(
-                                iconRes = WishyIcons.Lock,
-                                contentDescription = "Toggle Lock",
-                                selected = layer.locked,
-                                onClick = { onToggleLayerLock(idx, !layer.locked) }
-                            )
-                            Text(
-                                text = layer.name,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) tokens.primary else tokens.onSurface,
-                                modifier = Modifier.width(100.dp)
-                            )
-                            Text(
-                                text = "Opacity: ${(layer.opacity * 100).toInt()}%",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = tokens.onSurfaceVariant
-                            )
+                            transport()
+                            Spacer(Modifier.width(tokens.spaceMedium))
+                            counterPill(true)
+                            Spacer(Modifier.weight(1f))
+                            actions()
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = tokens.spaceMedium),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            transport()
+                            Spacer(Modifier.width(tokens.spaceMedium))
+                            counterPill(false)
+                        }
+                        // Centered when it fits, scrolls sideways on very narrow screens.
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = tokens.spaceMedium),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                                actions()
+                            }
                         }
                     }
-                }
-            }
 
-            // ---- Horizontally Scrolling Timeline Frame Track ----
-            LazyRow(
-                state = listState,
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(
-                    start = tokens.spaceMedium,
-                    end = tokens.spaceMedium,
-                    bottom = tokens.spaceSmall,
-                    top = tokens.spaceXs
-                ),
-                horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
-            ) {
-                itemsIndexed(frames, key = { _, f -> f.id }) { index, frame ->
-                    TimelineFrameCell(
-                        frameIndex = index,
-                        selected = index == currentIndex,
-                        onClick = { onSelectFrame(index) },
-                        exposureDuration = frame.exposureDuration,
-                        onIncreaseExposure = { onUpdateFrameExposure(index, frame.exposureDuration + 1) },
-                        onDecreaseExposure = if (frame.exposureDuration > 1) {
-                            { onUpdateFrameExposure(index, frame.exposureDuration - 1) }
-                        } else null
-                    )
-                }
-                item(key = "add-frame") {
-                    Box(
-                        modifier = Modifier
-                            .size(width = 64.dp, height = 46.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(tokens.surfaceVariant)
-                            .clickable { onAddFrame() },
-                        contentAlignment = Alignment.Center
+                    // ---- Studio Multi-Track View ----
+                    AnimatedVisibility(visible = isStudioExpanded) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs)
+                        ) {
+                            Text(
+                                text = "Layers & tracks",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = tokens.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            layers.indices.reversed().forEach { idx ->
+                                val layer = layers[idx]
+                                val isSelected = idx == activeLayerIndex
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 3.dp)
+                                        .clip(RoundedCornerShape(tokens.mediumRadius))
+                                        .background(if (isSelected) tokens.primaryContainer.copy(alpha = 0.6f) else tokens.surfaceVariant.copy(alpha = 0.6f))
+                                        .clickable { onSelectLayer(idx) }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    ActionIconButton(
+                                        iconRes = if (layer.visible) WishyIcons.VisibilityOn else WishyIcons.VisibilityOff,
+                                        contentDescription = "Toggle Visibility",
+                                        onClick = { onToggleLayerVisibility(idx, !layer.visible) }
+                                    )
+                                    ActionIconButton(
+                                        iconRes = WishyIcons.Lock,
+                                        contentDescription = "Toggle Lock",
+                                        selected = layer.locked,
+                                        onClick = { onToggleLayerLock(idx, !layer.locked) }
+                                    )
+                                    Text(
+                                        text = layer.name,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) tokens.primary else tokens.onSurface,
+                                        maxLines = 1,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        text = "${(layer.opacity * 100).toInt()}%",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = tokens.onSurfaceVariant,
+                                        modifier = Modifier.padding(end = tokens.spaceSmall)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // ---- Horizontally scrolling frame track ----
+                    LazyRow(
+                        state = listState,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(
+                            start = tokens.spaceMedium,
+                            end = tokens.spaceMedium,
+                            bottom = tokens.spaceSmall,
+                            top = tokens.spaceXs
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
                     ) {
-                        Icon(
-                            painter = painterResource(WishyIcons.Add),
-                            contentDescription = "Add frame",
-                            tint = tokens.onSurface,
-                            modifier = Modifier.size(22.dp)
-                        )
+                        itemsIndexed(frames, key = { _, f -> f.id }) { index, frame ->
+                            TimelineFrameCell(
+                                frameIndex = index,
+                                selected = index == currentIndex,
+                                onClick = { onSelectFrame(index) },
+                                exposureDuration = frame.exposureDuration,
+                                onIncreaseExposure = { onUpdateFrameExposure(index, frame.exposureDuration + 1) },
+                                onDecreaseExposure = if (frame.exposureDuration > 1) {
+                                    { onUpdateFrameExposure(index, frame.exposureDuration - 1) }
+                                } else null
+                            )
+                        }
+                        item(key = "add-frame") {
+                            Box(
+                                modifier = Modifier
+                                    .size(width = tokens.frameCellWidth, height = tokens.frameCellHeight)
+                                    .bouncyClickable(onClick = onAddFrame)
+                                    .clip(RoundedCornerShape(tokens.smallRadius + 2.dp))
+                                    .background(tokens.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(WishyIcons.Add),
+                                    contentDescription = "Add frame",
+                                    tint = tokens.primary,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }

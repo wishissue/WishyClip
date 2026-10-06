@@ -37,6 +37,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import org.wishyclip.app.R
 import org.wishyclip.app.data.ProjectEntity
 import org.wishyclip.app.ui.HomeViewModel
@@ -68,16 +72,23 @@ fun HomeScreen(
                     .fillMaxWidth()
                     .background(tokens.surface)
                     .statusBarsPadding()
-                    .padding(start = tokens.spaceLarge, end = tokens.spaceXs, top = tokens.spaceXs, bottom = tokens.spaceXs),
+                    .padding(start = tokens.spaceLarge, end = tokens.spaceSmall, top = tokens.spaceSmall, bottom = tokens.spaceSmall),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = tokens.onSurface
-                )
+                // iOS-style large title with a small app-name caption above it.
+                Column {
+                    Text(
+                        text = stringResource(R.string.app_name),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = tokens.primary
+                    )
+                    Text(
+                        text = "My Animations",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = tokens.onSurface
+                    )
+                }
                 ActionIconButton(
                     iconRes = WishyIcons.Settings,
                     contentDescription = stringResource(R.string.action_settings),
@@ -86,19 +97,27 @@ fun HomeScreen(
             }
         },
         floatingActionButton = {
-            FloatingActionButton(
+            ExtendedFloatingActionButton(
+                text = {
+                    Text(
+                        text = "New Animation",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                icon = {
+                    Icon(
+                        painter = painterResource(WishyIcons.Add),
+                        contentDescription = stringResource(R.string.title_new_project),
+                        modifier = Modifier.size(28.dp)
+                    )
+                },
                 onClick = onNewProject,
                 containerColor = tokens.primary,
                 contentColor = tokens.onPrimary,
-                shape = CircleShape
-            ) {
-                Icon(
-                    painter = painterResource(WishyIcons.Add),
-                    contentDescription = stringResource(R.string.title_new_project),
-                    modifier = Modifier.size(28.dp),
-                    tint = tokens.onPrimary
-                )
-            }
+                shape = RoundedCornerShape(tokens.largeRadius),
+                modifier = Modifier.height(tokens.primaryButtonSize)
+            )
         }
     ) { innerPadding ->
         Surface(
@@ -116,35 +135,44 @@ fun HomeScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
                     ) {
-                        Icon(
-                            painter = painterResource(WishyIcons.Pencil),
-                            contentDescription = null,
-                            modifier = Modifier.size(72.dp),
-                            tint = tokens.onSurfaceVariant
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(128.dp)
+                                .clip(CircleShape)
+                                .background(tokens.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(WishyIcons.Pencil),
+                                contentDescription = null,
+                                modifier = Modifier.size(60.dp),
+                                tint = tokens.primary
+                            )
+                        }
+                        Spacer(Modifier.height(tokens.spaceSmall))
                         Text(
-                            text = "No projects yet",
-                            style = MaterialTheme.typography.titleMedium,
+                            text = "Let's make something!",
+                            style = MaterialTheme.typography.titleLarge,
                             color = tokens.onSurface
                         )
                         Text(
-                            text = "Tap + to start a new animation.",
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = "Tap New Animation to start your first one.",
+                            style = MaterialTheme.typography.bodyLarge,
                             color = tokens.onSurfaceVariant
                         )
                     }
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 150.dp),
+                    columns = GridCells.Adaptive(minSize = 170.dp),
                     contentPadding = PaddingValues(
                         start = tokens.spaceLarge,
                         end = tokens.spaceLarge,
                         top = tokens.spaceSmall,
-                        bottom = 96.dp // keep the last row clear of the + button
+                        bottom = 112.dp // keep the last row clear of the New Animation button
                     ),
-                    horizontalArrangement = Arrangement.spacedBy(tokens.spaceMedium),
-                    verticalArrangement = Arrangement.spacedBy(tokens.spaceMedium)
+                    horizontalArrangement = Arrangement.spacedBy(tokens.spaceLarge),
+                    verticalArrangement = Arrangement.spacedBy(tokens.spaceLarge)
                 ) {
                     items(projects, key = { it.id }) { project ->
                         val thumb = vm.thumbFile(project.id)

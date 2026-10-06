@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -37,15 +38,15 @@ fun WishySlider(
         ) {
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = tokens.onSurfaceVariant
             )
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .clip(RoundedCornerShape(tokens.smallRadius))
+                    .clip(RoundedCornerShape(50))
                     .background(tokens.primaryContainer)
-                    .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs)
+                    .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs)
             ) {
                 Text(
                     text = "${value.roundToInt()}$unit",
@@ -58,7 +59,14 @@ fun WishySlider(
             value = value,
             onValueChange = onValueChange,
             valueRange = valueRange,
-            onValueChangeFinished = onValueChangeFinished
+            onValueChangeFinished = onValueChangeFinished,
+            colors = SliderDefaults.colors(
+                thumbColor = tokens.primary,
+                activeTrackColor = tokens.primary,
+                inactiveTrackColor = tokens.surfaceVariant,
+                activeTickColor = tokens.primary,
+                inactiveTickColor = tokens.surfaceVariant
+            )
         )
     }
 }

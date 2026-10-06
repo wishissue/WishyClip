@@ -33,6 +33,8 @@ import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.WishyTokens
 import org.wishyclip.app.ui.design.themes.AmoledTokens
 import org.wishyclip.app.ui.design.themes.CandyTokens
+import org.wishyclip.app.ui.design.themes.CloudTokens
+import org.wishyclip.app.ui.design.themes.MidnightTokens
 import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 
@@ -76,6 +78,8 @@ fun DesignGalleryScreen(onBack: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
+                    TextButton(onClick = { activeTokens = CloudTokens }) { Text("Cloud") }
+                    TextButton(onClick = { activeTokens = MidnightTokens }) { Text("Midnight") }
                     TextButton(onClick = { activeTokens = LightTokens }) { Text("Light") }
                     TextButton(onClick = { activeTokens = DarkTokens }) { Text("Dark") }
                     TextButton(onClick = { activeTokens = AmoledTokens }) { Text("AMOLED") }

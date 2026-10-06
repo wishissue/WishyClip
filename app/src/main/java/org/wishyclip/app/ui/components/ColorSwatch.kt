@@ -2,7 +2,6 @@ package org.wishyclip.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,22 +25,22 @@ fun ColorSwatch(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
-    size: Dp = 48.dp
+    size: Dp = 52.dp
 ) {
     val tokens = WishyTheme.tokens
     Box(
         modifier = modifier
             .size(size)
+            .bouncyClickable(pressedScale = 0.9f, onClick = onClick)
             .clip(CircleShape)
             .border(
-                width = if (selected) 3.dp else 2.dp,
-                color = if (selected) tokens.primary else tokens.onSurfaceVariant,
+                width = if (selected) 4.dp else 3.dp,
+                color = if (selected) tokens.primary else tokens.surfaceVariant,
                 shape = CircleShape
             )
             .padding(4.dp)
             .clip(CircleShape)
-            .background(color)
-            .clickable(onClick = onClick),
+            .background(color),
         contentAlignment = Alignment.Center
     ) {}
 }

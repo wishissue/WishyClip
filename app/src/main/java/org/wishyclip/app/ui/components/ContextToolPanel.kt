@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -58,15 +59,13 @@ fun ContextToolPanel(
 ) {
     val tokens = WishyTheme.tokens
 
-    Surface(
+    GlassSurface(
         modifier = modifier,
-        shape = RoundedCornerShape(tokens.largeRadius),
-        color = tokens.toolRail.copy(alpha = 0.92f),
-        shadowElevation = tokens.elevationMedium
+        shape = RoundedCornerShape(tokens.largeRadius)
     ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs),
+                .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceSmall),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
         ) {
@@ -87,10 +86,11 @@ fun ContextToolPanel(
                     // Brush Selector Chip
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(tokens.smallRadius))
+                            .heightIn(min = tokens.minTouchTarget)
+                            .bouncyClickable(onClick = onOpenBrushMenu)
+                            .clip(RoundedCornerShape(tokens.mediumRadius))
                             .background(tokens.surfaceVariant)
-                            .clickable(onClick = onOpenBrushMenu)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                            .padding(horizontal = tokens.spaceMedium, vertical = 4.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -98,9 +98,9 @@ fun ContextToolPanel(
                                 painter = painterResource(brushIcon(tool)),
                                 contentDescription = "Select brush",
                                 tint = tokens.onSurface,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(24.dp)
                             )
-                            Spacer(Modifier.width(4.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text(
                                 text = tool.displayName,
                                 style = MaterialTheme.typography.labelMedium,

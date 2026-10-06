@@ -1,13 +1,14 @@
 package org.wishyclip.app.ui.components
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,7 +20,10 @@ import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 
-/** A single tool: flat icon, the selected tool gets an accent-colored icon on a soft pill. */
+/**
+ * A single tool: a big rounded button. The selected tool fills with the accent color and the
+ * icon turns white, so the active tool is obvious at a glance (and easy to hit with a thumb).
+ */
 @Composable
 fun ToolButton(
     @DrawableRes iconRes: Int,
@@ -30,17 +34,22 @@ fun ToolButton(
     modifier: Modifier = Modifier
 ) {
     val tokens = WishyTheme.tokens
-    val iconColor = when {
+    val target = when {
         !enabled -> tokens.onSurface.copy(alpha = 0.35f)
-        selected -> tokens.primary
+        selected -> tokens.onPrimary
         else -> tokens.onSurfaceVariant
     }
+    val iconColor by animateColorAsState(target, label = "toolIcon")
+    val bgColor by animateColorAsState(
+        if (selected) tokens.primary else Color.Transparent,
+        label = "toolBg"
+    )
     Box(
         modifier = modifier
             .size(tokens.toolButtonSize)
+            .bouncyClickable(enabled = enabled, onClick = onClick)
             .clip(RoundedCornerShape(tokens.mediumRadius))
-            .background(if (selected) tokens.primaryContainer else Color.Transparent)
-            .clickable(enabled = enabled, onClick = onClick),
+            .background(bgColor),
         contentAlignment = Alignment.Center
     ) {
         Icon(
