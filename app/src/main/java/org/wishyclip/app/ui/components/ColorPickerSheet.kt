@@ -33,11 +33,12 @@ import androidx.compose.ui.unit.dp
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
+import java.util.Locale
 
 private val PresetSwatches: List<Int> = listOf(
-    0xFF000000.toInt(), 0xFFFFFFFF.toInt(), 0xFFE53935.toInt(), 0xFFFB8C00.toInt(),
-    0xFFFDD835.toInt(), 0xFF43A047.toInt(), 0xFF1E88E5.toInt(), 0xFF8E24AA.toInt(),
-    0xFFFF6FA5.toInt(), 0xFF6D4C41.toInt()
+    0xFF000000.toInt(), 0xFFFFFFFF.toInt(), 0xFFFF5252.toInt(), 0xFFFF7A3D.toInt(),
+    0xFFFFC107.toInt(), 0xFF4CAF50.toInt(), 0xFF00BCD4.toInt(), 0xFF2196F3.toInt(),
+    0xFF9C27B0.toInt(), 0xFFE91E63.toInt(), 0xFF795548.toInt(), 0xFF607D8B.toInt()
 )
 
 @Composable
@@ -56,7 +57,7 @@ fun ColorPickerSheet(
     val argb = android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, value))
 
     var hexText by remember(argb) {
-        mutableStateOf(String.format("#%06X", 0xFFFFFF and argb))
+        mutableStateOf(String.format(Locale.US, "#%06X", 0xFFFFFF and argb))
     }
 
     fun setFrom(c: Int) {
@@ -73,14 +74,31 @@ fun ColorPickerSheet(
         title = { Text("Color Picker", style = MaterialTheme.typography.titleLarge) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
-                Box(
+                // Swatch comparison: Previous vs Current Color
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(44.dp)
                         .clip(RoundedCornerShape(tokens.mediumRadius))
-                        .background(Color(argb))
                         .border(1.dp, tokens.surfaceVariant, RoundedCornerShape(tokens.mediumRadius))
-                )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(Color(initialColor)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Prev", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(Color(argb)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("New", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
+                    }
+                }
 
                 OutlinedTextField(
                     value = hexText,
@@ -102,17 +120,18 @@ fun ColorPickerSheet(
                 WishySlider(value = sat * 100f, onValueChange = { sat = it / 100f }, valueRange = 0f..100f, label = "Saturation", unit = "%")
                 WishySlider(value = value * 100f, onValueChange = { value = it / 100f }, valueRange = 0f..100f, label = "Brightness", unit = "%")
 
+                Text("Preset Swatches", style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    for (c in PresetSwatches.take(5)) {
+                    for (c in PresetSwatches.take(6)) {
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(34.dp)
                                 .clip(CircleShape)
                                 .background(Color(c))
-                                .border(1.dp, tokens.surfaceVariant, CircleShape)
+                                .border(1.5.dp, if (argb == c) tokens.primary else tokens.surfaceVariant, CircleShape)
                                 .clickable { setFrom(c) }
                         )
                     }
@@ -121,13 +140,13 @@ fun ColorPickerSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    for (c in PresetSwatches.drop(5)) {
+                    for (c in PresetSwatches.drop(6)) {
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(34.dp)
                                 .clip(CircleShape)
                                 .background(Color(c))
-                                .border(1.dp, tokens.surfaceVariant, CircleShape)
+                                .border(1.5.dp, if (argb == c) tokens.primary else tokens.surfaceVariant, CircleShape)
                                 .clickable { setFrom(c) }
                         )
                     }

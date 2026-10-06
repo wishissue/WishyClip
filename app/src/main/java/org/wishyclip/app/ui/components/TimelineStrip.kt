@@ -63,7 +63,8 @@ fun TimelineStrip(
     onFpsRequested: () -> Unit,
     modifier: Modifier = Modifier,
     onionEnabled: Boolean = false,
-    onToggleOnion: (() -> Unit)? = null
+    onToggleOnion: (() -> Unit)? = null,
+    onUpdateFrameExposure: ((Int, Int) -> Unit)? = null
 ) {
     val tokens = WishyTheme.tokens
     val listState = rememberLazyListState()
@@ -159,11 +160,14 @@ fun TimelineStrip(
             contentPadding = PaddingValues(start = tokens.spaceMedium, end = tokens.spaceMedium, bottom = tokens.spaceSmall, top = tokens.spaceXs),
             horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
         ) {
-            itemsIndexed(frames, key = { _, f -> f.id }) { index, _ ->
+            itemsIndexed(frames, key = { _, f -> f.id }) { index, frame ->
                 TimelineFrameCell(
                     frameIndex = index,
                     selected = index == currentIndex,
-                    onClick = { onSelectFrame(index) }
+                    onClick = { onSelectFrame(index) },
+                    exposureDuration = frame.exposureDuration,
+                    onIncreaseExposure = if (onUpdateFrameExposure != null) { { onUpdateFrameExposure(index, frame.exposureDuration + 1) } } else null,
+                    onDecreaseExposure = if (onUpdateFrameExposure != null && frame.exposureDuration > 1) { { onUpdateFrameExposure(index, frame.exposureDuration - 1) } } else null
                 )
             }
             item(key = "add-frame") {

@@ -25,6 +25,8 @@ object WishyIcons {
     @get:DrawableRes val Redo: Int get() = R.drawable.ic_redo
     @get:DrawableRes val Play: Int get() = R.drawable.ic_play
     @get:DrawableRes val Pause: Int get() = R.drawable.ic_pause
+    @get:DrawableRes val SkipBack: Int get() = R.drawable.ic_skip_back
+    @get:DrawableRes val SkipForward: Int get() = R.drawable.ic_skip_forward
     @get:DrawableRes val Layers: Int get() = R.drawable.ic_layers
     @get:DrawableRes val Onion: Int get() = R.drawable.ic_onion
     @get:DrawableRes val Audio: Int get() = R.drawable.ic_audio
@@ -40,5 +42,18 @@ object WishyIcons {
     @get:DrawableRes val VisibilityOn: Int get() = R.drawable.ic_visibility_on
     @get:DrawableRes val VisibilityOff: Int get() = R.drawable.ic_visibility_off
     @get:DrawableRes val Help: Int get() = R.drawable.ic_help
+    @get:DrawableRes val Charcoal: Int get() = R.drawable.ic_charcoal
+    @get:DrawableRes val Ink: Int get() = R.drawable.ic_ink
+    @get:DrawableRes val Watercolor: Int get() = R.drawable.ic_watercolor
+    @get:DrawableRes val Chalk: Int get() = R.drawable.ic_chalk
+    @get:DrawableRes val Pixel: Int get() = R.drawable.ic_pixel
+    @get:DrawableRes val BrushCustom: Int get() = R.drawable.ic_brush_custom
+    @get:DrawableRes val Mirror: Int get() = R.drawable.ic_mirror
+    @get:DrawableRes val Ruler: Int get() = R.drawable.ic_ruler
+    @get:DrawableRes val RotateLeft: Int get() = R.drawable.ic_rotate_left
+    @get:DrawableRes val RotateRight: Int get() = R.drawable.ic_rotate_right
+    @get:DrawableRes val Import: Int get() = R.drawable.ic_import
+    @get:DrawableRes val Merge: Int get() = R.drawable.ic_merge
+    @get:DrawableRes val Blend: Int get() = R.drawable.ic_blend
     @get:DrawableRes val Logo: Int get() = R.drawable.ic_logo
 }

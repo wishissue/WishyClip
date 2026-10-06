@@ -1,6 +1,7 @@
 package org.wishyclip.app.canvas
 
 import android.graphics.Bitmap
+import org.wishyclip.app.model.LayerBlend
 
 /** In-memory layer: metadata + pixels. [version] vs [savedVersion] tracks unsaved changes. */
 class LayerData(
@@ -8,7 +9,9 @@ class LayerData(
     var name: String,
     var visible: Boolean,
     var opacity: Float,
-    val bitmap: Bitmap
+    val bitmap: Bitmap,
+    var locked: Boolean = false,
+    var blendMode: LayerBlend = LayerBlend.NORMAL
 ) {
     var version: Int = 0
     var savedVersion: Int = 0
@@ -22,4 +25,11 @@ class FrameData(val frameId: Long, val layers: MutableList<LayerData>) {
 }
 
 /** Immutable snapshot of a layer for the UI layer panel. */
-data class LayerUi(val id: Long, val name: String, val visible: Boolean, val opacity: Float)
+data class LayerUi(
+    val id: Long,
+    val name: String,
+    val visible: Boolean,
+    val opacity: Float,
+    val locked: Boolean = false,
+    val blendMode: LayerBlend = LayerBlend.NORMAL
+)

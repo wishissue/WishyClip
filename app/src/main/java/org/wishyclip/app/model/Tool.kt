@@ -20,7 +20,9 @@ enum class Tool {
     WATERCOLOR,
     CHALK,
     PIXEL,
-    EYEDROPPER
+    EYEDROPPER,
+    /** An imported tip brush (see brush/ package). Which one is held by the editor. */
+    CUSTOM
 }
 
 /** Tools that live inside the Brush menu (one rail button opens a picker, like FlipaClip). */
@@ -38,10 +40,11 @@ val BRUSH_TOOLS: List<Tool> = listOf(
     Tool.PIXEL
 )
 
-val Tool.isBrush: Boolean get() = this in BRUSH_TOOLS
+val Tool.isBrush: Boolean get() = this in BRUSH_TOOLS || this == Tool.CUSTOM
 
 val Tool.displayName: String
     get() = when (this) {
         Tool.PIXEL -> "Pixel Pen"
+        Tool.CUSTOM -> "Custom brush"
         else -> name.lowercase().replaceFirstChar { it.uppercase() }
     }

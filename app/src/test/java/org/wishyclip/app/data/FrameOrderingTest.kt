@@ -71,4 +71,15 @@ class FrameOrderingTest {
         assertEquals(3, frames.size)
         assertEquals(listOf(0, 1, 2), frames.map { it.position })
     }
+
+    @Test
+    fun testFrameExposureDuration() = runBlocking {
+        val projectId = repository.createProject("Exposure Test", 1280, 720, 12)
+        var frames = repository.frames(projectId)
+        assertEquals(1, frames[0].exposureDuration)
+
+        repository.updateFrameExposure(frames[0].id, 5)
+        frames = repository.frames(projectId)
+        assertEquals(5, frames[0].exposureDuration)
+    }
 }

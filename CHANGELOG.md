@@ -5,6 +5,24 @@ All notable changes to Wishy Clip will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0-v1.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Mirror drawing (left/right, top/bottom, 4-way) for brushes, eraser, shapes and imported brushes.
+- Ruler: movable / rotatable straight edge with stroke snapping.
+- Imported tip brushes with a dab engine (spacing, angle, rotate-with-stroke, scatter, size jitter) and importers for `.wbrush`, `.kpp`, `.bundle`, `.abr`, `.gbr`, `.gih`, `.brush`, `.brushset`.
+- Layer lock, layer blend modes (Normal, Multiply, Screen, Overlay, Darken, Lighten, Add) and merge down. Room schema v3 with a real 2 -> 3 migration.
+- Canvas rotate-90 buttons and Reset View; canvas view survives device rotation.
+- New icons: Charcoal, Ink, Watercolor, Chalk, Pixel Pen, custom brush, Mirror, Ruler, Rotate left/right, Import, Merge, Blend.
+
+### Changed
+- The eyedropper now samples the composited colour (layer opacity and blend modes included) and returns to the previous tool.
+- Rotating the device no longer recreates the activity; floating panels are height-limited and scroll in short windows.
+- Tool-options title uses the tool's display name.
+
+### Fixed
+- Documentation no longer claims features that were not implemented (tiled layer storage, 12 brushes, importers) before this release. Tiled storage is still not wired in.
+
 ## [1.0.0] - 2025-02-25
 
 ### Added

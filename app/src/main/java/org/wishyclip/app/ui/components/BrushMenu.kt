@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,10 +34,12 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Canvas
 import kotlin.math.sin
+import org.wishyclip.app.brush.StoredBrush
 import org.wishyclip.app.canvas.BrushPaints
 import org.wishyclip.app.model.BRUSH_TOOLS
 import org.wishyclip.app.model.Tool
@@ -46,11 +51,17 @@ import org.wishyclip.app.ui.design.themes.DarkTokens
 /** Icon shown for a brush tool (rail button + menu rows). */
 @DrawableRes
 fun brushIcon(tool: Tool): Int = when (tool) {
-    Tool.PENCIL, Tool.CHARCOAL -> WishyIcons.Pencil
-    Tool.MARKER, Tool.CHALK -> WishyIcons.Marker
-    Tool.AIRBRUSH, Tool.WATERCOLOR -> WishyIcons.Airbrush
-    Tool.CALLIGRAPHY, Tool.INK -> WishyIcons.Calligraphy
+    Tool.PENCIL -> WishyIcons.Pencil
+    Tool.CHARCOAL -> WishyIcons.Charcoal
+    Tool.MARKER -> WishyIcons.Marker
+    Tool.CHALK -> WishyIcons.Chalk
+    Tool.AIRBRUSH -> WishyIcons.Airbrush
+    Tool.WATERCOLOR -> WishyIcons.Watercolor
+    Tool.CALLIGRAPHY -> WishyIcons.Calligraphy
+    Tool.INK -> WishyIcons.Ink
+    Tool.PIXEL -> WishyIcons.Pixel
     Tool.HIGHLIGHTER -> WishyIcons.Highlighter
+    Tool.CUSTOM -> WishyIcons.BrushCustom
     else -> WishyIcons.Pen
 }
 
@@ -71,7 +82,12 @@ fun BrushMenu(
     stabilizer: Float,
     onStabilizerChange: (Float) -> Unit,
     onSettingsFinished: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    customBrushes: List<StoredBrush> = emptyList(),
+    selectedCustomId: String? = null,
+    onSelectCustom: (String) -> Unit = {},
+    onDeleteCustom: (String) -> Unit = {},
+    onImportBrushes: (() -> Unit)? = null
 ) {
     val tokens = WishyTheme.tokens
     Surface(
@@ -81,7 +97,10 @@ fun BrushMenu(
         shadowElevation = tokens.elevationMedium
     ) {
         Column(
-            modifier = Modifier.padding(tokens.spaceMedium),
+            // Scrolls as a whole so it stays usable in short (landscape) windows.
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(tokens.spaceMedium),
             verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
         ) {
             Text(
@@ -106,6 +125,24 @@ fun BrushMenu(
                         opacity = opacity,
                         onClick = { onSelectBrush(brush) }
                     )
+                }
+                items(customBrushes, key = { it.id }) { brush ->
+                    CustomBrushRow(
+                        brush = brush,
+                        selected = selectedBrush == Tool.CUSTOM && brush.id == selectedCustomId,
+                        onClick = { onSelectCustom(brush.id) },
+                        onDelete = { onDeleteCustom(brush.id) }
+                    )
+                }
+            }
+            if (onImportBrushes != null) {
+                TextButton(onClick = onImportBrushes) {
+                    Icon(
+                        painter = painterResource(WishyIcons.Import),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text("  Import brushes", style = MaterialTheme.typography.labelLarge)
                 }
             }
 
@@ -133,6 +170,50 @@ fun BrushMenu(
                 unit = "%"
             )
         }
+    }
+}
+
+@Composable
+private fun CustomBrushRow(
+    brush: StoredBrush,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val tokens = WishyTheme.tokens
+    val shape = RoundedCornerShape(tokens.smallRadius)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) tokens.primaryContainer else Color.Transparent)
+            .then(
+                if (selected) Modifier.border(BorderStroke(1.5.dp, tokens.primary), shape) else Modifier
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = tokens.spaceSmall),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
+    ) {
+        Icon(
+            painter = painterResource(WishyIcons.BrushCustom),
+            contentDescription = null,
+            modifier = Modifier.size(tokens.toolIconSize),
+            tint = if (selected) tokens.primary else tokens.onSurfaceVariant
+        )
+        Text(
+            text = brush.name,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (selected) tokens.onPrimaryContainer else tokens.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        ActionIconButton(
+            iconRes = WishyIcons.Delete,
+            contentDescription = "Delete brush ${brush.name}",
+            onClick = onDelete
+        )
     }
 }
 

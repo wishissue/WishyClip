@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateRotation
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,7 +27,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -44,6 +44,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import org.wishyclip.app.model.MirrorMode
+import org.wishyclip.app.ui.components.ActionIconButton
+import org.wishyclip.app.ui.design.WishyIcons
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -70,6 +73,10 @@ fun DrawingCanvas(
     lassoPreview: () -> Path? = { null },
     revision: () -> Int,
     enabled: Boolean,
+    view: CanvasViewState = remember { CanvasViewState() },
+    mirror: () -> MirrorMode = { MirrorMode.OFF },
+    ruler: () -> RulerState? = { null },
+    onRulerChange: (RulerState) -> Unit = {},
     onStrokeStart: (Float, Float, Float, Float) -> Unit,
     onStrokeMove: (Float, Float, Float, Float) -> Unit,
     onStrokeEnd: () -> Unit,
@@ -77,13 +84,13 @@ fun DrawingCanvas(
     modifier: Modifier = Modifier
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
-    var zoom by remember { mutableFloatStateOf(1f) }
-    var pan by remember { mutableStateOf(Offset.Zero) }
-    var rotation by remember { mutableFloatStateOf(0f) }
 
     val startCb by rememberUpdatedState(onStrokeStart)
     val moveCb by rememberUpdatedState(onStrokeMove)
     val endCb by rememberUpdatedState(onStrokeEnd)
+    val rulerCb by rememberUpdatedState(ruler)
+    val rulerChangeCb by rememberUpdatedState(onRulerChange)
+    val mirrorCb by rememberUpdatedState(mirror)
     val cancelCb by rememberUpdatedState(onStrokeCancel)
     val density = LocalDensity.current.density
 
@@ -100,6 +107,14 @@ fun DrawingCanvas(
     val handleFill = remember {
         Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = android.graphics.Color.WHITE }
     }
+    val rulerBarPaint = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; color = ACCENT; alpha = 70
+        }
+    }
+    val rulerEdgePaint = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; color = ACCENT }
+    }
     val dst = remember { RectF() }
     val srcRect = remember { Rect() }
     val selMatrix = remember { Matrix() }
@@ -111,7 +126,18 @@ fun DrawingCanvas(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xFFD9D9D9))
-                .onSizeChanged { viewSize = it }
+                .onSizeChanged { newSize ->
+                    val old = viewSize
+                    if (old.width > 0 && old.height > 0 && newSize.width > 0 && newSize.height > 0 &&
+                        old != newSize && projectWidth > 0 && projectHeight > 0
+                    ) {
+                        // Device rotated / window resized: keep the same part of the canvas in view.
+                        val oldFit = min(old.width.toFloat() / projectWidth, old.height.toFloat() / projectHeight)
+                        val newFit = min(newSize.width.toFloat() / projectWidth, newSize.height.toFloat() / projectHeight)
+                        view.rescalePan(newFit / oldFit)
+                    }
+                    viewSize = newSize
+                }
                 // NOTE: not keyed on zoom/pan/rotation. Those are read live inside map(); keying on
                 // them restarted this block on every pinch step and cancelled the gesture.
                 .pointerInput(viewSize, enabled, projectWidth, projectHeight) {
@@ -127,13 +153,13 @@ fun DrawingCanvas(
 
                     // Inverse of the draw transform: translate(center+pan) rotate scale translate(-center).
                     fun map(p: Offset): Offset {
-                        val dx = p.x - cx - pan.x
-                        val dy = p.y - cy - pan.y
-                        val rad = Math.toRadians(-rotation.toDouble())
+                        val dx = p.x - cx - view.pan.x
+                        val dy = p.y - cy - view.pan.y
+                        val rad = Math.toRadians(-view.rotation.toDouble())
                         val c = cos(rad).toFloat()
                         val s = sin(rad).toFloat()
-                        val vx = (dx * c - dy * s) / zoom + cx
-                        val vy = (dx * s + dy * c) / zoom + cy
+                        val vx = (dx * c - dy * s) / view.zoom + cx
+                        val vy = (dx * s + dy * c) / view.zoom + cy
                         return Offset((vx - ox) / scale, (vy - oy) / scale)
                     }
 
@@ -142,7 +168,39 @@ fun DrawingCanvas(
                         val primaryId = down.id
                         val stylus = down.type == PointerType.Stylus
 
-                        val p0 = map(down.position)
+                        val rawP0 = map(down.position)
+                        val rl = rulerCb()
+                        val fit = scale * view.zoom
+                        val grab = rl?.hit(rawP0.x, rawP0.y, 26f * density / fit) ?: RulerHandle.NONE
+                        if (rl != null && grab != RulerHandle.NONE) {
+                            // Dragging a ruler handle: move/rotate the ruler instead of drawing.
+                            down.consume()
+                            var cur: RulerState = rl
+                            var last = rawP0
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val ch = event.changes.firstOrNull { it.id == primaryId }
+                                if (ch == null || !ch.pressed) {
+                                    event.changes.forEach { it.consume() }
+                                    break
+                                }
+                                val np = map(ch.position)
+                                cur = cur.drag(grab, np.x - last.x, np.y - last.y)
+                                last = np
+                                rulerChangeCb(cur)
+                                event.changes.forEach { it.consume() }
+                            }
+                            return@awaitEachGesture
+                        }
+                        // A stroke that starts beside the ruler stays locked to its edge.
+                        val lockedRuler = if (rl != null && rl.distanceTo(rawP0.x, rawP0.y) <= 32f * density / fit) rl else null
+                        val snapOut = FloatArray(2)
+                        fun snap(p: Offset): Offset {
+                            val r = lockedRuler ?: return p
+                            r.project(p.x, p.y, snapOut)
+                            return Offset(snapOut[0], snapOut[1])
+                        }
+                        val p0 = snap(rawP0)
                         startCb(p0.x, p0.y, down.pressure, 0f)
                         down.consume()
 
@@ -173,19 +231,19 @@ fun DrawingCanvas(
                                     val dPan = event.calculatePan()
                                     val pivot = event.calculateCentroid(useCurrent = false)
                                     if (pivot != Offset.Unspecified) {
-                                        val newZoom = (zoom * s).coerceIn(0.2f, 8f)
-                                        val sEff = newZoom / zoom
+                                        val newZoom = (view.zoom * s).coerceIn(0.2f, 8f)
+                                        val sEff = newZoom / view.zoom
                                         // Keep the point under the fingers fixed while zooming/rotating.
-                                        val tx = cx + pan.x - pivot.x
-                                        val ty = cy + pan.y - pivot.y
+                                        val tx = cx + view.pan.x - pivot.x
+                                        val ty = cy + view.pan.y - pivot.y
                                         val rad = Math.toRadians(dRot.toDouble())
                                         val c = cos(rad).toFloat()
                                         val sn = sin(rad).toFloat()
                                         val nx = pivot.x + sEff * (tx * c - ty * sn) + dPan.x
                                         val ny = pivot.y + sEff * (tx * sn + ty * c) + dPan.y
-                                        pan = Offset(nx - cx, ny - cy)
-                                        zoom = newZoom
-                                        rotation += dRot
+                                        view.pan = Offset(nx - cx, ny - cy)
+                                        view.zoom = newZoom
+                                        view.rotation += dRot
                                     }
                                 }
                                 event.changes.forEach { it.consume() }
@@ -196,10 +254,10 @@ fun DrawingCanvas(
                             if (change == null) break
 
                             for (h in change.historical) {
-                                val hp = map(h.position)
+                                val hp = snap(map(h.position))
                                 moveCb(hp.x, hp.y, change.pressure, 0f)
                             }
-                            val p = map(change.position)
+                            val p = snap(map(change.position))
                             moveCb(p.x, p.y, change.pressure, 0f)
                             event.changes.forEach { it.consume() }
                         }
@@ -219,9 +277,9 @@ fun DrawingCanvas(
             drawIntoCanvas { canvas ->
                 val nativeCanvas = canvas.nativeCanvas
                 nativeCanvas.save()
-                nativeCanvas.translate(viewCenterX + pan.x, viewCenterY + pan.y)
-                nativeCanvas.rotate(rotation)
-                nativeCanvas.scale(zoom, zoom)
+                nativeCanvas.translate(viewCenterX + view.pan.x, viewCenterY + view.pan.y)
+                nativeCanvas.rotate(view.rotation)
+                nativeCanvas.scale(view.zoom, view.zoom)
                 nativeCanvas.translate(-viewCenterX, -viewCenterY)
 
                 dst.set(ox, oy, ox + dw, oy + dh)
@@ -253,7 +311,9 @@ fun DrawingCanvas(
                 for (layer in layers()) {
                     if (!layer.visible) continue
                     layerPaint.alpha = (layer.opacity * 255f).toInt().coerceIn(0, 255)
+                    LayerBlending.apply(layerPaint, layer.blendMode)
                     nativeCanvas.drawBitmap(layer.bitmap, null, dst, layerPaint)
+                    layerPaint.xfermode = null
                     if (live != null && live.layerId == layer.id) {
                         val o = live.overlay
                         srcRect.set(o.dirty)
@@ -268,6 +328,37 @@ fun DrawingCanvas(
                     }
                 }
 
+                // Mirror axes
+                val mirrorMode = mirrorCb()
+                if (mirrorMode != MirrorMode.OFF) {
+                    outlinePaint.strokeWidth = 1.5f * density / view.zoom
+                    outlinePaint.pathEffect = dashEffect
+                    if (mirrorMode.flipX) nativeCanvas.drawLine(ox + dw / 2f, oy, ox + dw / 2f, oy + dh, outlinePaint)
+                    if (mirrorMode.flipY) nativeCanvas.drawLine(ox, oy + dh / 2f, ox + dw, oy + dh / 2f, outlinePaint)
+                    outlinePaint.pathEffect = null
+                }
+
+                // Ruler: a translucent bar with a crisp edge and three handles
+                val rl = rulerCb()
+                if (rl != null) {
+                    val px = density / view.zoom
+                    val ax = ox + rl.ax * scale
+                    val ay = oy + rl.ay * scale
+                    val bx = ox + rl.bx * scale
+                    val by = oy + rl.by * scale
+                    rulerBarPaint.strokeWidth = 22f * px
+                    nativeCanvas.drawLine(ax, ay, bx, by, rulerBarPaint)
+                    rulerEdgePaint.strokeWidth = 2.5f * px
+                    nativeCanvas.drawLine(ax, ay, bx, by, rulerEdgePaint)
+                    outlinePaint.strokeWidth = 2.5f * px
+                    outlinePaint.pathEffect = null
+                    val hr = 13f * px
+                    for ((hx, hy) in listOf(ax to ay, bx to by, (ax + bx) / 2f to (ay + by) / 2f)) {
+                        nativeCanvas.drawCircle(hx, hy, hr, handleFill)
+                        nativeCanvas.drawCircle(hx, hy, hr, outlinePaint)
+                    }
+                }
+
                 // Lasso loop preview while drawing the selection
                 val preview = lassoPreview()
                 if (preview != null) {
@@ -275,7 +366,7 @@ fun DrawingCanvas(
                     scratchMatrix.setScale(scale, scale)
                     scratchMatrix.postTranslate(ox, oy)
                     scratchPath.transform(scratchMatrix)
-                    outlinePaint.strokeWidth = 2.5f * density / zoom
+                    outlinePaint.strokeWidth = 2.5f * density / view.zoom
                     outlinePaint.pathEffect = dashEffect
                     nativeCanvas.drawPath(scratchPath, outlinePaint)
                 }
@@ -297,7 +388,7 @@ fun DrawingCanvas(
                     scratchPath.lineTo(vx(4), vy(5))
                     scratchPath.lineTo(vx(6), vy(7))
                     scratchPath.close()
-                    outlinePaint.strokeWidth = 2f * density / zoom
+                    outlinePaint.strokeWidth = 2f * density / view.zoom
                     outlinePaint.pathEffect = dashEffect
                     nativeCanvas.drawPath(scratchPath, outlinePaint)
 
@@ -308,7 +399,7 @@ fun DrawingCanvas(
                     nativeCanvas.drawLine(topMidX, topMidY, vx(8), vy(9), outlinePaint)
 
                     val r = selectionHandleSlop(projectWidth) * 0.38f * scale
-                    outlinePaint.strokeWidth = 2.5f * density / zoom
+                    outlinePaint.strokeWidth = 2.5f * density / view.zoom
                     for (i in intArrayOf(0, 2, 4, 6, 8)) {
                         nativeCanvas.drawCircle(vx(i), vy(i + 1), r, handleFill)
                         nativeCanvas.drawCircle(vx(i), vy(i + 1), r, outlinePaint)
@@ -319,7 +410,7 @@ fun DrawingCanvas(
             }
         }
 
-        if (zoom != 1f || pan != Offset.Zero || rotation != 0f) {
+        if (view.isTransformed) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -327,12 +418,20 @@ fun DrawingCanvas(
                 shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
-                TextButton(onClick = {
-                    zoom = 1f
-                    pan = Offset.Zero
-                    rotation = 0f
-                }) {
-                    Text("Reset view", style = MaterialTheme.typography.labelSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ActionIconButton(
+                        iconRes = WishyIcons.RotateLeft,
+                        contentDescription = "Rotate canvas 90 degrees left",
+                        onClick = { view.rotateBy(-90f) }
+                    )
+                    ActionIconButton(
+                        iconRes = WishyIcons.RotateRight,
+                        contentDescription = "Rotate canvas 90 degrees right",
+                        onClick = { view.rotateBy(90f) }
+                    )
+                    TextButton(onClick = { view.reset() }) {
+                        Text("Reset view", style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
         }

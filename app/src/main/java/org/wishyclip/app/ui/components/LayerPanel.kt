@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.wishyclip.app.canvas.LayerUi
 import org.wishyclip.app.ui.design.WishyTheme
@@ -35,7 +36,12 @@ fun LayerPanel(
     onOpacityChange: (Int, Float) -> Unit,
     onMoveLayer: (Int, Int) -> Unit,
     onDeleteLayer: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onToggleLock: (Int, Boolean) -> Unit = { _, _ -> },
+    onCycleBlend: (Int) -> Unit = {},
+    onMergeDown: (Int) -> Unit = {},
+    /** Cap for the list; the editor lowers it in short (landscape) windows. */
+    maxListHeight: Dp = 280.dp
 ) {
     val tokens = WishyTheme.tokens
     Column(
@@ -49,7 +55,7 @@ fun LayerPanel(
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 280.dp),
+                .heightIn(max = maxListHeight),
             verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)
         ) {
             items(layers.indices.reversed().toList()) { idx ->
@@ -62,7 +68,10 @@ fun LayerPanel(
                     onOpacityChange = { onOpacityChange(idx, it) },
                     onMoveUp = { onMoveLayer(idx, 1) },
                     onMoveDown = { onMoveLayer(idx, -1) },
-                    onDelete = { onDeleteLayer(idx) }
+                    onDelete = { onDeleteLayer(idx) },
+                    onToggleLock = { onToggleLock(idx, it) },
+                    onCycleBlend = { onCycleBlend(idx) },
+                    onMergeDown = if (idx > 0) ({ onMergeDown(idx) }) else null
                 )
             }
         }

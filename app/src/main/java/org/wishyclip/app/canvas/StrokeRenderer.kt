@@ -7,10 +7,14 @@ import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
+import org.wishyclip.app.model.MirrorMode
 import org.wishyclip.app.model.Tool
+import java.util.Random
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -53,6 +57,14 @@ class StrokeRenderer {
     private var isShape = false
     private var variablePressure = false
 
+    private var mirror = MirrorMode.OFF
+    private var dab: DabBrush? = null
+    private var isDab = false
+    private var dabCarry = 0f
+    private var strokeAngle = 0f
+    private val rnd = Random()
+    private val dabPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+
     private var startX = 0f
     private var startY = 0f
     private var lastX = 0f
@@ -78,7 +90,9 @@ class StrokeRenderer {
         x: Float,
         y: Float,
         pressure: Float = 1f,
-        @Suppress("UNUSED_PARAMETER") tilt: Float = 0f
+        @Suppress("UNUSED_PARAMETER") tilt: Float = 0f,
+        mirror: MirrorMode = MirrorMode.OFF,
+        dab: DabBrush? = null
     ) {
         cancel()
         reset()
@@ -89,6 +103,16 @@ class StrokeRenderer {
         this.opacity = opacity
         isShape = tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE
         viaOverlay = tool != Tool.ERASER
+        this.mirror = if (tool == Tool.LASSO) MirrorMode.OFF else mirror
+        this.dab = if (tool == Tool.CUSTOM) dab else null
+        isDab = this.dab != null
+        dabCarry = 0f
+        strokeAngle = 0f
+        rnd.setSeed(x.toBits().toLong() xor (y.toBits().toLong() shl 20))
+        this.dab?.let {
+            dabPaint.color = argb
+            dabPaint.alpha = (it.flow * 255f).roundToInt().coerceIn(1, 255)
+        }
         paint = BrushPaints.create(tool, argb, size, opacity)
         dirty.setEmpty()
         hasDirty = false
@@ -104,14 +128,24 @@ class StrokeRenderer {
         midX = x; midY = y
         lastPressure = pressure
         if (!isShape) {
-            applyPressureWidth(pressure, pressure)
-            val margin = reach()
-            if (!viaOverlay) backup(clamp(x - margin, y - margin, x + margin, y + margin))
-            val prevStyle = paint.style
-            paint.style = Paint.Style.FILL
-            drawCanvas().drawCircle(x, y, paint.strokeWidth / 2f, paint)
-            paint.style = prevStyle
-            expandDirty(x - margin, y - margin, x + margin, y + margin)
+            if (isDab) {
+                stampAt(x, y, pressure)
+            } else {
+                applyPressureWidth(pressure, pressure)
+                val margin = reach()
+                val prevStyle = paint.style
+                paint.style = Paint.Style.FILL
+                val tw = target.width.toFloat()
+                val th = target.height.toFloat()
+                forEachMirror { fx, fy ->
+                    val mx = if (fx) tw - x else x
+                    val my = if (fy) th - y else y
+                    if (!viaOverlay) backup(clamp(mx - margin, my - margin, mx + margin, my + margin))
+                    drawCanvas().drawCircle(mx, my, paint.strokeWidth / 2f, paint)
+                    expandDirty(mx - margin, my - margin, mx + margin, my + margin)
+                }
+                paint.style = prevStyle
+            }
         }
     }
 
@@ -120,6 +154,13 @@ class StrokeRenderer {
         if (isShape) {
             updateShape(x, y)
             lastX = x; lastY = y
+            return
+        }
+        if (isDab) {
+            dabSegment(x, y, pressure)
+            lastX = x; lastY = y
+            midX = x; midY = y
+            lastPressure = pressure
             return
         }
         val nmx = (x + lastX) / 2f
@@ -251,28 +292,112 @@ class StrokeRenderer {
 
     private fun drawSegment(l: Float, t: Float, r: Float, b: Float) {
         val m = reach()
-        if (!viaOverlay) backup(clamp(l - m, t - m, r + m, b + m))
-        drawCanvas().drawPath(segPath, paint)
-        expandDirty(l - m, t - m, r + m, b + m)
+        val w = target!!.width.toFloat()
+        val h = target!!.height.toFloat()
+        forEachMirror { fx, fy ->
+            val ml = if (fx) w - r else l
+            val mr = if (fx) w - l else r
+            val mt = if (fy) h - b else t
+            val mb = if (fy) h - t else b
+            if (!viaOverlay) backup(clamp(ml - m, mt - m, mr + m, mb + m))
+            val c = drawCanvas()
+            if (fx || fy) {
+                c.save()
+                c.scale(if (fx) -1f else 1f, if (fy) -1f else 1f, w / 2f, h / 2f)
+                c.drawPath(segPath, paint)
+                c.restore()
+            } else {
+                c.drawPath(segPath, paint)
+            }
+            expandDirty(ml - m, mt - m, mr + m, mb + m)
+        }
+    }
+
+    /** Runs [block] once for the stroke itself and once per active mirror image of it. */
+    private inline fun forEachMirror(block: (Boolean, Boolean) -> Unit) {
+        block(false, false)
+        if (mirror.flipX) block(true, false)
+        if (mirror.flipY) block(false, true)
+        if (mirror.flipX && mirror.flipY) block(true, true)
+    }
+
+    private fun dabSegment(x: Float, y: Float, pressure: Float) {
+        val d = dab ?: return
+        val dx = x - lastX
+        val dy = y - lastY
+        val len = hypot(dx, dy)
+        if (len < 0.001f) return
+        strokeAngle = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat()
+        val step = max(1f, d.spacing * size)
+        var traveled = step - dabCarry
+        while (traveled <= len) {
+            val k = traveled / len
+            stampAt(lastX + dx * k, lastY + dy * k, lastPressure + (pressure - lastPressure) * k)
+            traveled += step
+        }
+        dabCarry = len - (traveled - step)
+    }
+
+    /** Stamps one tip (and its mirror images) centred on (x, y). */
+    private fun stampAt(x: Float, y: Float, pressure: Float) {
+        val d = dab ?: return
+        val t = target ?: return
+        val c = drawCanvas()
+        val pressureScale = if (variablePressure) 0.2f + 0.8f * pressure.coerceIn(0f, 1f) else 1f
+        val jitter = if (d.sizeJitter > 0f) 1f - d.sizeJitter * rnd.nextFloat() else 1f
+        val diameter = max(1f, size * pressureScale * jitter)
+        val scatterPx = d.scatter * size
+        val jx = if (scatterPx > 0f) (rnd.nextFloat() * 2f - 1f) * scatterPx else 0f
+        val jy = if (scatterPx > 0f) (rnd.nextFloat() * 2f - 1f) * scatterPx else 0f
+        val baseAngle = d.angle + (if (d.rotateWithStroke) strokeAngle else 0f)
+        val tw = t.width.toFloat()
+        val th = t.height.toFloat()
+        val scale = diameter / max(d.tip.width, d.tip.height).toFloat()
+        val reachPx = diameter * 0.75f + scatterPx + 4f
+        forEachMirror { fx, fy ->
+            var px = x + jx
+            var py = y + jy
+            var ang = baseAngle
+            if (fx) { px = tw - px; ang = 180f - ang }
+            if (fy) { py = th - py; ang = -ang }
+            c.save()
+            c.translate(px, py)
+            c.rotate(ang)
+            c.scale(scale, scale)
+            c.drawBitmap(d.tip, -d.tip.width / 2f, -d.tip.height / 2f, dabPaint)
+            c.restore()
+            expandDirty(px - reachPx, py - reachPx, px + reachPx, py + reachPx)
+        }
     }
 
     private fun updateShape(x: Float, y: Float) {
         val overlay = overlayBmp ?: return
         if (hasDirty) BitmapOps.clear(overlay)
         val c = overlayCanvas ?: return
+        val w = overlay.width.toFloat()
+        val h = overlay.height.toFloat()
         val l = min(startX, x)
         val t = min(startY, y)
         val r = max(startX, x)
         val b = max(startY, y)
-        when (tool) {
-            Tool.LINE -> c.drawLine(startX, startY, x, y, paint)
-            Tool.RECT -> c.drawRect(l, t, r, b, paint)
-            else -> c.drawOval(l, t, r, b, paint)
-        }
         val m = reach()
-        val rect = clamp(l - m, t - m, r + m, b + m)
-        dirty.set(rect)
-        hasDirty = !rect.isEmpty
+        dirty.setEmpty()
+        hasDirty = false
+        forEachMirror { fx, fy ->
+            c.save()
+            if (fx || fy) c.scale(if (fx) -1f else 1f, if (fy) -1f else 1f, w / 2f, h / 2f)
+            when (tool) {
+                Tool.LINE -> c.drawLine(startX, startY, x, y, paint)
+                Tool.RECT -> c.drawRect(l, t, r, b, paint)
+                else -> c.drawOval(l, t, r, b, paint)
+            }
+            c.restore()
+            val ml = if (fx) w - r else l
+            val mr = if (fx) w - l else r
+            val mt = if (fy) h - b else t
+            val mb = if (fy) h - t else b
+            expandDirty(ml - m, mt - m, mr + m, mb + m)
+        }
     }
 
     private fun clamp(l: Float, t: Float, r: Float, b: Float): Rect {

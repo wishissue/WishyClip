@@ -17,7 +17,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.TextButton
 import org.wishyclip.app.canvas.LayerUi
+import org.wishyclip.app.model.LayerBlend
 import org.wishyclip.app.ui.design.WishyIcons
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.themes.DarkTokens
@@ -33,7 +36,11 @@ fun LayerRow(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onDelete: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onToggleLock: (Boolean) -> Unit = {},
+    onCycleBlend: () -> Unit = {},
+    /** Null for the bottom layer (nothing below to merge into). */
+    onMergeDown: (() -> Unit)? = null
 ) {
     val tokens = WishyTheme.tokens
     Column(
@@ -52,6 +59,13 @@ fun LayerRow(
                 iconRes = if (layer.visible) WishyIcons.VisibilityOn else WishyIcons.VisibilityOff,
                 contentDescription = "Visibility",
                 onClick = { onToggleVisibility(!layer.visible) }
+            )
+            ActionIconButton(
+                iconRes = WishyIcons.Lock,
+                contentDescription = if (layer.locked) "Unlock layer" else "Lock layer",
+                selected = layer.locked,
+                tint = if (layer.locked) null else tokens.onSurfaceVariant.copy(alpha = 0.45f),
+                onClick = { onToggleLock(!layer.locked) }
             )
             Text(
                 text = layer.name,
@@ -88,6 +102,23 @@ fun LayerRow(
                 unit = "%",
                 modifier = Modifier.padding(horizontal = tokens.spaceSmall)
             )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = tokens.spaceSmall),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                TextButton(onClick = onCycleBlend) {
+                    Text(
+                        text = "Blend: ${layer.blendMode.label}",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+                if (onMergeDown != null) {
+                    TextButton(onClick = onMergeDown) {
+                        Text("Merge down", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
         }
     }
 }

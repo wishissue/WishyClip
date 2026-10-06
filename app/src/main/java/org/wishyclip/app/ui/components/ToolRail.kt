@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import org.wishyclip.app.model.MirrorMode
 import org.wishyclip.app.model.Tool
 import org.wishyclip.app.model.isBrush
 import org.wishyclip.app.ui.design.WishyIcons
@@ -35,6 +36,10 @@ fun ToolRail(
     horizontal: Boolean = false,
     activeBrush: Tool = Tool.PEN,
     onBrushClick: () -> Unit = { onSelectTool(activeBrush) },
+    mirrorMode: MirrorMode = MirrorMode.OFF,
+    onMirrorClick: (() -> Unit)? = null,
+    rulerOn: Boolean = false,
+    onRulerClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null
 ) {
     val tokens = WishyTheme.tokens
@@ -54,7 +59,7 @@ fun ToolRail(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)
             ) {
-                ToolItems(selectedTool, onSelectTool, activeBrush, onBrushClick)
+                ToolItems(selectedTool, onSelectTool, activeBrush, onBrushClick, mirrorMode, onMirrorClick, rulerOn, onRulerClick)
             }
             if (trailing != null) {
                 Row(modifier = Modifier.padding(start = tokens.spaceSmall)) { trailing() }
@@ -76,7 +81,7 @@ fun ToolRail(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)
             ) {
-                ToolItems(selectedTool, onSelectTool, activeBrush, onBrushClick)
+                ToolItems(selectedTool, onSelectTool, activeBrush, onBrushClick, mirrorMode, onMirrorClick, rulerOn, onRulerClick)
             }
             if (trailing != null) {
                 Column(modifier = Modifier.padding(top = tokens.spaceSmall)) { trailing() }
@@ -94,7 +99,11 @@ private fun ToolItems(
     selectedTool: Tool,
     onSelectTool: (Tool) -> Unit,
     activeBrush: Tool,
-    onBrushClick: () -> Unit
+    onBrushClick: () -> Unit,
+    mirrorMode: MirrorMode,
+    onMirrorClick: (() -> Unit)?,
+    rulerOn: Boolean,
+    onRulerClick: (() -> Unit)?
 ) {
     ToolButton(iconRes = brushIcon(activeBrush), description = "Brush", selected = selectedTool.isBrush, onClick = onBrushClick)
     ToolButton(iconRes = WishyIcons.Eraser, description = "Eraser", selected = selectedTool == Tool.ERASER, onClick = { onSelectTool(Tool.ERASER) })
@@ -108,6 +117,13 @@ private fun ToolItems(
     )
     ToolButton(iconRes = WishyIcons.Text, description = "Text", selected = selectedTool == Tool.TEXT, onClick = { onSelectTool(Tool.TEXT) })
     ToolButton(iconRes = WishyIcons.Eyedropper, description = "Eyedropper", selected = selectedTool == Tool.EYEDROPPER, onClick = { onSelectTool(Tool.EYEDROPPER) })
+    // Modifiers (not exclusive tools): they stay on while you switch between drawing tools.
+    if (onMirrorClick != null) {
+        ToolButton(iconRes = WishyIcons.Mirror, description = mirrorMode.label, selected = mirrorMode != MirrorMode.OFF, onClick = onMirrorClick)
+    }
+    if (onRulerClick != null) {
+        ToolButton(iconRes = WishyIcons.Ruler, description = if (rulerOn) "Ruler on" else "Ruler off", selected = rulerOn, onClick = onRulerClick)
+    }
 }
 
 @Preview(name = "ToolRail Light")

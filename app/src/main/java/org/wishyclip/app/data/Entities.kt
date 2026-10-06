@@ -1,5 +1,6 @@
 package org.wishyclip.app.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -32,7 +33,8 @@ data class ProjectEntity(
 data class FrameEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val projectId: Long,
-    val position: Int
+    val position: Int,
+    @ColumnInfo(defaultValue = "1") val exposureDuration: Int = 1
 )
 
 @Entity(
@@ -53,7 +55,9 @@ data class LayerEntity(
     val position: Int,
     val name: String,
     val visible: Boolean,
-    val opacity: Float
+    val opacity: Float,
+    @ColumnInfo(defaultValue = "0") val locked: Boolean = false,
+    @ColumnInfo(defaultValue = "'NORMAL'") val blendMode: String = "NORMAL"
 )
 
 @Entity(

@@ -1,0 +1,12 @@
+# 10 — RISK REGISTER & MITIGATION STRATEGY
+
+## Risk Assessment Matrix
+
+| Risk ID | Description | Impact | Probability | Mitigation Strategy | Contingency Plan |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **RSK-01** | **Canvas Space Saturation on Small Phones**: Extended panels or floating toolbars obscure artwork, degrading animator experience. | **HIGH** | **MEDIUM** | Implement auto-hiding panels, compact Classic mode layout, and single-tap canvas UI hide mode. | Fall back to minimal overlay tool bar and full-screen bottom sheet popups on devices with height $< 600\text{dp}$. |
+| **RSK-02** | **Memory Exhaustion during Rapid Frame Scrubbing**: Loading dozens of 1080p/4K layer PNGs into memory causing OutOfMemoryError. | **HIGH** | **LOW** | Strict $\pm 2$ frame bitmap caching in `EditorViewModel` + explicit bitmap `.recycle()` calls + downsampled thumbnail cache. | Force single-frame active memory caching on low-RAM devices (`ActivityManager.isLowRamDevice()`). |
+| **RSK-03** | **Audio / Video Sync Drift during Playback**: Frame rendering delays causing audio track to desynchronize from timeline playhead. | **MEDIUM** | **MEDIUM** | Hardware frame timestamp sync using ExoPlayer audio clock as master timebase. | Drop dropped-frame canvas renders during fast preview playback while keeping audio stream uninterrupted. |
+| **RSK-04** | **Unsaved Data Loss on App Crash / Termination**: Unexpected process kill during complex drawing session. | **HIGH** | **LOW** | Debounced 1.5s autosave + ON_STOP lifecycle sync + atomic journal file checkpointing. | Present `ProjectRecoveryDialog` on next launch to restore orphaned checkpoint data. |
+| **RSK-05** | **Intellectual Property / Trademark Infringement**: Accidental use of copyrighted logos, iconography, or branding from commercial software. | **HIGH** | **LOW** | Strict asset audit using Tabler (MIT) & Lucide (ISC) vector icons; custom original warm coral identity (`WishyTokens`). | Maintain complete license record in `assets/ASSET_MANIFEST.md` and `ATTRIBUTIONS.md`. |
+| **RSK-06** | **Touch Target Clipping on Foldables / Multi-Window Mode**: Resizing app window breaks layout or clips tool rail. | **MEDIUM** | **LOW** | Compose adaptive layouts using `BoxWithConstraints` and scrollable containers (`verticalScroll`, `horizontalScroll`). | Wrap side rail and top bar in flexible scrollable containers with minimum $48\text{dp}$ touch targets. |

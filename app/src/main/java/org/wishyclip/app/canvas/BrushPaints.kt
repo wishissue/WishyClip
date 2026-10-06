@@ -111,7 +111,7 @@ object BrushPaints {
                 paint.strokeJoin = Paint.Join.MITER
                 paint.alpha = (a * 255f).toInt()
             }
-            Tool.FILL, Tool.LASSO, Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.TEXT, Tool.EYEDROPPER -> {
+            Tool.FILL, Tool.LASSO, Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.TEXT, Tool.EYEDROPPER, Tool.CUSTOM -> {
                 paint.color = argb
                 paint.strokeWidth = size
                 paint.alpha = (a * 255f).toInt()

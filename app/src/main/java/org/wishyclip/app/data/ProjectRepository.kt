@@ -51,6 +51,10 @@ class ProjectRepository(private val db: WishyDatabase, val store: BitmapStore) {
 
     suspend fun frames(projectId: Long): List<FrameEntity> = frameDao.frames(projectId)
 
+    suspend fun updateFrameExposure(frameId: Long, duration: Int) {
+        frameDao.updateExposure(frameId, duration)
+    }
+
     suspend fun layers(frameId: Long): List<LayerEntity> = layerDao.forFrame(frameId)
 
     suspend fun saveLayers(layers: List<LayerEntity>) {
@@ -81,9 +85,7 @@ class ProjectRepository(private val db: WishyDatabase, val store: BitmapStore) {
         existing.add(at, newFrame)
         frameDao.updateAll(existing.mapIndexed { i, f -> f.copy(position = i) })
         val newLayers = templates.mapIndexed { i, t ->
-            val layer = LayerEntity(
-                frameId = newId, position = i, name = t.name, visible = t.visible, opacity = t.opacity
-            )
+            val layer = t.copy(id = 0, frameId = newId, position = i)
             layer.copy(id = layerDao.insert(layer))
         }
         Pair(newFrame.copy(position = at), newLayers)

@@ -8,6 +8,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -34,7 +35,11 @@ import org.wishyclip.app.canvas.BitmapOps
 import org.wishyclip.app.audio.ExoPlayerAudioTrackManager
 import org.wishyclip.app.audio.WaveformExtractor
 import org.wishyclip.app.canvas.GhostFrame
+import org.wishyclip.app.brush.BrushLimits
+import org.wishyclip.app.brush.StoredBrush
 import org.wishyclip.app.canvas.LassoSelection
+import org.wishyclip.app.canvas.LayerBlending
+import org.wishyclip.app.canvas.RulerState
 import org.wishyclip.app.canvas.LiveStroke
 import org.wishyclip.app.canvas.SelectionHit
 import org.wishyclip.app.canvas.TextRaster
@@ -56,6 +61,8 @@ import org.wishyclip.app.data.FrameEntity
 import org.wishyclip.app.data.Importer
 import org.wishyclip.app.data.LayerEntity
 import org.wishyclip.app.data.ProjectEntity
+import org.wishyclip.app.model.LayerBlend
+import org.wishyclip.app.model.MirrorMode
 import org.wishyclip.app.model.Tool
 import java.io.File
 import java.io.FileOutputStream
@@ -115,6 +122,22 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         private set
     var stabilizer by mutableFloatStateOf(0f)
         private set
+    var mirrorMode by mutableStateOf(MirrorMode.OFF)
+        private set
+    var rulerVisible by mutableStateOf(false)
+        private set
+    var ruler by mutableStateOf<RulerState?>(null)
+        private set
+    var customBrushes by mutableStateOf<List<StoredBrush>>(emptyList())
+        private set
+    var activeCustomBrushId by mutableStateOf<String?>(null)
+        private set
+
+    /** Short transient status text (e.g. "This layer is locked"); the editor shows it briefly. */
+    var message by mutableStateOf<String?>(null)
+        private set
+    private var messageTicket = 0
+    private var toolBeforeEyedropper: Tool? = null
     private var copiedFrameData: FrameData? = null
     val canPasteFrame get() = copiedFrameData != null
 
@@ -173,6 +196,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         opacity = settings.brushOpacity.first()
         onionSkinSettings = settings.onionSettings.first()
         audioTracks = repo.getAudioTracks(projectId)
+        customBrushes = withContext(Dispatchers.IO) { wishy.brushLibrary.list() }
         currentIndex = 0
         ensureLoaded(list[0].id)
         refreshLayerUi()
@@ -198,7 +222,11 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             withContext(Dispatchers.IO) {
                 val entities = repo.layers(frameId)
                 val layers = entities.map {
-                    LayerData(it.id, it.name, it.visible, it.opacity, store.load(projectId, it.id, p.width, p.height))
+                    LayerData(
+                        it.id, it.name, it.visible, it.opacity,
+                        store.load(projectId, it.id, p.width, p.height),
+                        it.locked, LayerBlend.from(it.blendMode)
+                    )
                 }
                 FrameData(frameId, layers.toMutableList())
             }
@@ -272,7 +300,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         stopPlay()
         viewModelScope.launch {
             val templates = currentFrameData()?.layers?.mapIndexed { i, l ->
-                LayerEntity(frameId = 0, position = i, name = l.name, visible = l.visible, opacity = l.opacity)
+                LayerEntity(
+                    frameId = 0, position = i, name = l.name, visible = l.visible, opacity = l.opacity,
+                    locked = l.locked, blendMode = l.blendMode.name
+                )
             } ?: listOf(LayerEntity(frameId = 0, position = 0, name = "Layer 1", visible = true, opacity = 1f))
             val position = currentIndex + 1
             repo.insertFrame(projectId, position, templates)
@@ -335,6 +366,15 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         }
     }
 
+    fun updateFrameExposure(index: Int, newDuration: Int) {
+        val clamped = newDuration.coerceIn(1, 120)
+        val frame = frames.getOrNull(index) ?: return
+        viewModelScope.launch {
+            repo.updateFrameExposure(frame.id, clamped)
+            frames = repo.frames(projectId)
+        }
+    }
+
     private fun clearFrameInternal() {
         val fd = currentFrameData() ?: return
         val frameId = fd.frameId
@@ -370,10 +410,17 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         playJob = viewModelScope.launch {
             val fps = (project?.fps ?: 12).coerceAtLeast(1)
             val frameMs = 1000L / fps
+            var holdTicks = 0
             while (isActive && isPlaying) {
                 val t0 = SystemClock.elapsedRealtime()
-                val next = (currentIndex + 1) % frames.size
-                gotoFrame(next)
+                val currentFrame = frames.getOrNull(currentIndex)
+                val requiredHold = currentFrame?.exposureDuration ?: 1
+                holdTicks++
+                if (holdTicks >= requiredHold) {
+                    holdTicks = 0
+                    val next = (currentIndex + 1) % frames.size
+                    gotoFrame(next)
+                }
                 val spent = SystemClock.elapsedRealtime() - t0
                 delay((frameMs - spent).coerceAtLeast(1L))
             }
@@ -428,7 +475,113 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun selectTool(t: Tool) {
         if (t != tool) commitLassoSelection()
+        if (t == Tool.EYEDROPPER && tool != Tool.EYEDROPPER) toolBeforeEyedropper = tool
         tool = t
+    }
+
+    fun selectCustomBrush(id: String) {
+        if (customBrushes.none { it.id == id }) return
+        activeCustomBrushId = id
+        selectTool(Tool.CUSTOM)
+    }
+
+    fun showMessage(text: String) {
+        message = text
+        val ticket = ++messageTicket
+        viewModelScope.launch {
+            delay(2500)
+            if (ticket == messageTicket) message = null
+        }
+    }
+
+    // ---------------------------------------------------------------- mirror / ruler
+
+    fun cycleMirror() {
+        mirrorMode = mirrorMode.next()
+        showMessage(mirrorMode.label)
+    }
+
+    fun toggleRuler() {
+        val p = project ?: return
+        if (!rulerVisible && ruler == null) ruler = RulerState.default(p.width, p.height)
+        rulerVisible = !rulerVisible
+        showMessage(if (rulerVisible) "Ruler on: start a stroke beside it to snap" else "Ruler off")
+    }
+
+    fun updateRuler(r: RulerState) {
+        ruler = r
+    }
+
+    /** The ruler to show/snap to, or null when it is switched off. */
+    fun activeRuler(): RulerState? = if (rulerVisible) ruler else null
+
+    // ---------------------------------------------------------------- imported brushes
+
+    fun importBrushFiles(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            var added = 0
+            var lastError: String? = null
+            var first: StoredBrush? = null
+            for (uri in uris) {
+                val picked = withContext(Dispatchers.IO) {
+                    try {
+                        val name = app.contentResolver
+                            .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                            ?.use { if (it.moveToFirst()) it.getString(0) else null }
+                            ?: uri.lastPathSegment ?: "brush"
+                        val bytes = app.contentResolver.openInputStream(uri)?.use {
+                            readLimited(it, BrushLimits.MAX_FILE_BYTES)
+                        }
+                        PickedFile(name, bytes)
+                    } catch (e: Exception) {
+                        PickedFile("brush", null)
+                    }
+                }
+                val name = picked.name
+                val bytes = picked.bytes
+                if (bytes == null) {
+                    lastError = "Could not read that file (maximum 20 MB)."
+                    continue
+                }
+                val outcome = wishy.brushLibrary.import(name, bytes)
+                if (outcome.error != null) lastError = outcome.error
+                added += outcome.added.size
+                if (first == null) first = outcome.added.firstOrNull()
+            }
+            customBrushes = withContext(Dispatchers.IO) { wishy.brushLibrary.list() }
+            first?.let { selectCustomBrush(it.id) }
+            showMessage(
+                if (added > 0) "Imported $added brush${if (added == 1) "" else "es"}"
+                else lastError ?: "No brushes were imported"
+            )
+        }
+    }
+
+    fun deleteCustomBrush(id: String) {
+        wishy.brushLibrary.delete(id)
+        customBrushes = wishy.brushLibrary.list()
+        if (activeCustomBrushId == id) {
+            activeCustomBrushId = null
+            if (tool == Tool.CUSTOM) tool = Tool.PEN
+        }
+    }
+
+    private class PickedFile(val name: String, val bytes: ByteArray?)
+
+    private fun readLimited(input: java.io.InputStream, limit: Int): ByteArray? {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(16 * 1024)
+        var total = 0
+        while (true) {
+            val n = input.read(buf)
+            if (n < 0) break
+            total += n
+            if (total > limit) return null
+            out.write(buf, 0, n)
+        }
+        return out.toByteArray()
     }
 
     fun updateColor(argb: Int) {
@@ -459,31 +612,42 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         fillTolerance = tolerance.coerceIn(0, 255)
     }
 
-    /** Eyedropper: take the color of the topmost visible pixel at (x, y); blank canvas picks white paper. */
+    /**
+     * Eyedropper: takes the colour you actually see at (x, y) (all visible layers, with their
+     * opacity and blend modes, over white paper), then returns to the tool used before it.
+     */
     fun pickColorAt(x: Float, y: Float) {
         if (isPlaying) return
+        val p = project ?: return
         val ix = x.toInt()
         val iy = y.toInt()
-        var picked = 0xFFFFFFFF.toInt()
-        val stack = currentLayers()
-        for (i in stack.indices.reversed()) {
-            val layer = stack[i]
-            if (!layer.visible || layer.opacity <= 0f) continue
-            val bmp = layer.bitmap
-            if (bmp.isRecycled || ix !in 0 until bmp.width || iy !in 0 until bmp.height) continue
-            val px = bmp.getPixel(ix, iy)
-            if ((px ushr 24) > 0) {
-                picked = px or 0xFF000000.toInt()
-                break
+        if (ix !in 0 until p.width || iy !in 0 until p.height) return
+        val px = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        try {
+            val c = Canvas(px)
+            c.drawColor(android.graphics.Color.WHITE)
+            val paint = Paint()
+            val src = Rect(ix, iy, ix + 1, iy + 1)
+            val dst = Rect(0, 0, 1, 1)
+            for (layer in currentLayers()) {
+                if (!layer.visible || layer.opacity <= 0f || layer.bitmap.isRecycled) continue
+                paint.alpha = (layer.opacity * 255f).toInt().coerceIn(0, 255)
+                LayerBlending.apply(paint, layer.blendMode)
+                c.drawBitmap(layer.bitmap, src, dst, paint)
             }
+            updateColor(px.getPixel(0, 0) or 0xFF000000.toInt())
+        } finally {
+            px.recycle()
         }
-        updateColor(picked)
+        toolBeforeEyedropper?.let { tool = it }
+        toolBeforeEyedropper = null
     }
 
     fun executeFill(x: Float, y: Float) {
         if (isPlaying) return
         val layer = activeLayer() ?: return
         if (!layer.visible) return
+        if (layer.locked) { showMessage("This layer is locked"); return }
         val frameId = frames.getOrNull(currentIndex)?.id ?: return
 
         viewModelScope.launch(Dispatchers.Default) {
@@ -823,7 +987,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun copyFrame() {
         val fd = currentFrameData() ?: return
         val copiedLayers = fd.layers.map { l ->
-            LayerData(l.id, l.name, l.visible, l.opacity, l.bitmap.snapshot())
+            LayerData(l.id, l.name, l.visible, l.opacity, l.bitmap.snapshot(), l.locked, l.blendMode)
         }
         copiedFrameData = FrameData(fd.frameId, copiedLayers.toMutableList())
         revision++
@@ -833,7 +997,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val copy = copiedFrameData ?: return
         viewModelScope.launch {
             val templates = copy.layers.mapIndexed { i, l ->
-                LayerEntity(frameId = 0, position = i, name = l.name, visible = l.visible, opacity = l.opacity)
+                LayerEntity(
+                    frameId = 0, position = i, name = l.name, visible = l.visible, opacity = l.opacity,
+                    locked = l.locked, blendMode = l.blendMode.name
+                )
             }
             val pos = currentIndex + 1
             val (newFrame, _) = repo.insertFrame(projectId, pos, templates)
@@ -880,6 +1047,11 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             commitLassoSelection()
         }
 
+        if (tool != Tool.EYEDROPPER && activeLayer()?.locked == true) {
+            showMessage("This layer is locked")
+            return
+        }
+
         if (tool == Tool.TEXT) {
             gesture = Gesture.TEXT_TAP
             gestureStartX = x
@@ -906,7 +1078,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             revision++
             return
         }
-        renderer.begin(layer.bitmap, tool, color, brushSize, opacity, x, y, pressure, tilt)
+        val dab = if (tool == Tool.CUSTOM) {
+            customBrushes.firstOrNull { it.id == activeCustomBrushId }?.let { wishy.brushLibrary.dab(it) }
+        } else null
+        renderer.begin(layer.bitmap, tool, color, brushSize, opacity, x, y, pressure, tilt, mirrorMode, dab)
         revision++
     }
 
@@ -1076,7 +1251,9 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     // ---------------------------------------------------------------- layers (current frame)
 
     private fun refreshLayerUi() {
-        layerUi = currentFrameData()?.layers?.map { LayerUi(it.id, it.name, it.visible, it.opacity) } ?: emptyList()
+        layerUi = currentFrameData()?.layers?.map {
+            LayerUi(it.id, it.name, it.visible, it.opacity, it.locked, it.blendMode)
+        } ?: emptyList()
     }
 
     fun selectLayer(index: Int) {
@@ -1136,6 +1313,62 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         scheduleSave()
     }
 
+    fun setLayerLocked(index: Int, locked: Boolean) {
+        val fd = currentFrameData() ?: return
+        val layer = fd.layers.getOrNull(index) ?: return
+        layer.locked = locked
+        fd.metaVersion++
+        refreshLayerUi()
+        revision++
+        scheduleSave()
+    }
+
+    fun setLayerBlend(index: Int, blend: LayerBlend) {
+        val fd = currentFrameData() ?: return
+        val layer = fd.layers.getOrNull(index) ?: return
+        layer.blendMode = blend
+        fd.metaVersion++
+        refreshLayerUi()
+        revision++
+        scheduleSave()
+    }
+
+    /** Flattens the layer at [index] into the one below it (cannot be undone). */
+    fun mergeLayerDown(index: Int) {
+        val fd = currentFrameData() ?: return
+        if (strokeLayer != null || index !in 1..fd.layers.lastIndex) return
+        commitLassoSelection()
+        val upper = fd.layers[index]
+        val lower = fd.layers[index - 1]
+        if (lower.locked) {
+            showMessage("The layer below is locked")
+            return
+        }
+        if (upper.blendMode != LayerBlend.NORMAL) {
+            showMessage("Set the blend mode to Normal to merge")
+            return
+        }
+        if (upper.visible && upper.opacity > 0f) {
+            val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+            paint.alpha = (upper.opacity * 255f).toInt().coerceIn(0, 255)
+            Canvas(lower.bitmap).drawBitmap(upper.bitmap, 0f, 0f, paint)
+            lower.version++
+        }
+        fd.layers.removeAt(index)
+        undoManager.dropLayer(upper.id)
+        undoManager.dropLayer(lower.id)
+        syncUndoFlags()
+        if (!upper.bitmap.isRecycled) upper.bitmap.recycle()
+        fd.metaVersion++
+        activeLayerIndex = (if (activeLayerIndex >= index) activeLayerIndex - 1 else activeLayerIndex)
+            .coerceIn(0, fd.layers.lastIndex)
+        refreshLayerUi()
+        revision++
+        viewModelScope.launch { repo.deleteLayer(projectId, upper.id) }
+        scheduleSave()
+        showMessage("Layers merged")
+    }
+
     /** [delta] +1 moves the layer up (towards the top of the stack), -1 down. */
     fun moveLayer(index: Int, delta: Int) {
         val fd = currentFrameData() ?: return
@@ -1179,7 +1412,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val copies = dirtyLayers.map { Triple(it, it.version, it.bitmap.snapshot()) }
         val metaVersion = fd.metaVersion
         val metas = fd.layers.mapIndexed { i, l ->
-            LayerEntity(id = l.id, frameId = fd.frameId, position = i, name = l.name, visible = l.visible, opacity = l.opacity)
+            LayerEntity(
+                id = l.id, frameId = fd.frameId, position = i, name = l.name, visible = l.visible,
+                opacity = l.opacity, locked = l.locked, blendMode = l.blendMode.name
+            )
         }
         val isFirst = frames.firstOrNull()?.id == fd.frameId
         val thumb = if (isFirst && dirtyLayers.isNotEmpty()) composeThumb(fd) else null
@@ -1213,6 +1449,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         for (l in fd.layers) {
             if (!l.visible) continue
             paint.alpha = (l.opacity * 255f).toInt().coerceIn(0, 255)
+            LayerBlending.apply(paint, l.blendMode)
             canvas.drawBitmap(l.bitmap, null, dst, paint)
         }
         return bmp

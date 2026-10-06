@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,13 +28,18 @@ fun TimelineFrameCell(
     frameIndex: Int,
     selected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    exposureDuration: Int = 1,
+    onIncreaseExposure: (() -> Unit)? = null,
+    onDecreaseExposure: (() -> Unit)? = null
 ) {
     val tokens = WishyTheme.tokens
     val shape = RoundedCornerShape(6.dp)
+    val cellWidth = (64 + (exposureDuration - 1) * 20).coerceAtMost(160).dp
+
     Box(
         modifier = modifier
-            .size(width = 64.dp, height = 46.dp)
+            .size(width = cellWidth, height = 46.dp)
             .clip(shape)
             .background(tokens.paper)
             .border(
@@ -52,6 +58,64 @@ fun TimelineFrameCell(
                 .align(Alignment.BottomStart)
                 .padding(start = 6.dp, bottom = 3.dp)
         )
+        if (selected) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (exposureDuration > 1 && onDecreaseExposure != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(tokens.surfaceVariant)
+                            .clickable { onDecreaseExposure() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("-", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = tokens.onSurface)
+                    }
+                }
+                if (exposureDuration > 1) {
+                    Text(
+                        text = "x$exposureDuration",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = tokens.primary,
+                        modifier = Modifier.padding(horizontal = 2.dp)
+                    )
+                }
+                if (onIncreaseExposure != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(tokens.surfaceVariant)
+                            .clickable { onIncreaseExposure() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("+", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = tokens.onSurface)
+                    }
+                }
+            }
+        } else if (exposureDuration > 1) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 2.dp, end = 4.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(tokens.primary.copy(alpha = 0.15f))
+                    .padding(horizontal = 4.dp, vertical = 1.dp)
+            ) {
+                Text(
+                    text = "x$exposureDuration",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = tokens.primary
+                )
+            }
+        }
     }
 }
 

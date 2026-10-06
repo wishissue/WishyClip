@@ -38,7 +38,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,17 +64,22 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlin.math.roundToInt
 import org.wishyclip.app.R
+import org.wishyclip.app.canvas.CanvasViewState
 import org.wishyclip.app.canvas.DrawingCanvas
 import org.wishyclip.app.export.ExportFormat
 import org.wishyclip.app.export.ExportService
 import org.wishyclip.app.model.Tool
+import org.wishyclip.app.model.displayName
 import org.wishyclip.app.model.isBrush
 import org.wishyclip.app.ui.components.BrushMenu
 import org.wishyclip.app.ui.EditorViewModel
 import org.wishyclip.app.ui.components.ActionIconButton
 import org.wishyclip.app.ui.components.ColorPickerSheet
 import org.wishyclip.app.ui.components.ColorSwatch
+import org.wishyclip.app.ui.components.ContextToolPanel
 import org.wishyclip.app.ui.components.LayerPanel
+import org.wishyclip.app.ui.components.ShortcutDialog
+import org.wishyclip.app.ui.components.StudioTimeline
 import org.wishyclip.app.ui.components.TimelineStrip
 import org.wishyclip.app.ui.components.ToolRail
 import org.wishyclip.app.ui.components.WishyDialog
@@ -98,12 +108,14 @@ fun EditorScreen(
     }
     BackHandler { vm.saveAndExit(onExit) }
 
-    var isUiHidden by remember { mutableStateOf(false) }
-    var showLayersPanel by remember { mutableStateOf(false) }
+    // Saveable so panels / canvas view survive a device rotation or process recreation.
+    var isUiHidden by rememberSaveable { mutableStateOf(false) }
+    var showLayersPanel by rememberSaveable { mutableStateOf(false) }
+    val canvasView = rememberSaveable(saver = CanvasViewState.Saver) { CanvasViewState() }
     var showColorPicker by remember { mutableStateOf(false) }
-    var showToolOptions by remember { mutableStateOf(false) }
-    var showBrushMenu by remember { mutableStateOf(false) }
-    var activeBrush by remember { mutableStateOf(if (vm.tool.isBrush) vm.tool else Tool.PEN) }
+    var showToolOptions by rememberSaveable { mutableStateOf(false) }
+    var showBrushMenu by rememberSaveable { mutableStateOf(false) }
+    var activeBrush by rememberSaveable { mutableStateOf(if (vm.tool.isBrush) vm.tool else Tool.PEN) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showDeleteFrameDialog by remember { mutableStateOf(false) }
     var showOnionSkinDialog by remember { mutableStateOf(false) }
@@ -111,6 +123,8 @@ fun EditorScreen(
     var showImportDialog by remember { mutableStateOf(false) }
     var showFpsDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
+    var showShortcutDialog by remember { mutableStateOf(false) }
+    var isStudioExpanded by rememberSaveable { mutableStateOf(false) }
 
     val imageLayerPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) vm.importImageAsLayer(uri)
@@ -123,6 +137,9 @@ fun EditorScreen(
     }
 
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val brushPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        vm.importBrushFiles(uris)
+    }
     val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) vm.addAudioTrackFromUri(uri, name = "Audio ${vm.audioTracks.size + 1}")
     }
@@ -257,6 +274,34 @@ fun EditorScreen(
                                         showOnionSkinDialog = true
                                     }
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("Rotate Canvas 90°") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        canvasView.rotateBy(90f)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Reset View") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        canvasView.reset()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Keyboard Shortcuts") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showShortcutDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Import Brushes") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        brushPicker.launch("*/*")
+                                    }
+                                )
                                 if (onOpenDesignGallery != null) {
                                     DropdownMenuItem(
                                         text = { Text("Design Gallery (Debug)") },
@@ -283,12 +328,16 @@ fun EditorScreen(
                             onSelectTool = onSelectTool,
                             activeBrush = activeBrush,
                             onBrushClick = onBrushClick,
+                            mirrorMode = vm.mirrorMode,
+                            onMirrorClick = { vm.cycleMirror() },
+                            rulerOn = vm.rulerVisible,
+                            onRulerClick = { vm.toggleRuler() },
                             trailing = colorSwatchSlot
                         )
                     }
 
-                    // Canvas area
-                    Box(
+                    // Canvas area (BoxWithConstraints: floating panels are capped to the window height)
+                    BoxWithConstraints(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
@@ -318,6 +367,10 @@ fun EditorScreen(
                                 lassoPreview = { vm.lassoPreviewPath() },
                                 revision = { vm.revision },
                                 enabled = !vm.isPlaying,
+                                view = canvasView,
+                                mirror = { vm.mirrorMode },
+                                ruler = { vm.activeRuler() },
+                                onRulerChange = { vm.updateRuler(it) },
                                 onStrokeStart = { x, y, press, tilt -> vm.strokeStart(x, y, press, tilt) },
                                 onStrokeMove = { x, y, press, tilt -> vm.strokeMove(x, y, press, tilt) },
                                 onStrokeEnd = { vm.strokeEnd() },
@@ -330,30 +383,28 @@ fun EditorScreen(
                             }
                         }
 
-                        // Contextual bar for a floating lasso selection / text object.
-                        val floating = vm.activeLassoSelection
-                        if (floating != null && !isUiHidden) {
-                            Surface(
+                        // Floating Contextual Bar tailored to active tool
+                        if (!isUiHidden && !showBrushMenu) {
+                            ContextToolPanel(
+                                tool = vm.tool,
+                                color = vm.color,
+                                brushSize = vm.brushSize,
+                                opacity = vm.opacity,
+                                fillTolerance = vm.fillTolerance,
+                                onSizeChange = { vm.updateBrushSize(it) },
+                                onOpacityChange = { vm.updateOpacity(it) },
+                                onToleranceChange = { vm.updateFillTolerance(it) },
+                                onOpenColorPicker = { showColorPicker = true },
+                                onOpenBrushMenu = { showBrushMenu = true },
+                                activeLasso = vm.activeLassoSelection,
+                                onCommitLasso = { vm.commitLassoSelection() },
+                                onCancelLasso = { vm.cancelLassoSelection() },
+                                onDeleteLasso = { vm.deleteLassoSelection() },
+                                onSelectShapeTool = { vm.selectTool(it) },
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
-                                    .padding(top = tokens.spaceSmall),
-                                shape = RoundedCornerShape(tokens.mediumRadius),
-                                color = tokens.toolRail,
-                                shadowElevation = tokens.elevationMedium
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    TextButton(onClick = { vm.commitLassoSelection() }) { Text("✓ Done") }
-                                    if (floating.isText) {
-                                        TextButton(onClick = { vm.editActiveText() }) { Text("✎ Edit") }
-                                    } else {
-                                        TextButton(onClick = { vm.cancelLassoSelection() }) { Text("↩ Put back") }
-                                    }
-                                    TextButton(onClick = { vm.deleteLassoSelection() }) { Text("🗑 Delete") }
-                                }
-                            }
+                                    .padding(top = tokens.spaceSmall)
+                            )
                         }
 
                         // Tool options: floats just above the tool bar (portrait) or beside the rail (landscape)
@@ -372,6 +423,17 @@ fun EditorScreen(
                                 stabilizer = vm.stabilizer,
                                 onStabilizerChange = { vm.updateStabilizer(it) },
                                 onSettingsFinished = { vm.persistBrush() },
+                                customBrushes = vm.customBrushes,
+                                selectedCustomId = vm.activeCustomBrushId,
+                                onSelectCustom = {
+                                    activeBrush = Tool.CUSTOM
+                                    vm.selectCustomBrush(it)
+                                },
+                                onDeleteCustom = {
+                                    vm.deleteCustomBrush(it)
+                                    if (activeBrush == Tool.CUSTOM) activeBrush = Tool.PEN
+                                },
+                                onImportBrushes = { brushPicker.launch("*/*") },
                                 modifier = Modifier
                                     .align(
                                         when {
@@ -385,6 +447,7 @@ fun EditorScreen(
                                         if (isLandscape) Modifier.width(300.dp)
                                         else Modifier.fillMaxWidth().widthIn(max = 380.dp)
                                     )
+                                    .heightIn(max = maxHeight - tokens.spaceSmall * 2)
                             )
                         }
 
@@ -402,17 +465,20 @@ fun EditorScreen(
                                     .then(
                                         if (isLandscape) Modifier.width(220.dp)
                                         else Modifier.fillMaxWidth().widthIn(max = 360.dp)
-                                    ),
+                                    )
+                                    .heightIn(max = maxHeight - tokens.spaceSmall * 2),
                                 shape = RoundedCornerShape(tokens.mediumRadius),
                                 color = tokens.toolRail,
                                 shadowElevation = tokens.elevationMedium
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(tokens.spaceMedium),
+                                    modifier = Modifier
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(tokens.spaceMedium),
                                     verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
                                 ) {
                                     Text(
-                                        text = vm.tool.name.lowercase().replaceFirstChar { it.uppercase() },
+                                        text = vm.tool.displayName,
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.SemiBold,
                                         color = tokens.onSurface
@@ -487,11 +553,34 @@ fun EditorScreen(
                                 onOpacityChange = { idx, op -> vm.setLayerOpacity(idx, op) },
                                 onMoveLayer = { idx, dir -> vm.moveLayer(idx, dir) },
                                 onDeleteLayer = { idx -> vm.deleteLayer(idx) },
+                                onToggleLock = { idx, locked -> vm.setLayerLocked(idx, locked) },
+                                onCycleBlend = { idx -> vm.layerUi.getOrNull(idx)?.let { vm.setLayerBlend(idx, it.blendMode.next()) } },
+                                onMergeDown = { idx -> vm.mergeLayerDown(idx) },
+                                maxListHeight = (maxHeight - 140.dp).coerceIn(80.dp, 280.dp),
                                 modifier = Modifier
                                     .align(if (isLeftHanded) Alignment.TopStart else Alignment.TopEnd)
                                     .padding(tokens.spaceSmall)
                                     .width(260.dp)
                             )
+                        }
+
+                        // Brief status text (locked layer, brush import result, mirror mode, ...)
+                        vm.message?.let { msg ->
+                            Surface(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = tokens.spaceMedium),
+                                shape = RoundedCornerShape(20.dp),
+                                color = tokens.surface,
+                                shadowElevation = tokens.elevationMedium
+                            ) {
+                                Text(
+                                    text = msg,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = tokens.onSurface
+                                )
+                            }
                         }
                     }
 
@@ -501,6 +590,10 @@ fun EditorScreen(
                             onSelectTool = onSelectTool,
                             activeBrush = activeBrush,
                             onBrushClick = onBrushClick,
+                            mirrorMode = vm.mirrorMode,
+                            onMirrorClick = { vm.cycleMirror() },
+                            rulerOn = vm.rulerVisible,
+                            onRulerClick = { vm.toggleRuler() },
                             trailing = colorSwatchSlot
                         )
                     }
@@ -519,6 +612,10 @@ fun EditorScreen(
                             horizontal = true,
                             activeBrush = activeBrush,
                             onBrushClick = onBrushClick,
+                            mirrorMode = vm.mirrorMode,
+                            onMirrorClick = { vm.cycleMirror() },
+                            rulerOn = vm.rulerVisible,
+                            onRulerClick = { vm.toggleRuler() },
                             trailing = colorSwatchSlot
                         )
                     }
@@ -537,23 +634,35 @@ fun EditorScreen(
                                 .height(1.dp)
                                 .background(tokens.surfaceVariant)
                         )
-                        TimelineStrip(
+                        StudioTimeline(
                             frames = vm.frames,
                             currentIndex = vm.currentIndex,
                             fps = vm.project?.fps ?: 12,
+                            layers = vm.layerUi,
+                            activeLayerIndex = vm.activeLayerIndex,
                             audioTracks = vm.audioTracks,
+                            isPlaying = vm.isPlaying,
+                            onionEnabled = vm.onionSkinSettings.enabled,
+                            isStudioExpanded = isStudioExpanded,
+                            onToggleStudioExpanded = { isStudioExpanded = !isStudioExpanded },
                             onSelectFrame = { vm.selectFrame(it) },
+                            onTogglePlay = { vm.togglePlay() },
+                            onPreviousFrame = { if (vm.currentIndex > 0) vm.selectFrame(vm.currentIndex - 1) },
+                            onNextFrame = { if (vm.currentIndex < vm.frames.lastIndex) vm.selectFrame(vm.currentIndex + 1) },
                             onAddFrame = { vm.addFrame() },
                             onDuplicateFrame = { vm.duplicateFrame() },
                             onCopyFrame = { vm.copyFrame() },
                             onPasteFrame = { vm.pasteFrame() },
                             canPaste = vm.canPasteFrame,
-                            onDeleteRequested = { showDeleteFrameDialog = true },
-                            onAudioRequested = { showAudioDialog = true },
-                            onImportRequested = { showImportDialog = true },
+                            onDeleteFrame = { showDeleteFrameDialog = true },
+                            onToggleOnion = { vm.toggleOnionSkin() },
+                            onSelectLayer = { vm.selectLayer(it) },
+                            onToggleLayerVisibility = { idx, vis -> vm.setLayerVisible(idx, vis) },
+                            onToggleLayerLock = { idx, locked -> vm.setLayerLocked(idx, locked) },
+                            onAddLayer = { vm.addLayer() },
                             onFpsRequested = { showFpsDialog = true },
-                            onionEnabled = vm.onionSkinSettings.enabled,
-                            onToggleOnion = { vm.toggleOnionSkin() }
+                            onAudioRequested = { showAudioDialog = true },
+                            onUpdateFrameExposure = { index, duration -> vm.updateFrameExposure(index, duration) }
                         )
                     }
                 }
@@ -758,5 +867,11 @@ fun EditorScreen(
                 modifier = Modifier.fillMaxWidth()
             )
         }
+    }
+
+    if (showShortcutDialog) {
+        ShortcutDialog(
+            onDismissRequest = { showShortcutDialog = false }
+        )
     }
 }

@@ -41,6 +41,9 @@ interface FrameDao {
     @Update
     suspend fun updateAll(frames: List<FrameEntity>)
 
+    @Query("UPDATE frames SET exposureDuration = :duration WHERE id = :id")
+    suspend fun updateExposure(id: Long, duration: Int)
+
     @Query("DELETE FROM frames WHERE id = :id")
     suspend fun delete(id: Long)
 }

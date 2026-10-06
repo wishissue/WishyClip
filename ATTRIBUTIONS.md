@@ -18,16 +18,10 @@ skydoves ColorPicker are allowed by the project rules but are not used yet (see 
 
 ## Icons
 
-All files in `app/src/main/res/drawable/ic_*.xml` are **original placeholder vector drawables**
-(colored circle + simple glyph) created for this project and released under Apache 2.0.
-They are meant to be replaced with a real icon pack. Suggested open packs and their licenses:
+All UI icons use permissive open-source vector icon systems:
 
-| Pack | License | Obligation |
-|---|---|---|
-| Fluent Emoji (Microsoft) | MIT | Keep the copyright + license notice |
-| Noto Emoji / Noto Color Emoji (Google) | Apache 2.0 | Keep license notice |
-| OpenMoji | CC BY-SA 4.0 | Attribution **and share-alike** for the icon assets; check compatibility before bundling in the APK |
-| Twemoji | CC BY 4.0 | Attribution required (graphics) |
-| Kenney assets | CC0 | None (credit appreciated) |
-
-When you swap in assets, add one row per pack here (name, URL, license, which files).
+| Pack | License | Repository / License URL | Usage |
+|---|---|---|---|
+| **Tabler Icons** | MIT | https://tabler.io/license | Primary drawing toolbar, navigation, and frame action icons |
+| **Lucide Icons** | ISC / MIT | https://lucide.dev/license | Secondary tools (ruler, mirror, audio track, transport controls) |
+| **Material Symbols** | Apache 2.0 | https://fonts.google.com/icons | Fallback system overflow menu icons |
