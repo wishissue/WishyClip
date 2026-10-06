@@ -1,47 +1,35 @@
-# Wishy Clip
+# WishaClip
 
-![Wishy Clip Banner](app/src/main/res/drawable/ic_logo.png)
+![WishaClip Logo](app/src/main/res/drawable/ic_logo.png)
 
-**Wishy Clip** is a free, open-source frame-by-frame 2D animation app for Android. No ads, no paywalls, no subscriptions.
+**WishaClip** is a free, open-source frame-by-frame 2D animation app for Android. No ads, no paywalls, no subscriptions.
 
-> *Wishy Clip is an independent open-source project and is not affiliated with or endorsed by FlipaClip or Vblast.*
+> *WishaClip is an independent open-source project and is not affiliated with or endorsed by FlipaClip or Vblast.*
 
 ---
 
 ## Features
 
-- **Drawing**: pressure-sensitive strokes with a stabilizer, undo/redo, pinch zoom / pan / rotate (plus 90° rotate buttons), and 11 built-in brushes (Pen, Pencil, Marker, Airbrush, Calligraphy, Highlighter, Charcoal, Ink, Watercolor, Chalk, Pixel Pen) plus the Eraser.
-- **Tools**: Fill (with tolerance), Lasso (freeform select with move / resize / rotate), Line / Rectangle / Ellipse, Text, Eyedropper (samples the colour you see, then returns to your previous tool).
-- **Mirror**: symmetry drawing across the centre line: left/right, top/bottom or 4-way. Works with every brush, the eraser and shapes.
-- **Ruler**: a movable, rotatable straight edge. Start a stroke beside it and the stroke snaps to its edge.
-- **Layers**: add / delete / reorder, opacity, visibility, **lock**, **blend modes** (Normal, Multiply, Screen, Overlay, Darken, Lighten, Add) and **merge down**.
-- **Animation**: frame timeline, copy / paste frames, onion skin, playback at project FPS, image / video import as frames.
-- **Portrait and landscape**: the tool bar, panels and timeline re-arrange for each orientation (left-handed layout supported), panels scroll in short windows, and rotating the device keeps your canvas view.
-- **Imported brushes**: tip-based brushes from community files (see below), with spacing, rotation, scatter and size jitter, usable with Mirror.
-
-### Supported Brush Formats
-
-Files are limited to 20 MB, 512 brushes per file, and tips up to 2048 px (stored at up to 512 px). Colour is applied at paint time, so every tip becomes a one-colour mask.
-
-| Format | Extension | What is imported |
-|---|---|---|
-| Wishy Brush | `.wbrush` | ZIP with `brush.json` (name, spacing, angle, rotateWithStroke, scatter, sizeJitter, flow) and `tip.png` |
-| Krita | `.kpp`, `.bundle` | Embedded tip, name, spacing and angle; presets without a tip get a soft round tip |
-| Photoshop | `.abr` | Sampled (bitmap) tips, v1/v2 and v6+ (v6+ is located heuristically); computed round brushes are skipped |
-| GIMP | `.gbr`, `.gih` | Tip and spacing (first brush of a `.gih` pipe) |
-| Procreate | `.brush`, `.brushset` | `Shape.png` tip only (no grain, no dynamics) |
-
-The parsers are tested against files built from each format's documented layout; they have **not** been verified against a large corpus of real-world brush packs, so some files may be rejected or look different.
-
-- **Audio & Voiceover**: Import audio tracks, record voiceovers, and view synchronized waveforms directly on the timeline.
-- **Export & Share**: Export high-performance MP4 videos (MediaCodec + MediaMuxer), animated GIFs, or PNG sequences.
-- **Customizable Themes**: Light, Dark, AMOLED Black, Candy, and community JSON theme packs.
+- **Drawing**: Pressure-sensitive strokes with a stabilizer, undo/redo, pinch zoom / pan / rotate, and 11 built-in brushes (Pen, Pencil, Marker, Airbrush, Calligraphy, Highlighter, Charcoal, Ink, Watercolor, Chalk, Pixel) plus the Eraser.
+- **Tools**: Fill (with tolerance), Lasso (freeform select with move / resize / rotate), Line / Rectangle / Ellipse, Text, Eyedropper.
+- **Mirror**: Symmetry drawing across centre lines (2-way or 4-way). Works with every brush, eraser, and shape tools.
+- **Ruler**: Movable, rotatable straight edge with snapping.
+- **Layers**: Add / delete / reorder, opacity, visibility, lock, blend modes (Normal, Multiply, Screen, Overlay, Darken, Lighten, Add), and merge down.
+- **Animation**: Frame timeline, copy / paste frames, onion skin, adjustable FPS, image / video import as frames.
+- **Portrait & Landscape**: Adaptive layouts for each orientation, left-handed mode support, and rotatable canvas viewports.
+- **Custom Brushes & Fonts**: Import community brush packs (`.wbrush`, `.abr`, `.kpp`, `.gbr`) and custom font files (`.ttf`, `.otf`).
+- **Audio & Voiceover**: Multi-track audio timeline with trimming, volume adjustments, split at playhead, and waveform lane.
+- **Export**: High-performance MP4 video export (with audio mixing), animated GIFs, or PNG sequences.
+- **Customizable Themes**: Studio Ink, Cloud, Midnight, AMOLED, Candy, Light, and Dark theme packs.
 
 ---
 
-## Installation & APK
+## Installation & APKs
 
-Download the latest signed release APK from the [GitHub Releases](https://github.com/wishyclip/wishyclip/releases) page.
+Download the signed release APKs from the [GitHub Releases](https://github.com/wishissue/WishyClip/releases) page. Choose the correct APK for your device architecture:
+- **`WishaClip-1.0.0-arm64-v8a-release.apk`**: Recommended for almost all modern Android phones and tablets (64-bit ARM).
+- **`WishaClip-1.0.0-armeabi-v7a-release.apk`**: For older 32-bit ARM devices.
+- **`WishaClip-1.0.0-universal-release.apk`**: Works on all architectures (larger file size).
 
 ---
 
@@ -53,41 +41,25 @@ Download the latest signed release APK from the [GitHub Releases](https://github
 
 ### Build Steps
 ```bash
-git clone https://github.com/wishyclip/wishyclip.git
-cd wishyclip
+git clone https://github.com/wishissue/WishyClip.git
+cd WishyClip
 ./gradlew assembleDebug testDebugUnitTest
 ```
 
 ---
 
-## Project Structure & Architecture
+## Architecture
 
-Wishy Clip follows an MVVM architecture with clean separation of concerns:
-- `canvas/`: Drawing canvas, stroke renderer (path strokes, dab stamping, mirror), ruler and layer blending.
-- `brush/`: Dependency-free brush file parsers and on-disk brush store (unit-testable on the plain JVM).
-- `data/`: Room database entities, DAOs, repository, PNG layer storage and the brush library.
-- `audio/`: ExoPlayer audio synchronization, voice recording, and waveform extraction.
-- `export/`: MediaCodec MP4 encoder, animated GIF encoder, and foreground service.
+WishaClip follows an MVVM architecture with clean separation of concerns:
+- `canvas/`: Drawing canvas, stroke renderer, ruler, and layer blending.
+- `brush/`: Brush file parsers and on-disk brush store.
+- `data/`: Room database entities, DAOs, repository, and storage.
+- `audio/`: Multi-track audio playback (`MultiTrackAudioPlayer`), voice recording, and waveform extraction.
+- `export/`: MediaCodec MP4 encoder, audio mixer, animated GIF encoder, and foreground service.
 - `ui/`: Jetpack Compose design system (`ui/design/`), reusable components (`ui/components/`), and screens (`ui/screens/`).
 
 ---
 
-## Roadmap
+## License & Notices
 
-- [x] Mirror, ruler, eyedropper
-- [x] Layer lock, blend modes, merge down
-- [x] Brush importers (`.wbrush`, `.kpp` / `.bundle`, `.abr`, `.gbr` / `.gih`, Procreate)
-- [x] Portrait / landscape layouts that survive rotation
-- [x] MP4, GIF and PNG-sequence export
-- [x] Frame hold / exposure duration timeline (`exposureDuration` per frame)
-- [x] Studio multi-track timeline and contextual drawing controls
-- [ ] Tiled sparse layer storage (the `TileStore` / `BitmapPool` / LZ4 code exists but is not wired in; layers are still one PNG each)
-- [ ] Transparent-background export
-- [ ] Ruler variants (circle / ellipse / grid) and a movable mirror axis
-- [ ] Stylus gesture shortcuts and custom shortcuts
-
----
-
-## License & Credits
-
-Licensed under the [Apache License 2.0](LICENSE). See [ATTRIBUTIONS.md](ATTRIBUTIONS.md) for third-party library and icon attributions (Phosphor Icons, Material Symbols, Fluent Emoji).
+Licensed under the [MIT License](LICENSE). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party library and asset attributions (Phosphor Icons, Media3 ExoPlayer, Coil, AndroidX).

@@ -183,7 +183,7 @@ class ExportService : Service() {
                         ExportFormat.GIF, ExportFormat.PNG_CURRENT_FRAME -> Environment.DIRECTORY_PICTURES
                         ExportFormat.PNG_SEQUENCE -> Environment.DIRECTORY_DOWNLOADS
                     }
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, "$subDir/WishyClip")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, "$subDir/WishaClip")
                     put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }
 
@@ -214,7 +214,7 @@ class ExportService : Service() {
                 ExportFormat.GIF, ExportFormat.PNG_CURRENT_FRAME -> Environment.DIRECTORY_PICTURES
                 ExportFormat.PNG_SEQUENCE -> Environment.DIRECTORY_DOWNLOADS
             }
-            val targetDir = File(Environment.getExternalStoragePublicDirectory(publicDirType), "WishyClip").apply { mkdirs() }
+            val targetDir = File(Environment.getExternalStoragePublicDirectory(publicDirType), "WishaClip").apply { mkdirs() }
             val destFile = File(targetDir, outputFile.name)
             outputFile.copyTo(destFile, overwrite = true)
             FileProvider.getUriForFile(this, "$packageName.fileprovider", destFile)

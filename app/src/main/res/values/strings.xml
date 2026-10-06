@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Wishy Clip</string>
+    <string name="app_name">WishaClip</string>
     <string name="title_home">My Projects</string>
     <string name="title_new_project">New Project</string>
     <string name="title_settings">Settings</string>
-    <string name="title_onboarding">Welcome to Wishy Clip</string>
+    <string name="title_onboarding">Welcome to WishaClip</string>
     <string name="title_export">Export Animation</string>
     <string name="title_layers">Layers</string>
     <string name="title_onion_skin">Onion Skin Settings</string>
@@ -55,7 +55,7 @@
     <string name="setting_haptics">Haptic Feedback</string>
     <string name="setting_palm_rejection">Palm Rejection</string>
     <string name="setting_licenses">Attributions &amp; Licenses</string>
-    <string name="setting_about">About Wishy Clip</string>
+    <string name="setting_about">About WishaClip</string>
 
     <!-- Onboarding -->
     <string name="onboarding_1_title">Draw Frame by Frame</string>
