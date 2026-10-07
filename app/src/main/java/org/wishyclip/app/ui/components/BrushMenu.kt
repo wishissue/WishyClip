@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,6 +42,8 @@ import androidx.compose.foundation.Canvas
 import kotlin.math.sin
 import org.wishyclip.app.brush.StoredBrush
 import org.wishyclip.app.canvas.BrushPaints
+import org.wishyclip.app.canvas.DabBrush
+import org.wishyclip.app.canvas.DabPreview
 import org.wishyclip.app.model.BRUSH_TOOLS
 import org.wishyclip.app.model.Tool
 import org.wishyclip.app.model.displayName
@@ -87,7 +90,13 @@ fun BrushMenu(
     selectedCustomId: String? = null,
     onSelectCustom: (String) -> Unit = {},
     onDeleteCustom: (String) -> Unit = {},
-    onImportBrushes: (() -> Unit)? = null
+    onImportBrushes: (() -> Unit)? = null,
+    /** Builds the stamp used for the previews; null (missing tip) shows a "broken" hint. */
+    dabFor: (StoredBrush) -> DabBrush? = { null },
+    /** Live change of the selected custom brush's settings (kept in memory)... */
+    onUpdateCustom: (StoredBrush) -> Unit = {},
+    /** ...and saved to disk when the user lets go of a slider. */
+    onCommitCustom: () -> Unit = {}
 ) {
     val tokens = WishyTheme.tokens
     GlassSurface(
@@ -127,6 +136,8 @@ fun BrushMenu(
                 items(customBrushes, key = { it.id }) { brush ->
                     CustomBrushRow(
                         brush = brush,
+                        dab = dabFor(brush),
+                        color = color,
                         selected = selectedBrush == Tool.CUSTOM && brush.id == selectedCustomId,
                         onClick = { onSelectCustom(brush.id) },
                         onDelete = { onDeleteCustom(brush.id) }
@@ -144,10 +155,22 @@ fun BrushMenu(
                 }
             }
 
+            val selectedCustom = if (selectedBrush == Tool.CUSTOM) {
+                customBrushes.firstOrNull { it.id == selectedCustomId }
+            } else null
+            if (selectedCustom != null) {
+                CustomBrushSettings(
+                    brush = selectedCustom,
+                    onChange = onUpdateCustom,
+                    onFinished = onCommitCustom
+                )
+            }
+
             WishySlider(
                 value = size,
                 onValueChange = onSizeChange,
-                valueRange = 1f..60f,
+                // Stamp brushes need room: a 8-60 px dab hides the tip's shape entirely.
+                valueRange = 1f..(if (selectedBrush == Tool.CUSTOM) 200f else 60f),
                 label = "Size",
                 unit = "px",
                 onValueChangeFinished = onSettingsFinished
@@ -174,6 +197,8 @@ fun BrushMenu(
 @Composable
 private fun CustomBrushRow(
     brush: StoredBrush,
+    dab: DabBrush?,
+    color: Int,
     selected: Boolean,
     onClick: () -> Unit,
     onDelete: () -> Unit
@@ -189,28 +214,122 @@ private fun CustomBrushRow(
                 if (selected) Modifier.border(BorderStroke(1.5.dp, tokens.primary), shape) else Modifier
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = tokens.spaceSmall),
+            .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
     ) {
-        Icon(
-            painter = painterResource(WishyIcons.BrushCustom),
-            contentDescription = null,
-            modifier = Modifier.size(tokens.toolIconSize),
-            tint = if (selected) tokens.primary else tokens.onSurfaceVariant
-        )
         Text(
             text = brush.name,
             style = MaterialTheme.typography.bodyMedium,
             color = if (selected) tokens.onPrimaryContainer else tokens.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.width(84.dp)
         )
+        if (dab != null) {
+            // The same stamping rules as the canvas, drawn with the brush's own tip.
+            Canvas(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(44.dp)
+            ) {
+                drawIntoCanvas {
+                    DabPreview.draw(
+                        canvas = it.nativeCanvas,
+                        brush = dab,
+                        argb = color,
+                        width = this.size.width,
+                        height = this.size.height,
+                        diameter = this.size.height * 0.62f
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = "Tip file missing - delete and re-import",
+                style = MaterialTheme.typography.labelSmall,
+                color = tokens.danger,
+                modifier = Modifier.weight(1f)
+            )
+        }
         ActionIconButton(
             iconRes = WishyIcons.Delete,
             contentDescription = "Delete brush ${brush.name}",
             onClick = onDelete
+        )
+    }
+}
+
+/** Shape settings of an imported brush: these decide whether a tip reads as a stamp or a smooth line. */
+@Composable
+private fun CustomBrushSettings(
+    brush: StoredBrush,
+    onChange: (StoredBrush) -> Unit,
+    onFinished: () -> Unit
+) {
+    val tokens = WishyTheme.tokens
+    Text(
+        text = "Brush shape",
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = tokens.onSurface
+    )
+    WishySlider(
+        value = brush.spacing * 100f,
+        onValueChange = { onChange(brush.copy(spacing = it / 100f)) },
+        valueRange = 2f..200f,
+        label = "Spacing",
+        unit = "%",
+        onValueChangeFinished = onFinished
+    )
+    WishySlider(
+        value = brush.flow * 100f,
+        onValueChange = { onChange(brush.copy(flow = it / 100f)) },
+        valueRange = 5f..100f,
+        label = "Flow",
+        unit = "%",
+        onValueChangeFinished = onFinished
+    )
+    WishySlider(
+        value = brush.scatter * 100f,
+        onValueChange = { onChange(brush.copy(scatter = it / 100f)) },
+        valueRange = 0f..200f,
+        label = "Scatter",
+        unit = "%",
+        onValueChangeFinished = onFinished
+    )
+    WishySlider(
+        value = brush.sizeJitter * 100f,
+        onValueChange = { onChange(brush.copy(sizeJitter = it / 100f)) },
+        valueRange = 0f..100f,
+        label = "Size jitter",
+        unit = "%",
+        onValueChangeFinished = onFinished
+    )
+    WishySlider(
+        value = brush.angle,
+        onValueChange = { onChange(brush.copy(angle = it)) },
+        valueRange = 0f..360f,
+        label = "Angle",
+        unit = "°",
+        onValueChangeFinished = onFinished
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "Follow stroke direction",
+            style = MaterialTheme.typography.bodyMedium,
+            color = tokens.onSurface,
+            modifier = Modifier.weight(1f)
+        )
+        Switch(
+            checked = brush.rotateWithStroke,
+            onCheckedChange = {
+                onChange(brush.copy(rotateWithStroke = it))
+                onFinished()
+            }
         )
     }
 }

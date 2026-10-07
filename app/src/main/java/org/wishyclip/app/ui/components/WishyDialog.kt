@@ -72,7 +72,13 @@ fun WishyDialog(
                     color = tokens.onSurface
                 )
 
-                Box(modifier = Modifier.weight(1f, fill = false)) {
+                // Scrolls when the content is taller than the dialog, so the buttons below never get
+                // pushed off-screen (small phones, landscape, long font lists...).
+                Box(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                ) {
                     content()
                 }
 
@@ -128,7 +134,6 @@ fun ShortcutDialog(
         onDismiss = null
     ) {
         Column(
-            modifier = Modifier.verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             val shortcuts = listOf(

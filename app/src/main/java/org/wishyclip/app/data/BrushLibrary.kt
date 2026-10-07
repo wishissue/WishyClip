@@ -31,15 +31,22 @@ class BrushLibrary(private val store: BrushStore) {
         else ImportOutcome(added, parsed.skipped, null)
     }
 
-    /** The stamp for [brush], built once and cached. Null if its tip file is missing or corrupt. */
+    /** The ALPHA_8 tip of [brush], built once and cached. Null if its tip file is missing or corrupt. */
+    fun tip(brush: StoredBrush): Bitmap? {
+        tips[brush.id]?.let { if (!it.isRecycled) return it }
+        val mask = store.loadTip(brush) ?: return null
+        val b = Bitmap.createBitmap(mask.width, mask.height, Bitmap.Config.ALPHA_8)
+        b.copyPixelsFromBuffer(ByteBuffer.wrap(mask.alpha))
+        tips[brush.id] = b
+        return b
+    }
+
+    /** Saves changed spacing/flow/scatter/... for an existing brush. */
+    fun update(brush: StoredBrush) = store.update(brush)
+
+    /** The stamp for [brush]. Null if its tip file is missing or corrupt. */
     fun dab(brush: StoredBrush): DabBrush? {
-        val bmp = tips[brush.id] ?: run {
-            val mask = store.loadTip(brush) ?: return null
-            val b = Bitmap.createBitmap(mask.width, mask.height, Bitmap.Config.ALPHA_8)
-            b.copyPixelsFromBuffer(ByteBuffer.wrap(mask.alpha))
-            tips[brush.id] = b
-            b
-        }
+        val bmp = tip(brush) ?: return null
         return DabBrush(
             tip = bmp, spacing = brush.spacing, angle = brush.angle,
             rotateWithStroke = brush.rotateWithStroke, scatter = brush.scatter,
@@ -58,10 +65,22 @@ object AndroidImageDecoder : PngDecoder {
     override fun invoke(bytes: ByteArray): RawImage? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        val w = bounds.outWidth
-        val h = bounds.outHeight
-        if (w <= 0 || h <= 0 || w > BrushLimits.MAX_TIP_SIDE || h > BrushLimits.MAX_TIP_SIDE) return null
-        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        // Oversized images are shrunk while decoding instead of being rejected: a 4000 px brush
+        // PNG is perfectly reasonable, and tips are stored at 512 px anyway.
+        var sample = 1
+        while (bounds.outWidth / sample > BrushLimits.MAX_TIP_SIDE || bounds.outHeight / sample > BrushLimits.MAX_TIP_SIDE) {
+            sample *= 2
+        }
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        val decoded: Bitmap? = try {
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        } catch (e: OutOfMemoryError) {
+            null
+        }
+        val bmp = decoded ?: return null
+        val w = bmp.width
+        val h = bmp.height
         val px = IntArray(w * h)
         bmp.getPixels(px, 0, w, 0, 0, w, h)
         bmp.recycle()

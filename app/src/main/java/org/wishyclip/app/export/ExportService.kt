@@ -24,6 +24,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.wishyclip.app.WishyApp
+import org.wishyclip.app.canvas.LayerBlending
+import org.wishyclip.app.data.LayerEntity
+import org.wishyclip.app.model.LayerBlend
+import java.io.ByteArrayOutputStream
+import java.util.Locale
+import kotlin.math.roundToInt
 import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
@@ -36,7 +42,12 @@ class ExportService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val projectId = intent?.getLongExtra("projectId", -1L) ?: -1L
         val formatStr = intent?.getStringExtra("format") ?: "MP4"
-        val format = ExportFormat.valueOf(formatStr)
+        val format = try {
+            ExportFormat.valueOf(formatStr)
+        } catch (e: IllegalArgumentException) {
+            ExportFormat.MP4
+        }
+        val frameIndex = intent?.getIntExtra("frameIndex", -1) ?: -1
 
         if (projectId < 0L) {
             stopSelf()
@@ -162,6 +173,24 @@ class ExportService : Service() {
         showCompletionNotification(fileUri, outputFile.name, format)
         stopForeground(STOP_FOREGROUND_DETACH)
         stopSelf()
+    }
+
+    /** Project names may contain '/' or other characters that are not valid in file names. */
+    private fun safeFileName(name: String): String {
+        val cleaned = name.map { if (it.isLetterOrDigit() || it == ' ' || it == '-' || it == '_') it else '_' }
+            .joinToString("").trim().take(60)
+        return cleaned.ifEmpty { "WishyClip" }
+    }
+
+    private fun showFailureNotification(reason: String) {
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Export failed")
+            .setContentText(reason)
+            .setSmallIcon(R.drawable.ic_menu_save)
+            .setAutoCancel(true)
+            .build()
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(NOTIFICATION_ID + 2, notification)
     }
 
     private fun saveToPublicStorage(outputFile: File, format: ExportFormat): Uri? {
@@ -290,10 +319,12 @@ class ExportService : Service() {
         private const val CHANNEL_ID = "export_channel"
         private const val NOTIFICATION_ID = 1001
 
-        fun start(context: Context, projectId: Long, format: ExportFormat) {
+        /** [frameIndex] only matters for [ExportFormat.PNG_CURRENT_FRAME]. */
+        fun start(context: Context, projectId: Long, format: ExportFormat, frameIndex: Int = -1) {
             val intent = Intent(context, ExportService::class.java).apply {
                 putExtra("projectId", projectId)
                 putExtra("format", format.name)
+                putExtra("frameIndex", frameIndex)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)

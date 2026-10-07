@@ -1,11 +1,16 @@
 package org.wishyclip.app
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -54,8 +59,14 @@ class MainActivity : ComponentActivity() {
             val savedHaptics by settingsStore.hapticsEnabled.collectAsState(initial = true)
             val savedPalmRejection by settingsStore.palmRejection.collectAsState(initial = false)
 
-            val currentTokens = remember(savedThemeName) {
-                SettingsStore.getThemeTokensByName(savedThemeName)
+            val customThemesLoaded by settingsStore.customThemes.collectAsState(initial = null)
+            val customThemes = customThemesLoaded ?: emptyList()
+            // null while the first value is still loading, so the first-run screen never flashes by.
+            val onboardingDone by settingsStore.onboardingDone.collectAsState(initial = null)
+            val isDebuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
+            val currentTokens = remember(savedThemeName, customThemes) {
+                SettingsStore.getThemeTokensByName(savedThemeName, customThemes)
             }
 
             LaunchedEffect(savedIconPack) {
@@ -79,27 +90,51 @@ class MainActivity : ComponentActivity() {
             }
 
             WishyTheme(tokens = currentTokens) {
-                WishyNavHost(
-                    currentTokens = currentTokens,
-                    onSelectTokens = { tokens ->
-                        scope.launch { settingsStore.saveThemeName(tokens.name) }
-                    },
-                    isLeftHanded = savedIsLeftHanded,
-                    onToggleLeftHanded = { left ->
-                        scope.launch { settingsStore.saveIsLeftHanded(left) }
-                    },
-                    hapticsEnabled = savedHaptics,
-                    onToggleHaptics = { haptics ->
-                        scope.launch { settingsStore.saveHaptics(haptics) }
-                    },
-                    palmRejection = savedPalmRejection,
-                    onTogglePalmRejection = { palm ->
-                        scope.launch { settingsStore.savePalmRejection(palm) }
-                    },
-                    onSelectIconPack = { pack ->
-                        scope.launch { settingsStore.saveIconPack(pack.name) }
-                    }
-                )
+                val done = onboardingDone
+                if (done == null || customThemesLoaded == null) {
+                    Box(Modifier.fillMaxSize().background(currentTokens.surface))
+                } else {
+                    WishyNavHost(
+                        currentTokens = currentTokens,
+                        onSelectTokens = { tokens ->
+                            scope.launch { settingsStore.saveThemeName(tokens.name) }
+                        },
+                        isLeftHanded = savedIsLeftHanded,
+                        onToggleLeftHanded = { left ->
+                            scope.launch { settingsStore.saveIsLeftHanded(left) }
+                        },
+                        hapticsEnabled = savedHaptics,
+                        onToggleHaptics = { haptics ->
+                            scope.launch { settingsStore.saveHaptics(haptics) }
+                        },
+                        palmRejection = savedPalmRejection,
+                        onTogglePalmRejection = { palm ->
+                            scope.launch { settingsStore.savePalmRejection(palm) }
+                        },
+                        onSelectIconPack = { pack ->
+                            scope.launch { settingsStore.saveIconPack(pack.name) }
+                        },
+                        customThemes = customThemes,
+                        onSaveCustomTheme = { theme ->
+                            scope.launch {
+                                // Saving also selects it, so imports/new themes apply immediately.
+                                val stored = settingsStore.saveCustomTheme(theme)
+                                settingsStore.saveThemeName(stored.name)
+                            }
+                        },
+                        onDeleteCustomTheme = { name ->
+                            scope.launch {
+                                settingsStore.deleteCustomTheme(name)
+                                if (savedThemeName.equals(name, ignoreCase = true)) {
+                                    settingsStore.saveThemeName(CloudTokens.name)
+                                }
+                            }
+                        },
+                        showOnboarding = done == false,
+                        onOnboardingFinished = { scope.launch { settingsStore.saveOnboardingDone(true) } },
+                        showDebugTools = isDebuggable
+                    )
+                }
             }
         }
     }
@@ -115,11 +150,19 @@ fun WishyNavHost(
     onToggleHaptics: (Boolean) -> Unit,
     palmRejection: Boolean,
     onTogglePalmRejection: (Boolean) -> Unit,
-    onSelectIconPack: (IconPack) -> Unit = {}
+    onSelectIconPack: (IconPack) -> Unit = {},
+    customThemes: List<WishyTokens> = emptyList(),
+    onSaveCustomTheme: (WishyTokens) -> Unit = {},
+    onDeleteCustomTheme: (String) -> Unit = {},
+    showOnboarding: Boolean = false,
+    onOnboardingFinished: () -> Unit = {},
+    showDebugTools: Boolean = false
 ) {
     val nav = rememberNavController()
+    // Fixed at first composition: changing the start destination later would rebuild the nav graph.
+    val startDestination = remember { if (showOnboarding) "onboarding" else "home" }
     val application = LocalContext.current.applicationContext as Application
-    NavHost(navController = nav, startDestination = "home") {
+    NavHost(navController = nav, startDestination = startDestination) {
         composable("home") {
             val homeVm: HomeViewModel = viewModel()
             HomeScreen(
@@ -153,6 +196,9 @@ fun WishyNavHost(
                 palmRejection = palmRejection,
                 onTogglePalmRejection = onTogglePalmRejection,
                 onSelectIconPack = onSelectIconPack,
+                customThemes = customThemes,
+                onSaveCustomTheme = onSaveCustomTheme,
+                onDeleteCustomTheme = onDeleteCustomTheme,
                 onOpenDesignGallery = { nav.navigate("design_gallery") },
                 onBack = { nav.popBackStack() }
             )
@@ -161,7 +207,10 @@ fun WishyNavHost(
             DesignGalleryScreen(onBack = { nav.popBackStack() })
         }
         composable("onboarding") {
-            OnboardingScreen(onFinish = { nav.navigate("home") { popUpTo("onboarding") { inclusive = true } } })
+            OnboardingScreen(onFinish = {
+                onOnboardingFinished()
+                nav.navigate("home") { popUpTo("onboarding") { inclusive = true } }
+            })
         }
         composable(
             route = "export/{projectId}",
@@ -184,7 +233,7 @@ fun WishyNavHost(
                 vm = vm,
                 onExit = { nav.popBackStack() },
                 isLeftHanded = isLeftHanded,
-                onOpenDesignGallery = { nav.navigate("design_gallery") }
+                onOpenDesignGallery = if (showDebugTools) { { nav.navigate("design_gallery") } } else null
             )
         }
     }

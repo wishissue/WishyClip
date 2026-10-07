@@ -6,12 +6,45 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object Importer {
+
+    /** Most frames pulled from one video, so a long clip cannot fill the device. */
+    const val MAX_VIDEO_FRAMES = 60
+
+    /** Largest power-of-two shrink that still leaves the decoded image at least target-sized. */
+    internal fun sampleSizeFor(width: Int, height: Int, targetWidth: Int, targetHeight: Int): Int {
+        var sample = 1
+        while (width / (sample * 2) >= targetWidth && height / (sample * 2) >= targetHeight) sample *= 2
+        return sample
+    }
+
+    /** Matrix that makes a photo upright according to its EXIF orientation, or null if already upright. */
+    private fun orientationMatrix(orientation: Int): Matrix? {
+        val m = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> m.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> m.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> m.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> m.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> m.postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                m.postRotate(90f)
+                m.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                m.postRotate(270f)
+                m.postScale(-1f, 1f)
+            }
+            else -> return null
+        }
+        return m
+    }
 
     /** Scales [src] to fit [targetWidth] x [targetHeight] while centered. */
     fun scaleToFit(src: Bitmap, targetWidth: Int, targetHeight: Int): Bitmap {
@@ -57,15 +90,48 @@ object Importer {
     suspend fun importImage(context: Context, uri: Uri, targetWidth: Int, targetHeight: Int): Bitmap? =
         withContext(Dispatchers.IO) {
             try {
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    val original = BitmapFactory.decodeStream(stream) ?: return@withContext null
-                    val scaled = scaleToFit(original, targetWidth, targetHeight)
-                    if (original != scaled && !original.isRecycled) {
-                        original.recycle()
-                    }
-                    scaled
+                val resolver = context.contentResolver
+
+                // Read the size first and decode at a reduced size: a 48 MP photo must not be
+                // decoded at full resolution just to be scaled down to a 1280x720 canvas.
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+
+                val opts = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSizeFor(bounds.outWidth, bounds.outHeight, targetWidth, targetHeight)
                 }
+                var original: Bitmap = resolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(it, null, opts)
+                } ?: return@withContext null
+
+                // Phone photos are often stored sideways with an EXIF flag; honour it.
+                val orientation = try {
+                    resolver.openInputStream(uri)?.use {
+                        ExifInterface(it).getAttributeInt(
+                            ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
+                        )
+                    } ?: ExifInterface.ORIENTATION_NORMAL
+                } catch (e: Exception) {
+                    ExifInterface.ORIENTATION_NORMAL
+                }
+                val matrix = orientationMatrix(orientation)
+                if (matrix != null) {
+                    val upright = Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
+                    if (upright !== original) {
+                        original.recycle()
+                        original = upright
+                    }
+                }
+
+                val scaled = scaleToFit(original, targetWidth, targetHeight)
+                if (scaled !== original && !original.isRecycled) {
+                    original.recycle()
+                }
+                scaled
             } catch (e: Exception) {
+                null
+            } catch (e: OutOfMemoryError) {
                 null
             }
         }
@@ -76,7 +142,7 @@ object Importer {
         targetWidth: Int,
         targetHeight: Int,
         fps: Int,
-        maxFrames: Int = 60
+        maxFrames: Int = MAX_VIDEO_FRAMES
     ): List<Bitmap> = withContext(Dispatchers.IO) {
         val list = mutableListOf<Bitmap>()
         val retriever = MediaMetadataRetriever()
@@ -90,7 +156,7 @@ object Importer {
             var currentUs = 0L
             var count = 0
             while (currentUs < totalUs && count < maxFrames) {
-                val frameBmp = retriever.getFrameAtTime(currentUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                val frameBmp = retriever.getFrameAtTime(currentUs, MediaMetadataRetriever.OPTION_CLOSEST)
                 if (frameBmp != null) {
                     val scaled = scaleToFit(frameBmp, targetWidth, targetHeight)
                     if (frameBmp != scaled && !frameBmp.isRecycled) {
@@ -102,6 +168,8 @@ object Importer {
                 count++
             }
         } catch (e: Exception) {
+            e.printStackTrace()
+        } catch (e: OutOfMemoryError) {
             e.printStackTrace()
         } finally {
             try { retriever.release() } catch (e: Exception) {}

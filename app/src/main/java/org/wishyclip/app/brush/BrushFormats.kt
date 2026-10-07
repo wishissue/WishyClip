@@ -397,3 +397,35 @@ object AbrParser {
         return true
     }
 }
+
+// ------------------------------------------------------------------------------------ plain images
+
+/**
+ * A plain PNG/JPEG/WebP used as a brush tip. Transparent images use their alpha channel; opaque
+ * ones are judged by their corners: a dark background means "light shape on dark" (Procreate
+ * shape style), anything else means "dark shape on light" (GIMP/Krita style).
+ */
+object ImageTipParser {
+
+    fun parse(data: ByteArray, name: String, decode: PngDecoder): ParsedBrush? {
+        val img = decode(data) ?: return null
+        val mask = TipMasks.fromImage(img, inkModeFor(img)) ?: return null
+        return ParsedBrush(name, mask, spacing = 0.15f)
+    }
+
+    fun inkModeFor(img: RawImage): InkMode {
+        val n = img.width * img.height
+        if (n <= 0 || img.argb.size < n) return InkMode.AUTO
+        for (i in 0 until n) {
+            if ((img.argb[i] ushr 24) < 255) return InkMode.AUTO // has transparency: alpha is the shape
+        }
+        fun lum(x: Int, y: Int): Int {
+            val p = img.argb[y * img.width + x]
+            return (((p shr 16) and 255) * 299 + ((p shr 8) and 255) * 587 + (p and 255) * 114) / 1000
+        }
+        val r = img.width - 1
+        val b = img.height - 1
+        val corners = (lum(0, 0) + lum(r, 0) + lum(0, b) + lum(r, b)) / 4
+        return if (corners < 128) InkMode.LIGHT_IS_INK else InkMode.DARK_IS_INK
+    }
+}

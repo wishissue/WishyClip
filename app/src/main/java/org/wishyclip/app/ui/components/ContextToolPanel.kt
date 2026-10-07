@@ -55,7 +55,9 @@ fun ContextToolPanel(
     onCancelLasso: () -> Unit,
     onDeleteLasso: () -> Unit,
     modifier: Modifier = Modifier,
-    onSelectShapeTool: ((Tool) -> Unit)? = null
+    onSelectShapeTool: ((Tool) -> Unit)? = null,
+    /** Re-opens the text editor for the selected text (null hides the button). */
+    onEditText: (() -> Unit)? = null
 ) {
     val tokens = WishyTheme.tokens
 
@@ -73,6 +75,35 @@ fun ContextToolPanel(
                 activeLasso != null -> {
                     TextButton(onClick = onCommitLasso) {
                         Text("Done", fontWeight = FontWeight.Bold)
+                    }
+                    if (activeLasso.isText) {
+                        // Editing text used to need a hidden tap on the selection; make it a button.
+                        if (onEditText != null) {
+                            TextButton(onClick = onEditText) { Text("Edit text") }
+                        }
+                        ColorSwatch(
+                            color = Color(color),
+                            onClick = onOpenColorPicker,
+                            size = 32.dp
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.width(120.dp)
+                        ) {
+                            Text(
+                                text = "${(opacity * 100f).roundToInt()}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = tokens.onSurfaceVariant,
+                                modifier = Modifier.width(36.dp)
+                            )
+                            WishySlider(
+                                value = opacity * 100f,
+                                onValueChange = { onOpacityChange(it / 100f) },
+                                valueRange = 5f..100f,
+                                label = "",
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                     TextButton(onClick = onCancelLasso) {
                         Text("Put back")
@@ -124,7 +155,7 @@ fun ContextToolPanel(
                         WishySlider(
                             value = brushSize,
                             onValueChange = onSizeChange,
-                            valueRange = 1f..100f,
+                            valueRange = 1f..(if (tool == Tool.CUSTOM) 200f else 100f),
                             label = "",
                             modifier = Modifier.weight(1f)
                         )
@@ -215,6 +246,38 @@ fun ContextToolPanel(
                         onClick = onOpenColorPicker,
                         size = 32.dp
                     )
+                }
+
+                tool == Tool.TEXT -> {
+                    Text(
+                        text = "Tap the canvas to add text",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = tokens.onSurface,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    ColorSwatch(
+                        color = Color(color),
+                        onClick = onOpenColorPicker,
+                        size = 32.dp
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.width(120.dp)
+                    ) {
+                        Text(
+                            text = "${(opacity * 100f).roundToInt()}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = tokens.onSurfaceVariant,
+                            modifier = Modifier.width(36.dp)
+                        )
+                        WishySlider(
+                            value = opacity * 100f,
+                            onValueChange = { onOpacityChange(it / 100f) },
+                            valueRange = 5f..100f,
+                            label = "",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
 
                 tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE -> {

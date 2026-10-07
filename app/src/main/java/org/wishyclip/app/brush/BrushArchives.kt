@@ -316,6 +316,7 @@ object BrushImporter {
         val ext = fileName.substringAfterLast('.', "").lc()
         val found: List<ParsedBrush> = try {
             when (ext) {
+                "png", "jpg", "jpeg", "webp" -> listOfNotNull(ImageTipParser.parse(data, base, decode))
                 "gbr" -> listOfNotNull(GbrParser.parse(data, base))
                 "gih" -> listOfNotNull(GbrParser.parseGih(data, base))
                 "abr" -> AbrParser.parse(data, base)
@@ -337,5 +338,7 @@ object BrushImporter {
         return ImportResult(kept, found.size - kept.size, null)
     }
 
-    val SUPPORTED_EXTENSIONS = listOf("wbrush", "bundle", "kpp", "abr", "gbr", "gih", "brush", "brushset", "zip")
+    val SUPPORTED_EXTENSIONS = listOf(
+        "png", "jpg", "jpeg", "webp", "wbrush", "bundle", "kpp", "abr", "gbr", "gih", "brush", "brushset", "zip"
+    )
 }

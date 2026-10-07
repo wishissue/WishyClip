@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -19,6 +20,8 @@ import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.FlipDarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 import org.wishyclip.app.ui.design.themes.MidnightTokens
+import org.wishyclip.app.ui.design.themes.ThemeImporter
+import org.wishyclip.app.brush.MiniJson
 
 private val Context.settingsDataStore by preferencesDataStore(name = "wishy_settings")
 
@@ -41,6 +44,8 @@ class SettingsStore(private val context: Context) {
     private val keyDefaultFps = intPreferencesKey("default_fps")
     private val keyHaptics = booleanPreferencesKey("haptics_enabled")
     private val keyPalmRejection = booleanPreferencesKey("palm_rejection")
+    private val keyCustomThemes = stringSetPreferencesKey("custom_themes")
+    private val keyOnboardingDone = booleanPreferencesKey("onboarding_done")
 
     val brushColor: Flow<Int> = context.settingsDataStore.data.map { it[keyColor] ?: DEFAULT_COLOR }
     val brushSize: Flow<Float> = context.settingsDataStore.data.map { it[keySize] ?: 8f }
@@ -52,6 +57,15 @@ class SettingsStore(private val context: Context) {
     val defaultFps: Flow<Int> = context.settingsDataStore.data.map { it[keyDefaultFps] ?: 12 }
     val hapticsEnabled: Flow<Boolean> = context.settingsDataStore.data.map { it[keyHaptics] ?: true }
     val palmRejection: Flow<Boolean> = context.settingsDataStore.data.map { it[keyPalmRejection] ?: false }
+
+    val onboardingDone: Flow<Boolean> = context.settingsDataStore.data.map { it[keyOnboardingDone] ?: false }
+
+    /** Themes the user imported or built in the Theme Studio, sorted by name. */
+    val customThemes: Flow<List<WishyTokens>> = context.settingsDataStore.data.map { prefs ->
+        (prefs[keyCustomThemes] ?: emptySet())
+            .mapNotNull { json -> try { ThemeImporter.parseJson(json) } catch (e: Exception) { null } }
+            .sortedBy { it.name.lowercase() }
+    }
 
     val onionSettings: Flow<OnionSkinSettings> = context.settingsDataStore.data.map {
         OnionSkinSettings(
@@ -80,6 +94,38 @@ class SettingsStore(private val context: Context) {
             it[keyOnionOpacity] = s.opacity
             it[keyOnionTintBefore] = s.tintBefore
             it[keyOnionTintAfter] = s.tintAfter
+        }
+    }
+
+    suspend fun saveOnboardingDone(done: Boolean) {
+        context.settingsDataStore.edit { it[keyOnboardingDone] = done }
+    }
+
+    /**
+     * Saves [tokens] as a custom theme (replacing one with the same name) and returns what was
+     * stored. A name that collides with a built-in theme gets " (custom)" appended, because the
+     * selected theme is remembered by name.
+     */
+    suspend fun saveCustomTheme(tokens: WishyTokens): WishyTokens {
+        var name = tokens.name.trim().ifBlank { ThemeImporter.DEFAULT_NAME }
+        if (BuiltInThemes.any { it.name.equals(name, ignoreCase = true) }) {
+            name = (name.take(ThemeImporter.MAX_NAME_LENGTH - 9).trim() + " (custom)")
+        }
+        val stored = tokens.copy(name = name)
+        val json = ThemeImporter.toJson(stored)
+        context.settingsDataStore.edit { prefs ->
+            val kept = (prefs[keyCustomThemes] ?: emptySet())
+                .filterNot { (MiniJson.string(it, "name") ?: "").equals(name, ignoreCase = true) }
+            prefs[keyCustomThemes] = (kept + json).toSet()
+        }
+        return stored
+    }
+
+    suspend fun deleteCustomTheme(name: String) {
+        context.settingsDataStore.edit { prefs ->
+            val kept = (prefs[keyCustomThemes] ?: emptySet())
+                .filterNot { (MiniJson.string(it, "name") ?: "").equals(name, ignoreCase = true) }
+            prefs[keyCustomThemes] = kept.toSet()
         }
     }
 
@@ -126,8 +172,10 @@ class SettingsStore(private val context: Context) {
             CandyTokens
         )
 
-        fun getThemeTokensByName(name: String): WishyTokens {
-            return BuiltInThemes.find { it.name.equals(name, ignoreCase = true) } ?: CloudTokens
+        fun getThemeTokensByName(name: String, custom: List<WishyTokens> = emptyList()): WishyTokens {
+            return BuiltInThemes.find { it.name.equals(name, ignoreCase = true) }
+                ?: custom.find { it.name.equals(name, ignoreCase = true) }
+                ?: CloudTokens
         }
     }
 }
