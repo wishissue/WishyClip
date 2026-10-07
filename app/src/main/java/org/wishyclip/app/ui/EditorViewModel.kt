@@ -21,6 +21,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -60,6 +61,7 @@ import org.wishyclip.app.canvas.UndoEntry
 import org.wishyclip.app.canvas.UndoManager
 import org.wishyclip.app.canvas.snapshot
 import org.wishyclip.app.data.AudioTrackEntity
+import org.wishyclip.app.data.BusyTracker
 import org.wishyclip.app.data.FontLibrary
 import org.wishyclip.app.data.FontOption
 import org.wishyclip.app.data.FrameEntity
@@ -703,7 +705,12 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun importImageAsLayer(uri: Uri) {
         val p = project ?: return
         viewModelScope.launch {
-            val bmp = Importer.importImage(getApplication(), uri, p.width, p.height)
+            BusyTracker.show("import-layer", "Importing image", "Decoding…")
+            val bmp = try {
+                Importer.importImage(getApplication(), uri, p.width, p.height)
+            } finally {
+                BusyTracker.hide("import-layer")
+            }
             if (bmp == null) {
                 showMessage("Could not open that image")
                 return@launch
@@ -749,31 +756,51 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         }
     }
 
+    private var importJob: Job? = null
+
+    /** Cancels a running image/video import; frames already added stay in the project. */
+    fun cancelImport() { importJob?.cancel() }
+
     fun importImageSequence(uris: List<Uri>) {
         val p = project ?: return
-        viewModelScope.launch {
+        if (importJob?.isActive == true) { showMessage("Another import is still running"); return }
+        importJob = viewModelScope.launch {
+            val owner = "import-images"
             var pos = frames.size // advanced per frame: `frames` itself is only refreshed after the loop
             var imported = 0
-            for (uri in uris) {
-                val bmp = Importer.importImage(getApplication(), uri, p.width, p.height) ?: continue
-                val templates = listOf(LayerEntity(frameId = 0, position = 0, name = "Imported", visible = true, opacity = 1f))
-                val (newFrame, _) = repo.insertFrame(projectId, pos, templates)
-                pos++
-                imported++
-                val fd = ensureLoaded(newFrame.id)
-                if (fd.layers.isNotEmpty()) {
-                    BitmapOps.replace(fd.layers[0].bitmap, bmp)
-                    fd.layers[0].version++
+            var cancelled = false
+            BusyTracker.show(owner, "Importing images", "0 of ${uris.size}", 0f, onCancel = { cancelImport() })
+            try {
+                for ((i, uri) in uris.withIndex()) {
+                    val bmp = Importer.importImage(getApplication(), uri, p.width, p.height)
+                    if (bmp != null) {
+                        val templates = listOf(LayerEntity(frameId = 0, position = 0, name = "Imported", visible = true, opacity = 1f))
+                        val (newFrame, _) = repo.insertFrame(projectId, pos, templates)
+                        pos++
+                        imported++
+                        val fd = ensureLoaded(newFrame.id)
+                        if (fd.layers.isNotEmpty()) {
+                            BitmapOps.replace(fd.layers[0].bitmap, bmp)
+                            fd.layers[0].version++
+                        }
+                        bmp.recycle()
+                    }
+                    BusyTracker.update(owner, "${i + 1} of ${uris.size}", (i + 1f) / uris.size)
                 }
-                bmp.recycle()
+            } catch (e: CancellationException) {
+                cancelled = true
+            } finally {
+                BusyTracker.hide(owner)
+                // Runs even when cancelled, so frames that were already inserted show up in the timeline.
+                withContext(kotlinx.coroutines.NonCancellable) {
+                    frames = repo.frames(projectId)
+                    if (imported > 0 && frames.isNotEmpty()) gotoFrame(frames.lastIndex)
+                    repo.touch(projectId)
+                }
             }
-            frames = repo.frames(projectId)
-            if (imported > 0 && frames.isNotEmpty()) {
-                gotoFrame(frames.lastIndex)
-            }
-            repo.touch(projectId)
             showMessage(
                 when {
+                    cancelled -> "Import cancelled ($imported added)"
                     imported == 0 -> "Could not open the selected images"
                     imported < uris.size -> "Imported $imported of ${uris.size} images"
                     else -> "Imported $imported frame${if (imported == 1) "" else "s"}"
@@ -784,33 +811,48 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun importVideoAsFrames(uri: Uri) {
         val p = project ?: return
-        viewModelScope.launch {
-            val fps = p.fps
-            val extracted = Importer.importVideoFrames(getApplication(), uri, p.width, p.height, fps)
-            if (extracted.isEmpty()) {
-                showMessage("Could not read any frames from that video")
-                return@launch
-            }
+        if (importJob?.isActive == true) { showMessage("Another import is still running"); return }
+        importJob = viewModelScope.launch {
+            val owner = "import-video"
             var pos = frames.size // see importImageSequence: keeps the frames in playback order
-            for (bmp in extracted) {
-                val templates = listOf(LayerEntity(frameId = 0, position = 0, name = "Video Frame", visible = true, opacity = 1f))
-                val (newFrame, _) = repo.insertFrame(projectId, pos, templates)
-                pos++
-                val fd = ensureLoaded(newFrame.id)
-                if (fd.layers.isNotEmpty()) {
-                    BitmapOps.replace(fd.layers[0].bitmap, bmp)
-                    fd.layers[0].version++
+            var imported = 0
+            var cancelled = false
+            BusyTracker.show(owner, "Importing video", "Reading video…", null, onCancel = { cancelImport() })
+            try {
+                // Frames are stored one by one as they are decoded instead of all being held in memory.
+                Importer.importVideoFramesStreaming(getApplication(), uri, p.width, p.height, p.fps) { _, total, bmp ->
+                    try {
+                        val templates = listOf(LayerEntity(frameId = 0, position = 0, name = "Video Frame", visible = true, opacity = 1f))
+                        val (newFrame, _) = repo.insertFrame(projectId, pos, templates)
+                        pos++
+                        imported++
+                        val fd = ensureLoaded(newFrame.id)
+                        if (fd.layers.isNotEmpty()) {
+                            BitmapOps.replace(fd.layers[0].bitmap, bmp)
+                            fd.layers[0].version++
+                        }
+                    } finally {
+                        bmp.recycle()
+                    }
+                    BusyTracker.update(owner, "Frame $imported of $total", imported.toFloat() / total)
                 }
-                bmp.recycle()
+            } catch (e: CancellationException) {
+                cancelled = true
+            } finally {
+                BusyTracker.hide(owner)
+                withContext(kotlinx.coroutines.NonCancellable) {
+                    frames = repo.frames(projectId)
+                    if (imported > 0 && frames.isNotEmpty()) gotoFrame(frames.lastIndex)
+                    repo.touch(projectId)
+                }
             }
-            frames = repo.frames(projectId)
-            if (frames.isNotEmpty()) {
-                gotoFrame(frames.lastIndex)
-            }
-            repo.touch(projectId)
             showMessage(
-                if (extracted.size >= Importer.MAX_VIDEO_FRAMES) "Imported the first ${extracted.size} frames (limit)"
-                else "Imported ${extracted.size} frame${if (extracted.size == 1) "" else "s"}"
+                when {
+                    cancelled -> "Import cancelled ($imported frames added)"
+                    imported == 0 -> "Could not read any frames from that video"
+                    imported >= Importer.MAX_VIDEO_FRAMES -> "Imported the first $imported frames (limit)"
+                    else -> "Imported $imported frame${if (imported == 1) "" else "s"}"
+                }
             )
         }
     }
@@ -1679,6 +1721,19 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         commitLassoSelection()
         stopPlay()
         viewModelScope.launch { saveAll() }
+    }
+
+    /**
+     * Writes pending edits to disk, then runs [onDone]. Export reads the saved layer files, and normal
+     * saving is debounced by 1.5 s, so without this the newest strokes could be missing from an export.
+     */
+    fun saveThen(onDone: () -> Unit) {
+        commitLassoSelection()
+        stopPlay()
+        viewModelScope.launch {
+            saveAll()
+            onDone()
+        }
     }
 
     fun saveAndExit(onDone: () -> Unit) {

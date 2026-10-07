@@ -9,7 +9,9 @@ import android.graphics.Paint
 import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 object Importer {
@@ -136,37 +138,48 @@ object Importer {
             }
         }
 
-    suspend fun importVideoFrames(
+    /**
+     * Extracts frames one at a time and hands each to [onFrame] (index, total, bitmap) so the caller
+     * can store it and recycle it right away. Holding up to [maxFrames] full-size bitmaps at once
+     * (60 x 1280x720 is >200 MB) is what made long video imports run out of memory.
+     * Returns how many frames were delivered. Cooperates with coroutine cancellation.
+     */
+    suspend fun importVideoFramesStreaming(
         context: Context,
         uri: Uri,
         targetWidth: Int,
         targetHeight: Int,
         fps: Int,
-        maxFrames: Int = MAX_VIDEO_FRAMES
-    ): List<Bitmap> = withContext(Dispatchers.IO) {
-        val list = mutableListOf<Bitmap>()
+        maxFrames: Int = MAX_VIDEO_FRAMES,
+        onFrame: suspend (index: Int, total: Int, bitmap: Bitmap) -> Unit
+    ): Int = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
+        var delivered = 0
         try {
             retriever.setDataSource(context, uri)
-            val durationMsStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-            val durationMs = durationMsStr?.toLongOrNull() ?: 3000L
+            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull() ?: 3000L
             val intervalUs = (1_000_000L / fps.coerceAtLeast(1))
             val totalUs = durationMs * 1000L
+            val total = minOf(maxFrames.toLong(), (totalUs + intervalUs - 1) / intervalUs)
+                .toInt().coerceAtLeast(1)
 
             var currentUs = 0L
             var count = 0
             while (currentUs < totalUs && count < maxFrames) {
+                ensureActive()
                 val frameBmp = retriever.getFrameAtTime(currentUs, MediaMetadataRetriever.OPTION_CLOSEST)
                 if (frameBmp != null) {
                     val scaled = scaleToFit(frameBmp, targetWidth, targetHeight)
-                    if (frameBmp != scaled && !frameBmp.isRecycled) {
-                        frameBmp.recycle()
-                    }
-                    list.add(scaled)
+                    if (frameBmp !== scaled && !frameBmp.isRecycled) frameBmp.recycle()
+                    onFrame(delivered, total, scaled)
+                    delivered++
                 }
                 currentUs += intervalUs
                 count++
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.printStackTrace()
         } catch (e: OutOfMemoryError) {
@@ -174,6 +187,6 @@ object Importer {
         } finally {
             try { retriever.release() } catch (e: Exception) {}
         }
-        list
+        delivered
     }
 }

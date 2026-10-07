@@ -27,6 +27,7 @@ import androidx.navigation.navArgument
 import org.wishyclip.app.ui.EditorViewModel
 import org.wishyclip.app.ui.EditorViewModelFactory
 import org.wishyclip.app.ui.HomeViewModel
+import org.wishyclip.app.ui.components.BusyOverlay
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.WishyTokens
 import org.wishyclip.app.ui.design.themes.CloudTokens
@@ -94,46 +95,50 @@ class MainActivity : ComponentActivity() {
                 if (done == null || customThemesLoaded == null) {
                     Box(Modifier.fillMaxSize().background(currentTokens.surface))
                 } else {
-                    WishyNavHost(
-                        currentTokens = currentTokens,
-                        onSelectTokens = { tokens ->
-                            scope.launch { settingsStore.saveThemeName(tokens.name) }
-                        },
-                        isLeftHanded = savedIsLeftHanded,
-                        onToggleLeftHanded = { left ->
-                            scope.launch { settingsStore.saveIsLeftHanded(left) }
-                        },
-                        hapticsEnabled = savedHaptics,
-                        onToggleHaptics = { haptics ->
-                            scope.launch { settingsStore.saveHaptics(haptics) }
-                        },
-                        palmRejection = savedPalmRejection,
-                        onTogglePalmRejection = { palm ->
-                            scope.launch { settingsStore.savePalmRejection(palm) }
-                        },
-                        onSelectIconPack = { pack ->
-                            scope.launch { settingsStore.saveIconPack(pack.name) }
-                        },
-                        customThemes = customThemes,
-                        onSaveCustomTheme = { theme ->
-                            scope.launch {
-                                // Saving also selects it, so imports/new themes apply immediately.
-                                val stored = settingsStore.saveCustomTheme(theme)
-                                settingsStore.saveThemeName(stored.name)
-                            }
-                        },
-                        onDeleteCustomTheme = { name ->
-                            scope.launch {
-                                settingsStore.deleteCustomTheme(name)
-                                if (savedThemeName.equals(name, ignoreCase = true)) {
-                                    settingsStore.saveThemeName(CloudTokens.name)
+                    Box(Modifier.fillMaxSize()) {
+                        WishyNavHost(
+                            currentTokens = currentTokens,
+                            onSelectTokens = { tokens ->
+                                scope.launch { settingsStore.saveThemeName(tokens.name) }
+                            },
+                            isLeftHanded = savedIsLeftHanded,
+                            onToggleLeftHanded = { left ->
+                                scope.launch { settingsStore.saveIsLeftHanded(left) }
+                            },
+                            hapticsEnabled = savedHaptics,
+                            onToggleHaptics = { haptics ->
+                                scope.launch { settingsStore.saveHaptics(haptics) }
+                            },
+                            palmRejection = savedPalmRejection,
+                            onTogglePalmRejection = { palm ->
+                                scope.launch { settingsStore.savePalmRejection(palm) }
+                            },
+                            onSelectIconPack = { pack ->
+                                scope.launch { settingsStore.saveIconPack(pack.name) }
+                            },
+                            customThemes = customThemes,
+                            onSaveCustomTheme = { theme ->
+                                scope.launch {
+                                    // Saving also selects it, so imports/new themes apply immediately.
+                                    val stored = settingsStore.saveCustomTheme(theme)
+                                    settingsStore.saveThemeName(stored.name)
                                 }
-                            }
-                        },
-                        showOnboarding = done == false,
-                        onOnboardingFinished = { scope.launch { settingsStore.saveOnboardingDone(true) } },
-                        showDebugTools = isDebuggable
-                    )
+                            },
+                            onDeleteCustomTheme = { name ->
+                                scope.launch {
+                                    settingsStore.deleteCustomTheme(name)
+                                    if (savedThemeName.equals(name, ignoreCase = true)) {
+                                        settingsStore.saveThemeName(CloudTokens.name)
+                                    }
+                                }
+                            },
+                            showOnboarding = done == false,
+                            onOnboardingFinished = { scope.launch { settingsStore.saveOnboardingDone(true) } },
+                            showDebugTools = isDebuggable
+                        )
+                        // One overlay for the whole app: import and export progress is visible on every screen.
+                        BusyOverlay(Modifier.fillMaxSize())
+                    }
                 }
             }
         }

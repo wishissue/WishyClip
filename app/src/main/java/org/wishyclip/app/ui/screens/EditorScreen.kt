@@ -171,7 +171,8 @@ fun EditorScreen(
         ) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        vm.project?.let { ExportService.start(context, it.id, format, frameIndex) }
+        // Flush unsaved strokes first: the export service renders from the saved files.
+        vm.saveThen { vm.project?.let { ExportService.start(context, it.id, format, frameIndex) } }
     }
     val onSelectTool: (Tool) -> Unit = { selected ->
         showBrushMenu = false
