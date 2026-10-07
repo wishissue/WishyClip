@@ -84,7 +84,7 @@ fun ExportScreen(
                 SectionHeader(title = "Select Format")
                 Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
                     val formats = listOf(
-                        ExportFormat.MP4 to "MP4 Video (H.264 + Audio)",
+                        ExportFormat.MP4 to "MP4 Video (H.264, no audio yet)",
                         ExportFormat.GIF to "Animated GIF",
                         ExportFormat.PNG_SEQUENCE to "PNG Sequence (ZIP)",
                         ExportFormat.PNG_CURRENT_FRAME to "Current Frame PNG"

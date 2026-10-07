@@ -21,4 +21,11 @@ class ImporterTest {
         assertEquals(100, scaled.width)
         assertEquals(100, scaled.height)
     }
+
+    @Test
+    fun testSampleSizeShrinksHugePhotos() {
+        // 4000x3000 photo into a 1280x720 canvas: halve while both sides stay >= the target.
+        assertEquals(2, Importer.sampleSizeFor(4000, 3000, 1280, 720))
+        assertEquals(1, Importer.sampleSizeFor(800, 600, 1280, 720))
+    }
 }

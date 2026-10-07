@@ -32,6 +32,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.wishyclip.app.WishyApp
+import org.wishyclip.app.canvas.DabBrush
 import org.wishyclip.app.canvas.FrameData
 import org.wishyclip.app.canvas.BitmapOps
 import org.wishyclip.app.audio.ExoPlayerAudioTrackManager
@@ -59,6 +60,8 @@ import org.wishyclip.app.canvas.UndoEntry
 import org.wishyclip.app.canvas.UndoManager
 import org.wishyclip.app.canvas.snapshot
 import org.wishyclip.app.data.AudioTrackEntity
+import org.wishyclip.app.data.FontLibrary
+import org.wishyclip.app.data.FontOption
 import org.wishyclip.app.data.FrameEntity
 import org.wishyclip.app.data.Importer
 import org.wishyclip.app.data.LayerEntity
@@ -480,12 +483,39 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         if (t != tool) commitLassoSelection()
         if (t == Tool.EYEDROPPER && tool != Tool.EYEDROPPER) toolBeforeEyedropper = tool
         tool = t
+        // Built-in brushes top out at 60 px; a size dialled up for a stamp brush must not carry over.
+        if (t != Tool.CUSTOM && brushSize > 60f) brushSize = 60f
     }
 
     fun selectCustomBrush(id: String) {
         if (customBrushes.none { it.id == id }) return
         activeCustomBrushId = id
         selectTool(Tool.CUSTOM)
+        // A dab the size of a pen line (8 px) hides the tip's shape entirely, which is why
+        // imported brushes looked like ordinary strokes. Start at a size where the tip is visible.
+        if (brushSize < 24f) {
+            brushSize = 40f
+            persistBrush()
+        }
+    }
+
+    /** The stamp used for a brush's menu preview (same object type the canvas draws with). */
+    fun customDab(brush: StoredBrush): DabBrush? = wishy.brushLibrary.dab(brush)
+
+    /** Live edit of a brush's shape settings; call [commitCustomBrush] when the user lets go. */
+    fun updateCustomBrush(updated: StoredBrush) {
+        customBrushes = customBrushes.map { if (it.id == updated.id) updated else it }
+    }
+
+    fun commitCustomBrush() {
+        val brush = customBrushes.firstOrNull { it.id == activeCustomBrushId } ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                wishy.brushLibrary.update(brush)
+            } catch (e: Exception) {
+                // The in-memory settings still apply for this session.
+            }
+        }
     }
 
     fun showMessage(text: String) {
@@ -669,27 +699,31 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         }
     }
 
+    /** Adds the picked image as a NEW layer on the current frame (it never overwrites existing art). */
     fun importImageAsLayer(uri: Uri) {
         val p = project ?: return
         viewModelScope.launch {
-            val bmp = Importer.importImage(getApplication(), uri, p.width, p.height) ?: return@launch
-            val fd = currentFrameData() ?: return@launch
-            val before = activeLayer()?.bitmap?.snapshot()
-            val layer = activeLayer()
-            if (layer != null) {
-                if (before != null) {
-                    undoManager.push(UndoEntry(fd.frameId, layer.id, before))
-                }
-                BitmapOps.replace(layer.bitmap, bmp)
-                bmp.recycle()
-                layer.version++
-            } else {
-                val entity = repo.addLayer(fd.frameId, fd.layers.size, "Image Layer")
-                fd.layers.add(LayerData(entity.id, entity.name, true, 1f, bmp))
+            val bmp = Importer.importImage(getApplication(), uri, p.width, p.height)
+            if (bmp == null) {
+                showMessage("Could not open that image")
+                return@launch
             }
+            val fd = currentFrameData()
+            if (fd == null) {
+                bmp.recycle()
+                return@launch
+            }
+            commitLassoSelection()
+            val entity = repo.addLayer(fd.frameId, fd.layers.size, "Image ${fd.layers.size + 1}")
+            val layer = LayerData(entity.id, entity.name, true, 1f, bmp)
+            layer.version++ // makes the pixels dirty so they are written on the next save
+            fd.layers.add(layer)
+            fd.metaVersion++
+            activeLayerIndex = fd.layers.lastIndex
             refreshLayerUi()
             revision++
             scheduleSave()
+            showMessage("Added image as a new layer")
         }
     }
 
@@ -718,11 +752,14 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun importImageSequence(uris: List<Uri>) {
         val p = project ?: return
         viewModelScope.launch {
+            var pos = frames.size // advanced per frame: `frames` itself is only refreshed after the loop
+            var imported = 0
             for (uri in uris) {
                 val bmp = Importer.importImage(getApplication(), uri, p.width, p.height) ?: continue
                 val templates = listOf(LayerEntity(frameId = 0, position = 0, name = "Imported", visible = true, opacity = 1f))
-                val pos = frames.size
                 val (newFrame, _) = repo.insertFrame(projectId, pos, templates)
+                pos++
+                imported++
                 val fd = ensureLoaded(newFrame.id)
                 if (fd.layers.isNotEmpty()) {
                     BitmapOps.replace(fd.layers[0].bitmap, bmp)
@@ -731,10 +768,17 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                 bmp.recycle()
             }
             frames = repo.frames(projectId)
-            if (frames.isNotEmpty()) {
+            if (imported > 0 && frames.isNotEmpty()) {
                 gotoFrame(frames.lastIndex)
             }
             repo.touch(projectId)
+            showMessage(
+                when {
+                    imported == 0 -> "Could not open the selected images"
+                    imported < uris.size -> "Imported $imported of ${uris.size} images"
+                    else -> "Imported $imported frame${if (imported == 1) "" else "s"}"
+                }
+            )
         }
     }
 
@@ -743,10 +787,15 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         viewModelScope.launch {
             val fps = p.fps
             val extracted = Importer.importVideoFrames(getApplication(), uri, p.width, p.height, fps)
+            if (extracted.isEmpty()) {
+                showMessage("Could not read any frames from that video")
+                return@launch
+            }
+            var pos = frames.size // see importImageSequence: keeps the frames in playback order
             for (bmp in extracted) {
                 val templates = listOf(LayerEntity(frameId = 0, position = 0, name = "Video Frame", visible = true, opacity = 1f))
-                val pos = frames.size
                 val (newFrame, _) = repo.insertFrame(projectId, pos, templates)
+                pos++
                 val fd = ensureLoaded(newFrame.id)
                 if (fd.layers.isNotEmpty()) {
                     BitmapOps.replace(fd.layers[0].bitmap, bmp)
@@ -759,6 +808,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                 gotoFrame(frames.lastIndex)
             }
             repo.touch(projectId)
+            showMessage(
+                if (extracted.size >= Importer.MAX_VIDEO_FRAMES) "Imported the first ${extracted.size} frames (limit)"
+                else "Imported ${extracted.size} frame${if (extracted.size == 1) "" else "s"}"
+            )
         }
     }
 
@@ -975,52 +1028,84 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     // ---- text
 
-    var activeFontName by mutableStateOf("Inter")
-    var availableFonts by mutableStateOf(listOf("Inter", "Serif", "Monospace"))
+    /** Key of the font used for new text (see [FontOption.key]). */
+    var activeFontName by mutableStateOf(FontLibrary.DEFAULT_KEY)
+    var availableFonts by mutableStateOf(FontLibrary.BUILT_IN)
         private set
 
+    private val fontLibrary get() = wishy.fonts
+
     init {
-        loadFonts()
+        refreshFonts()
     }
 
-    private fun loadFonts() {
-        val fontDir = JavaFile(getApplication<Application>().filesDir, "fonts")
-        if (fontDir.exists()) {
-            val custom = fontDir.listFiles()?.filter { it.extension.lowercase() in listOf("ttf", "otf") }?.map { it.name } ?: emptyList()
-            availableFonts = listOf("Inter", "Serif", "Monospace") + custom
-        }
-    }
-
-    fun importFont(uri: Uri) {
+    private fun refreshFonts() {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                try {
-                    val app = getApplication<Application>()
-                    val fontDir = JavaFile(app.filesDir, "fonts").apply { mkdirs() }
-                    val fileName = "custom_${System.currentTimeMillis()}.ttf"
-                    val dest = JavaFile(fontDir, fileName)
-                    app.contentResolver.openInputStream(uri)?.use { input ->
-                        dest.outputStream().use { output -> input.copyTo(output) }
-                    }
-                } catch (_: Exception) {}
-            }
-            loadFonts()
+            availableFonts = withContext(Dispatchers.IO) { fontLibrary.list() }
+            if (availableFonts.none { it.key == activeFontName }) activeFontName = FontLibrary.DEFAULT_KEY
         }
     }
 
-    private fun getTypeface(fontName: String): Typeface? {
-        return when (fontName) {
-            "Inter" -> null
-            "Serif" -> Typeface.SERIF
-            "Monospace" -> Typeface.MONOSPACE
-            else -> {
-                val file = JavaFile(getApplication<Application>().filesDir, "fonts/$fontName")
-                if (file.exists()) {
-                    try { Typeface.createFromFile(file) } catch (_: Exception) { null }
-                } else null
+    /** Imports one or more font files picked by the user and selects the first new one. */
+    fun importFonts(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            var added = 0
+            var first: FontOption? = null
+            var lastError: String? = null
+            for (uri in uris) {
+                val result = withContext(Dispatchers.IO) {
+                    try {
+                        val name = app.contentResolver
+                            .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                            ?.use { if (it.moveToFirst()) it.getString(0) else null }
+                            ?: uri.lastPathSegment
+                        val bytes = app.contentResolver.openInputStream(uri)?.use {
+                            readLimited(it, FontLibrary.MAX_FONT_BYTES)
+                        }
+                        if (bytes == null) {
+                            org.wishyclip.app.data.FontImportResult(null, "Could not read that file (maximum 25 MB).")
+                        } else {
+                            fontLibrary.import(name, bytes)
+                        }
+                    } catch (e: Exception) {
+                        org.wishyclip.app.data.FontImportResult(null, "Could not read that file.")
+                    }
+                }
+                val option = result.option
+                if (option != null) {
+                    if (!result.alreadyImported) added++
+                    if (first == null) first = option
+                } else if (result.error != null) {
+                    lastError = result.error
+                }
+            }
+            availableFonts = withContext(Dispatchers.IO) { fontLibrary.list() }
+            val picked = first
+            if (picked != null) {
+                activeFontName = picked.key
+                showMessage(
+                    if (added > 0) "Imported font: ${picked.label}" else "${picked.label} is already imported"
+                )
+            } else {
+                showMessage(lastError ?: "No fonts were imported")
             }
         }
     }
+
+    fun deleteFont(key: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { fontLibrary.delete(key) }
+            availableFonts = withContext(Dispatchers.IO) { fontLibrary.list() }
+            if (activeFontName == key) activeFontName = FontLibrary.DEFAULT_KEY
+        }
+    }
+
+    /** Typeface for the font picker's live previews; null means the default font. */
+    fun fontTypeface(key: String): Typeface? = fontLibrary.typeface(key)
+
+    private fun getTypeface(fontName: String): Typeface? = fontLibrary.typeface(fontName)
 
     private fun defaultTextSize(): Float = ((project?.height ?: 720) / 8f).coerceAtLeast(40f)
 
@@ -1186,6 +1271,9 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val dab = if (tool == Tool.CUSTOM) {
             customBrushes.firstOrNull { it.id == activeCustomBrushId }?.let { wishy.brushLibrary.dab(it) }
         } else null
+        if (tool == Tool.CUSTOM && dab == null) {
+            showMessage("This brush's tip is missing - delete it and import it again")
+        }
         renderer.begin(layer.bitmap, tool, color, brushSize, opacity, x, y, pressure, tilt, mirrorMode, dab)
         revision++
     }

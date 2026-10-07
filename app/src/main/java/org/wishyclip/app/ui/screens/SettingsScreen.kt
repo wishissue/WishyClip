@@ -1,6 +1,11 @@
 package org.wishyclip.app.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import android.content.Context
+import android.content.pm.ApplicationInfo
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -39,6 +45,7 @@ import androidx.compose.foundation.layout.Box
 import org.wishyclip.app.R
 import org.wishyclip.app.ui.components.ActionIconButton
 import org.wishyclip.app.ui.components.SectionHeader
+import org.wishyclip.app.ui.components.ThemeStudioDialog
 import org.wishyclip.app.ui.components.WishyDialog
 import org.wishyclip.app.ui.design.IconPack
 import org.wishyclip.app.ui.design.WishyIcons
@@ -49,6 +56,7 @@ import org.wishyclip.app.ui.design.themes.CandyTokens
 import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.FlipDarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
+import org.wishyclip.app.ui.design.themes.ThemeImporter
 
 @Composable
 fun SettingsScreen(
@@ -62,12 +70,36 @@ fun SettingsScreen(
     onTogglePalmRejection: (Boolean) -> Unit,
     onOpenDesignGallery: () -> Unit,
     onBack: () -> Unit,
-    onSelectIconPack: (IconPack) -> Unit = {}
+    onSelectIconPack: (IconPack) -> Unit = {},
+    customThemes: List<WishyTokens> = emptyList(),
+    onSaveCustomTheme: (WishyTokens) -> Unit = {},
+    onDeleteCustomTheme: (String) -> Unit = {}
 ) {
     val tokens = WishyTheme.tokens
     val scrollState = rememberScrollState()
+    val context = LocalContext.current
+    val isDebuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
     var showLicensesDialog by remember { mutableStateOf(false) }
+    var showThemeStudio by remember { mutableStateOf(false) }
+    var studioEditsCurrent by remember { mutableStateOf(false) }
+    var themeMessage by remember { mutableStateOf<String?>(null) }
+    val currentIsCustom = customThemes.any { it.name.equals(currentTokens.name, ignoreCase = true) }
+
+    val themePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val text = readTextLimited(context, uri)
+        when {
+            text == null -> themeMessage = "Could not read that file (maximum 256 KB)."
+            !ThemeImporter.isThemeJson(text) ->
+                themeMessage = "That doesn't look like a Wishy Clip theme. It needs a JSON object with colors such as \"primary\" or \"surface\"."
+            else -> {
+                val imported = ThemeImporter.parseJson(text)
+                onSaveCustomTheme(imported)
+                themeMessage = "Imported theme \"${imported.name}\""
+            }
+        }
+    }
 
     WishyTheme {
         Surface(
@@ -107,7 +139,7 @@ fun SettingsScreen(
                         .padding(horizontal = tokens.spaceLarge, vertical = tokens.spaceXs),
                     horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
                 ) {
-                    listOf(CloudTokens, MidnightTokens, FlipDarkTokens, LightTokens, DarkTokens, AmoledTokens, CandyTokens)
+                    (listOf(CloudTokens, MidnightTokens, FlipDarkTokens, LightTokens, DarkTokens, AmoledTokens, CandyTokens) + customThemes)
                         .forEach { option ->
                             ThemeChip(
                                 name = option.name,
@@ -116,6 +148,40 @@ fun SettingsScreen(
                                 onClick = { onSelectTokens(option) }
                             )
                         }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)
+                ) {
+                    TextButton(onClick = {
+                        themeMessage = null
+                        studioEditsCurrent = false
+                        showThemeStudio = true
+                    }) { Text("New theme") }
+                    TextButton(onClick = {
+                        themeMessage = null
+                        themePicker.launch("*/*")
+                    }) { Text("Import theme (.json)") }
+                    if (currentIsCustom) {
+                        TextButton(onClick = {
+                            themeMessage = null
+                            studioEditsCurrent = true
+                            showThemeStudio = true
+                        }) { Text("Edit \"${currentTokens.name}\"") }
+                        TextButton(onClick = {
+                            onDeleteCustomTheme(currentTokens.name)
+                            themeMessage = "Deleted \"${currentTokens.name}\""
+                        }) { Text("Delete", color = tokens.danger) }
+                    }
+                }
+                themeMessage?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.onSurfaceVariant
+                    )
                 }
 
                 SectionHeader(title = stringResource(R.string.setting_icon_pack))
@@ -186,12 +252,14 @@ fun SettingsScreen(
                     )
                 }
 
-                SectionHeader(title = "Debug & Developer Tools")
-                TextButton(
-                    onClick = onOpenDesignGallery,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Open Design Gallery (Debug)")
+                if (isDebuggable) {
+                    SectionHeader(title = "Debug & Developer Tools")
+                    TextButton(
+                        onClick = onOpenDesignGallery,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open Design Gallery (Debug)")
+                    }
                 }
 
                 SectionHeader(title = "Legal & Attributions")
@@ -203,6 +271,19 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    if (showThemeStudio) {
+        ThemeStudioDialog(
+            initial = if (studioEditsCurrent) currentTokens else currentTokens.copy(name = "My Theme"),
+            isEditing = studioEditsCurrent,
+            onSave = {
+                onSaveCustomTheme(it)
+                showThemeStudio = false
+                themeMessage = "Saved theme \"${it.name}\""
+            },
+            onDismiss = { showThemeStudio = false }
+        )
     }
 
     if (showLicensesDialog) {
@@ -217,6 +298,8 @@ fun SettingsScreen(
                 Text("• Kotlin Coroutines, Room, DataStore - Apache 2.0")
                 Text("• Media3 ExoPlayer, Coil - Apache 2.0")
                 Text("• Animated GIF LZW Encoder - MIT / Apache 2.0")
+                Text("• LZ4 (lz4-java) - Apache 2.0")
+                Text("• Inter typeface - SIL Open Font License 1.1")
             }
         }
     }
@@ -273,3 +356,28 @@ private fun ThemeChip(name: String, dot: Color, selected: Boolean, onClick: () -
         )
     }
 }
+
+
+/** Reads a small text file picked by the user; null if unreadable or bigger than [maxBytes]. */
+private fun readTextLimited(context: Context, uri: Uri, maxBytes: Int = 256 * 1024): String? =
+    try {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            val out = java.io.ByteArrayOutputStream()
+            val buf = ByteArray(8 * 1024)
+            var total = 0
+            var tooBig = false
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                total += n
+                if (total > maxBytes) {
+                    tooBig = true
+                    break
+                }
+                out.write(buf, 0, n)
+            }
+            if (tooBig) null else out.toString(Charsets.UTF_8.name())
+        }
+    } catch (e: Exception) {
+        null
+    }

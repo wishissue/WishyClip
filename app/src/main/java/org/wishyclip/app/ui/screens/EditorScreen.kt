@@ -3,7 +3,13 @@ package org.wishyclip.app.ui.screens
 import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.shape.CircleShape
+import android.Manifest
+import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.os.Build
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -153,8 +159,19 @@ fun EditorScreen(
     val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) vm.addAudioTrackFromUri(uri, name = "Audio ${vm.audioTracks.size + 1}")
     }
-    val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) vm.importFont(uri)
+    val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        vm.importFonts(uris)
+    }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    /** Starts an export; on Android 13+ also asks once for permission to show its progress notification. */
+    val startExport: (ExportFormat, Int) -> Unit = { format, frameIndex ->
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        vm.project?.let { ExportService.start(context, it.id, format, frameIndex) }
     }
     val onSelectTool: (Tool) -> Unit = { selected ->
         showBrushMenu = false
@@ -473,6 +490,7 @@ fun EditorScreen(
                                 onCancelLasso = { vm.cancelLassoSelection() },
                                 onDeleteLasso = { vm.deleteLassoSelection() },
                                 onSelectShapeTool = { vm.selectTool(it) },
+                                onEditText = { vm.editActiveText() },
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
                                     .padding(top = tokens.spaceSmall)
@@ -506,6 +524,9 @@ fun EditorScreen(
                                     if (activeBrush == Tool.CUSTOM) activeBrush = Tool.PEN
                                 },
                                 onImportBrushes = { brushPicker.launch("*/*") },
+                                dabFor = { vm.customDab(it) },
+                                onUpdateCustom = { vm.updateCustomBrush(it) },
+                                onCommitCustom = { vm.commitCustomBrush() },
                                 modifier = Modifier
                                     .align(
                                         when {
@@ -804,17 +825,26 @@ fun EditorScreen(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
                 TextButton(onClick = {
-                    vm.project?.let { ExportService.start(context, it.id, ExportFormat.MP4) }
+                    startExport(ExportFormat.MP4, -1)
                     showExportDialog = false
                 }) { Text("Export MP4 video") }
                 TextButton(onClick = {
-                    vm.project?.let { ExportService.start(context, it.id, ExportFormat.GIF) }
+                    startExport(ExportFormat.GIF, -1)
                     showExportDialog = false
                 }) { Text("Export animated GIF") }
                 TextButton(onClick = {
-                    vm.project?.let { ExportService.start(context, it.id, ExportFormat.PNG_SEQUENCE) }
+                    startExport(ExportFormat.PNG_SEQUENCE, -1)
                     showExportDialog = false
                 }) { Text("Export PNG sequence (ZIP)") }
+                TextButton(onClick = {
+                    startExport(ExportFormat.PNG_CURRENT_FRAME, vm.currentIndex)
+                    showExportDialog = false
+                }) { Text("Export current frame (PNG)") }
+                Text(
+                    "Video is exported without audio for now.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.onSurfaceVariant
+                )
             }
         }
     }
@@ -827,14 +857,32 @@ fun EditorScreen(
             onConfirm = { showImportDialog = false }
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
+                Text("Into the animation", style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
                 TextButton(onClick = {
                     imageSequencePicker.launch("image/*")
                     showImportDialog = false
-                }) { Text("Import images as frames") }
+                }) { Text("Images as new frames") }
                 TextButton(onClick = {
                     videoPicker.launch("video/*")
                     showImportDialog = false
-                }) { Text("Import video as frames") }
+                }) { Text("Video as frames") }
+                TextButton(onClick = {
+                    imageLayerPicker.launch("image/*")
+                    showImportDialog = false
+                }) { Text("Image as a new layer on this frame") }
+                TextButton(onClick = {
+                    audioPicker.launch("audio/*")
+                    showImportDialog = false
+                }) { Text("Audio track") }
+                Text("Customize", style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
+                TextButton(onClick = {
+                    brushPicker.launch("*/*")
+                    showImportDialog = false
+                }) { Text("Brushes (PNG, ABR, GBR, KPP, Procreate...)") }
+                TextButton(onClick = {
+                    fontPicker.launch("*/*")
+                    showImportDialog = false
+                }) { Text("Fonts (.ttf / .otf)") }
             }
         }
     }
@@ -923,6 +971,9 @@ fun EditorScreen(
 
     if (vm.textEditorOpen) {
         var textValue by remember { mutableStateOf(vm.textEditorInitial) }
+        val activeFamily = remember(vm.activeFontName, vm.availableFonts) {
+            vm.fontTypeface(vm.activeFontName)?.let { FontFamily(it) }
+        }
         WishyDialog(
             title = "Text Editor",
             onDismissRequest = { vm.dismissTextEditor() },
@@ -936,34 +987,54 @@ fun EditorScreen(
                     value = textValue,
                     onValueChange = { textValue = it },
                     label = { Text("Type here") },
+                    // Shows the text in the chosen font, so the preview matches what gets drawn.
+                    textStyle = TextStyle(
+                        fontFamily = activeFamily,
+                        fontSize = MaterialTheme.typography.bodyLarge.fontSize
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
-                Text("Font Family", style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
-                Row(
+                Text("Font", style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)
+                        .heightIn(max = 220.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)
                 ) {
                     for (font in vm.availableFonts) {
-                        val selected = font == vm.activeFontName
-                        Box(
+                        val selected = font.key == vm.activeFontName
+                        val family = remember(font.key) { vm.fontTypeface(font.key)?.let { FontFamily(it) } }
+                        Row(
                             modifier = Modifier
+                                .fillMaxWidth()
                                 .clip(RoundedCornerShape(tokens.smallRadius))
                                 .background(if (selected) tokens.primaryContainer else tokens.surfaceVariant)
-                                .clickable { vm.activeFontName = font }
-                                .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs)
+                                .clickable { vm.activeFontName = font.key }
+                                .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = font,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (selected) tokens.onPrimaryContainer else tokens.onSurface
+                                text = font.label,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontFamily = family,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = if (selected) tokens.onPrimaryContainer else tokens.onSurface,
+                                modifier = Modifier.weight(1f)
                             )
+                            if (!font.builtIn) {
+                                ActionIconButton(
+                                    iconRes = WishyIcons.Delete,
+                                    contentDescription = "Remove font ${font.label}",
+                                    onClick = { vm.deleteFont(font.key) }
+                                )
+                            }
                         }
                     }
                 }
                 TextButton(onClick = { fontPicker.launch("*/*") }) {
-                    Text("+ Import Custom Font (.ttf / .otf)")
+                    Text("+ Import fonts (.ttf / .otf)")
                 }
             }
         }
