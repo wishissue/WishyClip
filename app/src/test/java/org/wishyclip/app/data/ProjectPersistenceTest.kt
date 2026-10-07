@@ -107,4 +107,36 @@ class ProjectPersistenceTest {
         assertNull(repository.getProject(pid))
         assertFalse(store.layerFile(pid, layers[0].id).exists())
     }
+
+    @Test
+    fun testBitmapStoreWriteFailureDoesNotOverwriteTarget() {
+        val projectId = 200L
+        val layerId = 600L
+        val width = 50
+        val height = 50
+
+        val validBmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        validBmp.setPixel(0, 0, Color.BLUE)
+        store.save(projectId, layerId, validBmp)
+
+        val layerFile = store.layerFile(projectId, layerId)
+        assertTrue(layerFile.exists())
+        val originalLength = layerFile.length()
+
+        val tmpFile = java.io.File(layerFile.parentFile, layerFile.name + ".tmp")
+        tmpFile.mkdirs() // Directory at .tmp path causes FileOutputStream(tmp) to fail
+
+        var caught = false
+        try {
+            store.save(projectId, layerId, validBmp)
+        } catch (_: Exception) {
+            caught = true
+        }
+        assertTrue(caught)
+        assertTrue(layerFile.exists())
+        assertEquals(originalLength, layerFile.length())
+
+        tmpFile.delete()
+        validBmp.recycle()
+    }
 }

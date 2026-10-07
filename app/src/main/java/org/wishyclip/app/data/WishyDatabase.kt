@@ -19,6 +19,28 @@ abstract class WishyDatabase : RoomDatabase() {
     abstract fun audioTrackDao(): AudioTrackDao
 
     companion object {
+        /** v2: audio tracks table. Existing projects keep all their data. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `audio_tracks` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `projectId` INTEGER NOT NULL,
+                        `filePath` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `startFrame` INTEGER NOT NULL DEFAULT 0,
+                        `trimStartMs` INTEGER NOT NULL DEFAULT 0,
+                        `durationMs` INTEGER NOT NULL DEFAULT 0,
+                        `volume` REAL NOT NULL DEFAULT 1.0,
+                        FOREIGN KEY(`projectId`) REFERENCES `projects`(`id`) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_audio_tracks_projectId` ON `audio_tracks` (`projectId`)")
+            }
+        }
+
         /** v3: per-layer lock and blend mode. Existing projects keep all their data. */
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -36,7 +58,7 @@ abstract class WishyDatabase : RoomDatabase() {
 
         fun build(context: Context): WishyDatabase =
             Room.databaseBuilder(context.applicationContext, WishyDatabase::class.java, "wishyclip.db")
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigration()
                 .build()
     }

@@ -68,23 +68,71 @@ object Importer {
         return result
     }
 
+    /**
+     * Decodes [uri] at a reduced size (never the full-resolution bitmap) and turns it upright
+     * according to its EXIF flag. The result is at least target-sized when the source allows it.
+     * May throw OutOfMemoryError: callers catch it.
+     */
+    private fun decodeUpright(context: Context, uri: Uri, targetWidth: Int, targetHeight: Int): Bitmap? {
+        val resolver = context.contentResolver
+
+        // Phone photos are often stored sideways with an EXIF flag; honour it.
+        val orientation = try {
+            resolver.openInputStream(uri)?.use {
+                ExifInterface(it).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
+                )
+            } ?: ExifInterface.ORIENTATION_NORMAL
+        } catch (e: Exception) {
+            ExifInterface.ORIENTATION_NORMAL
+        }
+        val matrix = orientationMatrix(orientation)
+        val sideways = orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
+            orientation == ExifInterface.ORIENTATION_ROTATE_270 ||
+            orientation == ExifInterface.ORIENTATION_TRANSPOSE ||
+            orientation == ExifInterface.ORIENTATION_TRANSVERSE
+
+        // Read the size first and decode at a reduced size: a 48 MP photo must not be
+        // decoded at full resolution just to be scaled down to a 1280x720 canvas.
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        // The target box is measured on the upright image, so swap it for sideways files.
+        val sample = if (sideways) sampleSizeFor(bounds.outWidth, bounds.outHeight, targetHeight, targetWidth)
+        else sampleSizeFor(bounds.outWidth, bounds.outHeight, targetWidth, targetHeight)
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        var original: Bitmap = resolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, opts)
+        } ?: return null
+
+        if (matrix != null) {
+            val upright = Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
+            if (upright !== original) {
+                original.recycle()
+                original = upright
+            }
+        }
+        return original
+    }
+
     /** Decodes an image and scales it down (never up) to fit the box, keeping its own aspect ratio. */
     suspend fun importImageTight(context: Context, uri: Uri, maxWidth: Int, maxHeight: Int): Bitmap? =
         withContext(Dispatchers.IO) {
             try {
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    val original = BitmapFactory.decodeStream(stream) ?: return@withContext null
-                    val scale = minOf(maxWidth / original.width.toFloat(), maxHeight / original.height.toFloat(), 1f)
-                    if (scale >= 1f) original
-                    else {
-                        val w = (original.width * scale).toInt().coerceAtLeast(1)
-                        val h = (original.height * scale).toInt().coerceAtLeast(1)
-                        val out = Bitmap.createScaledBitmap(original, w, h, true)
-                        if (out !== original) original.recycle()
-                        out
-                    }
+                val original = decodeUpright(context, uri, maxWidth, maxHeight) ?: return@withContext null
+                val scale = minOf(maxWidth / original.width.toFloat(), maxHeight / original.height.toFloat(), 1f)
+                if (scale >= 1f) original
+                else {
+                    val w = (original.width * scale).toInt().coerceAtLeast(1)
+                    val h = (original.height * scale).toInt().coerceAtLeast(1)
+                    val out = Bitmap.createScaledBitmap(original, w, h, true)
+                    if (out !== original) original.recycle()
+                    out
                 }
             } catch (e: Exception) {
+                null
+            } catch (e: OutOfMemoryError) {
                 null
             }
         }
@@ -92,40 +140,7 @@ object Importer {
     suspend fun importImage(context: Context, uri: Uri, targetWidth: Int, targetHeight: Int): Bitmap? =
         withContext(Dispatchers.IO) {
             try {
-                val resolver = context.contentResolver
-
-                // Read the size first and decode at a reduced size: a 48 MP photo must not be
-                // decoded at full resolution just to be scaled down to a 1280x720 canvas.
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
-
-                val opts = BitmapFactory.Options().apply {
-                    inSampleSize = sampleSizeFor(bounds.outWidth, bounds.outHeight, targetWidth, targetHeight)
-                }
-                var original: Bitmap = resolver.openInputStream(uri)?.use {
-                    BitmapFactory.decodeStream(it, null, opts)
-                } ?: return@withContext null
-
-                // Phone photos are often stored sideways with an EXIF flag; honour it.
-                val orientation = try {
-                    resolver.openInputStream(uri)?.use {
-                        ExifInterface(it).getAttributeInt(
-                            ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
-                        )
-                    } ?: ExifInterface.ORIENTATION_NORMAL
-                } catch (e: Exception) {
-                    ExifInterface.ORIENTATION_NORMAL
-                }
-                val matrix = orientationMatrix(orientation)
-                if (matrix != null) {
-                    val upright = Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
-                    if (upright !== original) {
-                        original.recycle()
-                        original = upright
-                    }
-                }
-
+                val original = decodeUpright(context, uri, targetWidth, targetHeight) ?: return@withContext null
                 val scaled = scaleToFit(original, targetWidth, targetHeight)
                 if (scaled !== original && !original.isRecycled) {
                     original.recycle()

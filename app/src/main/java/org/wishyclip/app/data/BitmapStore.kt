@@ -62,12 +62,23 @@ class BitmapStore(private val context: Context) {
     private fun writePng(target: File, bitmap: Bitmap) {
         target.parentFile?.mkdirs()
         val tmp = File(target.parentFile, target.name + ".tmp")
-        FileOutputStream(tmp).use { out ->
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-        }
-        if (!tmp.renameTo(target)) {
-            tmp.copyTo(target, overwrite = true)
+        try {
+            FileOutputStream(tmp).use { out ->
+                val ok = bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                if (!ok) {
+                    out.close()
+                    tmp.delete()
+                    throw java.io.IOException("Failed to compress bitmap to PNG")
+                }
+                out.fd.sync()
+            }
+            if (!tmp.renameTo(target)) {
+                tmp.copyTo(target, overwrite = true)
+                tmp.delete()
+            }
+        } catch (e: Exception) {
             tmp.delete()
+            throw e
         }
     }
 }

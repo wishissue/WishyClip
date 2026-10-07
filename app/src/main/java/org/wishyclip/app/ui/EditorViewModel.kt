@@ -595,11 +595,13 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     }
 
     fun deleteCustomBrush(id: String) {
-        wishy.brushLibrary.delete(id)
-        customBrushes = wishy.brushLibrary.list()
-        if (activeCustomBrushId == id) {
-            activeCustomBrushId = null
-            if (tool == Tool.CUSTOM) tool = Tool.PEN
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { wishy.brushLibrary.delete(id) }
+            customBrushes = withContext(Dispatchers.IO) { wishy.brushLibrary.list() }
+            if (activeCustomBrushId == id) {
+                activeCustomBrushId = null
+                if (tool == Tool.CUSTOM) tool = Tool.PEN
+            }
         }
     }
 
@@ -685,19 +687,37 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         if (layer.locked) { showMessage("This layer is locked"); return }
         val frameId = frames.getOrNull(currentIndex)?.id ?: return
 
-        viewModelScope.launch(Dispatchers.Default) {
+        // Everything that touches the layer, the undo stack or UI state must stay on the main thread
+        // (a fill on a background thread raced with strokes, undo and layer deletion, and could crash on
+        // a recycled bitmap). Only the flood computation runs in the background, on a private copy.
+        val fillColor = color
+        val tolerance = fillTolerance
+        val startVersion = layer.version
+        val fx = x.toInt()
+        val fy = y.toInt()
+        viewModelScope.launch {
             val before = layer.bitmap.snapshot()
-            val filler = ScanlineFillTool()
-            val changed = filler.fill(layer.bitmap, x.toInt(), y.toInt(), color, fillTolerance)
-            if (changed) {
-                undoManager.push(UndoEntry(frameId, layer.id, before))
-                layer.version++
-                syncUndoFlags()
-                revision++
-                scheduleSave()
-            } else {
+            val work = layer.bitmap.copy(Bitmap.Config.ARGB_8888, true)
+            if (work == null) {
                 before.recycle()
+                return@launch
             }
+            val changed = withContext(Dispatchers.Default) {
+                ScanlineFillTool().fill(work, fx, fy, fillColor, tolerance)
+            }
+            // The layer may have been edited, deleted or evicted while the fill was computed.
+            if (!changed || layer.bitmap.isRecycled || layer.version != startVersion) {
+                before.recycle()
+                work.recycle()
+                return@launch
+            }
+            BitmapOps.replace(layer.bitmap, work)
+            work.recycle()
+            undoManager.push(UndoEntry(frameId, layer.id, before))
+            layer.version++
+            syncUndoFlags()
+            revision++
+            scheduleSave()
         }
     }
 
@@ -756,6 +776,17 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         }
     }
 
+    /**
+     * Writes a frame that was just created by an import to disk and drops it from memory. Imported
+     * frames are not in [frames] yet, so nothing can be looking at them, and keeping all of them
+     * cached (full-size, unsaved) until the import ends is what ran long imports out of memory.
+     */
+    private suspend fun flushAndEvict(fd: FrameData) {
+        persistFrame(fd)
+        cache.remove(fd.frameId)
+        fd.layers.forEach { if (!it.bitmap.isRecycled) it.bitmap.recycle() }
+    }
+
     private var importJob: Job? = null
 
     /** Cancels a running image/video import; frames already added stay in the project. */
@@ -784,6 +815,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                             fd.layers[0].version++
                         }
                         bmp.recycle()
+                        flushAndEvict(fd)
                     }
                     BusyTracker.update(owner, "${i + 1} of ${uris.size}", (i + 1f) / uris.size)
                 }
@@ -831,6 +863,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                             BitmapOps.replace(fd.layers[0].bitmap, bmp)
                             fd.layers[0].version++
                         }
+                        flushAndEvict(fd)
                     } finally {
                         bmp.recycle()
                     }
@@ -858,6 +891,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     }
 
     fun addAudioTrackFromUri(uri: Uri, name: String = "Imported Track") {
+        val startFrame = timelineFrameOf(currentIndex)
         viewModelScope.launch(Dispatchers.IO) {
             val audioDir = File(getApplication<Application>().filesDir, "projects/$projectId/audio").apply { mkdirs() }
             val destFile = File(audioDir, "track_${System.currentTimeMillis()}.m4a")
@@ -869,28 +903,35 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                 projectId = projectId,
                 filePath = destFile.absolutePath,
                 name = name,
-                startFrame = timelineFrameOf(currentIndex),
+                startFrame = startFrame,
                 durationMs = duration
             )
             repo.addAudioTrack(entity)
-            audioTracks = repo.getAudioTracks(projectId)
-            revision++
+            val tracks = repo.getAudioTracks(projectId)
+            withContext(Dispatchers.Main) {
+                audioTracks = tracks
+                revision++
+            }
         }
     }
 
     fun addRecordedVoiceTrack(recordedFile: File) {
+        val startFrame = timelineFrameOf(currentIndex)
         viewModelScope.launch(Dispatchers.IO) {
             val duration = WaveformExtractor.getAudioDurationMs(recordedFile.absolutePath)
             val entity = AudioTrackEntity(
                 projectId = projectId,
                 filePath = recordedFile.absolutePath,
                 name = "Voice Record",
-                startFrame = timelineFrameOf(currentIndex),
+                startFrame = startFrame,
                 durationMs = duration
             )
             repo.addAudioTrack(entity)
-            audioTracks = repo.getAudioTracks(projectId)
-            revision++
+            val tracks = repo.getAudioTracks(projectId)
+            withContext(Dispatchers.Main) {
+                audioTracks = tracks
+                revision++
+            }
         }
     }
 

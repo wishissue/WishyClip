@@ -108,8 +108,12 @@ class ExportService : Service() {
             // The gallery now holds its own copy; do not leave a second one in the cache forever.
             if (savedUri?.authority == MediaStore.AUTHORITY) outputFile.delete()
 
-            showCompletionNotification(fileUri, outputFile.name, format)
-            BusyTracker.postNotice("Export complete: ${outputFile.name}")
+            val savedToDevice = savedUri != null
+            showCompletionNotification(fileUri, outputFile.name, format, savedToDevice)
+            BusyTracker.postNotice(
+                if (savedToDevice) "Export complete: ${outputFile.name}"
+                else "Export finished, but it could not be saved to your gallery. Tap the notification to open or share it."
+            )
         } catch (e: CancellationException) {
             outputFile?.delete()
             BusyTracker.postNotice("Export cancelled")
@@ -333,11 +337,7 @@ class ExportService : Service() {
             FileProvider.getUriForFile(this, "$packageName.fileprovider", destFile)
         } catch (e: Exception) {
             e.printStackTrace()
-            try {
-                FileProvider.getUriForFile(this, "$packageName.fileprovider", outputFile)
-            } catch (e2: Exception) {
-                null
-            }
+            null // the caller falls back to the private copy and tells the person the truth
         }
     }
 
@@ -356,7 +356,7 @@ class ExportService : Service() {
         manager.notify(NOTIFICATION_ID, notification)
     }
 
-    private fun showCompletionNotification(uri: Uri?, fileName: String, format: ExportFormat) {
+    private fun showCompletionNotification(uri: Uri?, fileName: String, format: ExportFormat, savedToDevice: Boolean) {
         val mimeType = when (format) {
             ExportFormat.MP4 -> "video/mp4"
             ExportFormat.GIF -> "image/gif"
@@ -366,7 +366,7 @@ class ExportService : Service() {
 
         val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Export Complete!")
-            .setContentText("Saved $fileName to device")
+            .setContentText(if (savedToDevice) "Saved $fileName to device" else "$fileName is ready (not saved to gallery)")
             .setSmallIcon(R.drawable.ic_menu_save)
             .setAutoCancel(true)
             .setOngoing(false)

@@ -92,9 +92,13 @@ class AnimatedGifEncoder {
     }
 
     private fun analyzePixels() {
-        val len = pixels!!.size
-        val nPix = len / 3
+        val nPix = pixels!!.size / 3
         indexedPixels = ByteArray(nPix)
+        if (!buildExactPalette(nPix)) buildQuantizedPalette(nPix)
+    }
+
+    /** Uses the image's own colours when there are at most 256 of them. */
+    private fun buildExactPalette(nPix: Int): Boolean {
         val tab = ByteArray(256 * 3)
         var palIdx = 0
         val map = HashMap<Int, Int>()
@@ -105,18 +109,42 @@ class AnimatedGifEncoder {
             val rgb = (r shl 16) or (g shl 8) or b
             var idx = map[rgb]
             if (idx == null) {
-                if (palIdx < 256) {
-                    idx = palIdx
-                    map[rgb] = idx
-                    tab[palIdx * 3] = r.toByte()
-                    tab[palIdx * 3 + 1] = g.toByte()
-                    tab[palIdx * 3 + 2] = b.toByte()
-                    palIdx++
-                } else {
-                    idx = 0
-                }
+                if (palIdx >= 256) return false // too many colours: caller quantizes instead
+                idx = palIdx
+                map[rgb] = idx
+                tab[palIdx * 3] = r.toByte()
+                tab[palIdx * 3 + 1] = g.toByte()
+                tab[palIdx * 3 + 2] = b.toByte()
+                palIdx++
             }
             indexedPixels!![i] = idx.toByte()
+        }
+        colorTab = tab
+        return true
+    }
+
+    /**
+     * Anti-aliased drawings usually exceed 256 colours. Instead of mapping every extra colour to
+     * palette entry 0 (which erased stroke edges), use a fixed 3-3-2 bit RGB palette.
+     */
+    private fun buildQuantizedPalette(nPix: Int) {
+        val tab = ByteArray(256 * 3)
+        for (i in 0 until 256) {
+            val r = (i shr 5) and 7
+            val g = (i shr 2) and 7
+            val b = i and 3
+            tab[i * 3] = (r * 255 / 7).toByte()
+            tab[i * 3 + 1] = (g * 255 / 7).toByte()
+            tab[i * 3 + 2] = (b * 255 / 3).toByte()
+        }
+        for (i in 0 until nPix) {
+            val r = pixels!![i * 3].toInt() and 0xFF
+            val g = pixels!![i * 3 + 1].toInt() and 0xFF
+            val b = pixels!![i * 3 + 2].toInt() and 0xFF
+            val rq = (r * 7 + 127) / 255
+            val gq = (g * 7 + 127) / 255
+            val bq = (b * 3 + 127) / 255
+            indexedPixels!![i] = ((rq shl 5) or (gq shl 2) or bq).toByte()
         }
         colorTab = tab
     }
@@ -155,7 +183,7 @@ class AnimatedGifEncoder {
         out?.write(0xF9)
         out?.write(4)
         out?.write(0)
-        writeShort(delay / 10)
+        writeShort(((delay + 5) / 10).coerceAtLeast(2))
         out?.write(0)
         out?.write(0)
     }
@@ -194,9 +222,10 @@ class LzwEncoder(
         val minCodeSize = Math.max(2, initCodeSize)
         os.write(minCodeSize)
 
-        var curCode = minCodeSize + 2
-        var clearCode = 1 shl minCodeSize
-        var eofCode = clearCode + 1
+        val clearCode = 1 shl minCodeSize
+        val eofCode = clearCode + 1
+        val firstFree = clearCode + 2 // codes 0..eofCode are literals / control codes
+        var curCode = firstFree
 
         val accum = ByteArray(256)
         var aCount = 0
@@ -261,9 +290,11 @@ class LzwEncoder(
                 if (curCode < maxCode) {
                     codTab[hIdx] = curCode++
                     hTab[hIdx] = fCode
+                    // The decoder widens its codes once its table outgrows the current width.
+                    if (curCode - 1 >= (1 shl nBits) && nBits < 12) nBits++
                 } else {
                     hTab.fill(-1)
-                    curCode = minCodeSize + 2
+                    curCode = firstFree
                     output(clearCode, nBits)
                     nBits = minCodeSize + 1
                 }

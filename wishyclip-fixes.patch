@@ -1,0 +1,860 @@
+# ===== PATCH 1: AnimatedGifEncoder LZW start code, code-size growth, quantized palette, and frame delay =====
+diff --git a/app/src/main/java/org/wishyclip/app/export/AnimatedGifEncoder.kt b/app/src/main/java/org/wishyclip/app/export/AnimatedGifEncoder.kt
+index 4a0fe5c..cffebdc 100644
+--- a/app/src/main/java/org/wishyclip/app/export/AnimatedGifEncoder.kt
++++ b/app/src/main/java/org/wishyclip/app/export/AnimatedGifEncoder.kt
+@@ -92,9 +92,13 @@ class AnimatedGifEncoder {
+     }
+ 
+     private fun analyzePixels() {
+-        val len = pixels!!.size
+-        val nPix = len / 3
++        val nPix = pixels!!.size / 3
+         indexedPixels = ByteArray(nPix)
++        if (!buildExactPalette(nPix)) buildQuantizedPalette(nPix)
++    }
++
++    /** Uses the image's own colours when there are at most 256 of them. */
++    private fun buildExactPalette(nPix: Int): Boolean {
+         val tab = ByteArray(256 * 3)
+         var palIdx = 0
+         val map = HashMap<Int, Int>()
+@@ -105,20 +109,44 @@ class AnimatedGifEncoder {
+             val rgb = (r shl 16) or (g shl 8) or b
+             var idx = map[rgb]
+             if (idx == null) {
+-                if (palIdx < 256) {
+-                    idx = palIdx
+-                    map[rgb] = idx
+-                    tab[palIdx * 3] = r.toByte()
+-                    tab[palIdx * 3 + 1] = g.toByte()
+-                    tab[palIdx * 3 + 2] = b.toByte()
+-                    palIdx++
+-                } else {
+-                    idx = 0
+-                }
++                if (palIdx >= 256) return false // too many colours: caller quantizes instead
++                idx = palIdx
++                map[rgb] = idx
++                tab[palIdx * 3] = r.toByte()
++                tab[palIdx * 3 + 1] = g.toByte()
++                tab[palIdx * 3 + 2] = b.toByte()
++                palIdx++
+             }
+             indexedPixels!![i] = idx.toByte()
+         }
+         colorTab = tab
++        return true
++    }
++
++    /**
++     * Anti-aliased drawings usually exceed 256 colours. Instead of mapping every extra colour to
++     * palette entry 0 (which erased stroke edges), use a fixed 3-3-2 bit RGB palette.
++     */
++    private fun buildQuantizedPalette(nPix: Int) {
++        val tab = ByteArray(256 * 3)
++        for (i in 0 until 256) {
++            val r = (i shr 5) and 7
++            val g = (i shr 2) and 7
++            val b = i and 3
++            tab[i * 3] = (r * 255 / 7).toByte()
++            tab[i * 3 + 1] = (g * 255 / 7).toByte()
++            tab[i * 3 + 2] = (b * 255 / 3).toByte()
++        }
++        for (i in 0 until nPix) {
++            val r = pixels!![i * 3].toInt() and 0xFF
++            val g = pixels!![i * 3 + 1].toInt() and 0xFF
++            val b = pixels!![i * 3 + 2].toInt() and 0xFF
++            val rq = (r * 7 + 127) / 255
++            val gq = (g * 7 + 127) / 255
++            val bq = (b * 3 + 127) / 255
++            indexedPixels!![i] = ((rq shl 5) or (gq shl 2) or bq).toByte()
++        }
++        colorTab = tab
+     }
+ 
+     private fun writeString(s: String) {
+@@ -155,7 +183,7 @@ class AnimatedGifEncoder {
+         out?.write(0xF9)
+         out?.write(4)
+         out?.write(0)
+-        writeShort(delay / 10)
++        writeShort(((delay + 5) / 10).coerceAtLeast(2))
+         out?.write(0)
+         out?.write(0)
+     }
+@@ -194,9 +222,10 @@ class LzwEncoder(
+         val minCodeSize = Math.max(2, initCodeSize)
+         os.write(minCodeSize)
+ 
+-        var curCode = minCodeSize + 2
+-        var clearCode = 1 shl minCodeSize
+-        var eofCode = clearCode + 1
++        val clearCode = 1 shl minCodeSize
++        val eofCode = clearCode + 1
++        val firstFree = clearCode + 2 // codes 0..eofCode are literals / control codes
++        var curCode = firstFree
+ 
+         val accum = ByteArray(256)
+         var aCount = 0
+@@ -261,9 +290,11 @@ class LzwEncoder(
+                 if (curCode < maxCode) {
+                     codTab[hIdx] = curCode++
+                     hTab[hIdx] = fCode
++                    // The decoder widens its codes once its table outgrows the current width.
++                    if (curCode - 1 >= (1 shl nBits) && nBits < 12) nBits++
+                 } else {
+                     hTab.fill(-1)
+-                    curCode = minCodeSize + 2
++                    curCode = firstFree
+                     output(clearCode, nBits)
+                     nBits = minCodeSize + 1
+                 }
+diff --git a/app/src/test/java/org/wishyclip/app/export/ExporterTest.kt b/app/src/test/java/org/wishyclip/app/export/ExporterTest.kt
+index 460b1ad..e2b5eab 100644
+--- a/app/src/test/java/org/wishyclip/app/export/ExporterTest.kt
++++ b/app/src/test/java/org/wishyclip/app/export/ExporterTest.kt
+@@ -7,6 +7,7 @@ import org.junit.Assert.assertTrue
+ import org.junit.Test
+ import org.junit.runner.RunWith
+ import org.robolectric.RobolectricTestRunner
++import java.io.ByteArrayInputStream
+ import java.io.ByteArrayOutputStream
+ 
+ @RunWith(RobolectricTestRunner::class)
+@@ -46,4 +47,53 @@ class ExporterTest {
+         assertEquals(ExportFormat.PNG_SEQUENCE, ExportFormat.valueOf("PNG_SEQUENCE"))
+         assertEquals(ExportFormat.PNG_CURRENT_FRAME, ExportFormat.valueOf("PNG_CURRENT_FRAME"))
+     }
++
++    @Test
++    fun gifFramesDecodeBackToTheOriginalPixels() {
++        // Regression: the LZW stream used wrong initial codes / never widened code size, so every GIF was corrupt.
++        val bmp = Bitmap.createBitmap(120, 90, Bitmap.Config.ARGB_8888)
++        for (y in 0 until 90) for (x in 0 until 120) bmp.setPixel(x, y, Color.rgb(x * 2 % 200, y * 2 % 200, (x + y) % 40))
++        val baos = ByteArrayOutputStream()
++        val encoder = AnimatedGifEncoder()
++        encoder.start(baos)
++        encoder.setDelay(40)
++        encoder.addFrame(bmp)
++        encoder.addFrame(bmp)
++        encoder.finish()
++
++        val bytes = baos.toByteArray()
++
++        val imageIOClass = Class.forName("javax.imageio.ImageIO")
++        val imageReaderClass = Class.forName("javax.imageio.ImageReader")
++        val bufferedImageClass = Class.forName("java.awt.image.BufferedImage")
++
++        val getImageReadersByFormatName = imageIOClass.getMethod("getImageReadersByFormatName", String::class.java)
++        val createImageInputStream = imageIOClass.getMethod("createImageInputStream", Any::class.java)
++
++        val readers = (getImageReadersByFormatName.invoke(null, "gif") as Iterator<*>)
++        val reader = readers.next()
++        val stream = createImageInputStream.invoke(null, ByteArrayInputStream(bytes))
++
++        val setInputMethod = imageReaderClass.getMethod("setInput", Any::class.java)
++        setInputMethod.invoke(reader, stream)
++
++        val getNumImagesMethod = imageReaderClass.getMethod("getNumImages", Boolean::class.javaPrimitiveType)
++        val numImages = getNumImagesMethod.invoke(reader, true) as Int
++        assertEquals(2, numImages)
++
++        val readMethod = imageReaderClass.getMethod("read", Int::class.javaPrimitiveType)
++        val decoded = readMethod.invoke(reader, 1) // BufferedImage
++        val getWidth = bufferedImageClass.getMethod("getWidth")
++        val getHeight = bufferedImageClass.getMethod("getHeight")
++        val getRGB = bufferedImageClass.getMethod("getRGB", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
++
++        assertEquals(120, getWidth.invoke(decoded) as Int)
++        assertEquals(90, getHeight.invoke(decoded) as Int)
++
++        val c = bmp.getPixel(60, 45)
++        val d = getRGB.invoke(decoded, 60, 45) as Int
++        assertTrue(Math.abs(Color.red(c) - ((d shr 16) and 255)) <= 37)
++        assertTrue(Math.abs(Color.green(c) - ((d shr 8) and 255)) <= 37)
++        assertTrue(Math.abs(Color.blue(c) - (d and 255)) <= 43)
++    }
+ }
+# ===== PATCH 2: Importer decodeUpright, EXIF rotation, and OutOfMemoryError catch =====
+diff --git a/app/src/main/java/org/wishyclip/app/data/Importer.kt b/app/src/main/java/org/wishyclip/app/data/Importer.kt
+index 231c6d0..f1e8c8a 100644
+--- a/app/src/main/java/org/wishyclip/app/data/Importer.kt
++++ b/app/src/main/java/org/wishyclip/app/data/Importer.kt
+@@ -68,64 +68,79 @@ object Importer {
+         return result
+     }
+ 
++    /**
++     * Decodes [uri] at a reduced size (never the full-resolution bitmap) and turns it upright
++     * according to its EXIF flag. The result is at least target-sized when the source allows it.
++     * May throw OutOfMemoryError: callers catch it.
++     */
++    private fun decodeUpright(context: Context, uri: Uri, targetWidth: Int, targetHeight: Int): Bitmap? {
++        val resolver = context.contentResolver
++
++        // Phone photos are often stored sideways with an EXIF flag; honour it.
++        val orientation = try {
++            resolver.openInputStream(uri)?.use {
++                ExifInterface(it).getAttributeInt(
++                    ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
++                )
++            } ?: ExifInterface.ORIENTATION_NORMAL
++        } catch (e: Exception) {
++            ExifInterface.ORIENTATION_NORMAL
++        }
++        val matrix = orientationMatrix(orientation)
++        val sideways = orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
++            orientation == ExifInterface.ORIENTATION_ROTATE_270 ||
++            orientation == ExifInterface.ORIENTATION_TRANSPOSE ||
++            orientation == ExifInterface.ORIENTATION_TRANSVERSE
++
++        // Read the size first and decode at a reduced size: a 48 MP photo must not be
++        // decoded at full resolution just to be scaled down to a 1280x720 canvas.
++        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
++        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
++        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
++
++        // The target box is measured on the upright image, so swap it for sideways files.
++        val sample = if (sideways) sampleSizeFor(bounds.outWidth, bounds.outHeight, targetHeight, targetWidth)
++        else sampleSizeFor(bounds.outWidth, bounds.outHeight, targetWidth, targetHeight)
++        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
++        var original: Bitmap = resolver.openInputStream(uri)?.use {
++            BitmapFactory.decodeStream(it, null, opts)
++        } ?: return null
++
++        if (matrix != null) {
++            val upright = Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
++            if (upright !== original) {
++                original.recycle()
++                original = upright
++            }
++        }
++        return original
++    }
++
+     /** Decodes an image and scales it down (never up) to fit the box, keeping its own aspect ratio. */
+     suspend fun importImageTight(context: Context, uri: Uri, maxWidth: Int, maxHeight: Int): Bitmap? =
+         withContext(Dispatchers.IO) {
+             try {
+-                context.contentResolver.openInputStream(uri)?.use { stream ->
+-                    val original = BitmapFactory.decodeStream(stream) ?: return@withContext null
+-                    val scale = minOf(maxWidth / original.width.toFloat(), maxHeight / original.height.toFloat(), 1f)
+-                    if (scale >= 1f) original
+-                    else {
+-                        val w = (original.width * scale).toInt().coerceAtLeast(1)
+-                        val h = (original.height * scale).toInt().coerceAtLeast(1)
+-                        val out = Bitmap.createScaledBitmap(original, w, h, true)
+-                        if (out !== original) original.recycle()
+-                        out
+-                    }
++                val original = decodeUpright(context, uri, maxWidth, maxHeight) ?: return@withContext null
++                val scale = minOf(maxWidth / original.width.toFloat(), maxHeight / original.height.toFloat(), 1f)
++                if (scale >= 1f) original
++                else {
++                    val w = (original.width * scale).toInt().coerceAtLeast(1)
++                    val h = (original.height * scale).toInt().coerceAtLeast(1)
++                    val out = Bitmap.createScaledBitmap(original, w, h, true)
++                    if (out !== original) original.recycle()
++                    out
+                 }
+             } catch (e: Exception) {
+                 null
++            } catch (e: OutOfMemoryError) {
++                null
+             }
+         }
+ 
+     suspend fun importImage(context: Context, uri: Uri, targetWidth: Int, targetHeight: Int): Bitmap? =
+         withContext(Dispatchers.IO) {
+             try {
+-                val resolver = context.contentResolver
+-
+-                // Read the size first and decode at a reduced size: a 48 MP photo must not be
+-                // decoded at full resolution just to be scaled down to a 1280x720 canvas.
+-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+-                resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+-                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+-
+-                val opts = BitmapFactory.Options().apply {
+-                    inSampleSize = sampleSizeFor(bounds.outWidth, bounds.outHeight, targetWidth, targetHeight)
+-                }
+-                var original: Bitmap = resolver.openInputStream(uri)?.use {
+-                    BitmapFactory.decodeStream(it, null, opts)
+-                } ?: return@withContext null
+-
+-                // Phone photos are often stored sideways with an EXIF flag; honour it.
+-                val orientation = try {
+-                    resolver.openInputStream(uri)?.use {
+-                        ExifInterface(it).getAttributeInt(
+-                            ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
+-                        )
+-                    } ?: ExifInterface.ORIENTATION_NORMAL
+-                } catch (e: Exception) {
+-                    ExifInterface.ORIENTATION_NORMAL
+-                }
+-                val matrix = orientationMatrix(orientation)
+-                if (matrix != null) {
+-                    val upright = Bitmap.createBitmap(original, 0, 0, original.width, original.height, matrix, true)
+-                    if (upright !== original) {
+-                        original.recycle()
+-                        original = upright
+-                    }
+-                }
+-
++                val original = decodeUpright(context, uri, targetWidth, targetHeight) ?: return@withContext null
+                 val scaled = scaleToFit(original, targetWidth, targetHeight)
+                 if (scaled !== original && !original.isRecycled) {
+                     original.recycle()
+# ===== PATCH 3: EditorViewModel flushAndEvict imported frames during sequence/video import =====
+diff --git a/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt b/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt
+index 5ea83e3..ae6f447 100644
+--- a/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt
++++ b/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt
+@@ -756,6 +776,17 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+         }
+     }
+ 
++    /**
++     * Writes a frame that was just created by an import to disk and drops it from memory. Imported
++     * frames are not in [frames] yet, so nothing can be looking at them, and keeping all of them
++     * cached (full-size, unsaved) until the import ends is what ran long imports out of memory.
++     */
++    private suspend fun flushAndEvict(fd: FrameData) {
++        persistFrame(fd)
++        cache.remove(fd.frameId)
++        fd.layers.forEach { if (!it.bitmap.isRecycled) it.bitmap.recycle() }
++    }
++
+     private var importJob: Job? = null
+ 
+     /** Cancels a running image/video import; frames already added stay in the project. */
+@@ -784,6 +815,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+                             fd.layers[0].version++
+                         }
+                         bmp.recycle()
++                        flushAndEvict(fd)
+                     }
+                     BusyTracker.update(owner, "${i + 1} of ${uris.size}", (i + 1f) / uris.size)
+                 }
+@@ -831,6 +863,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+                             BitmapOps.replace(fd.layers[0].bitmap, bmp)
+                             fd.layers[0].version++
+                         }
++                        flushAndEvict(fd)
+                     } finally {
+                         bmp.recycle()
+                     }
+# ===== PATCH 4: Export WRITE_EXTERNAL_STORAGE permission on Android 8-9 and service notification text =====
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 75987d3..e029cae 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -6,6 +6,10 @@
+     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
++    <!-- Only needed to save exports to Movies/Pictures/Downloads on Android 8-9 (API 26-28). -->
++    <uses-permission
++        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
++        android:maxSdkVersion="28" />
+ 
+     <application
+         android:name=".WishyApp"
+diff --git a/app/src/main/java/org/wishyclip/app/export/ExportService.kt b/app/src/main/java/org/wishyclip/app/export/ExportService.kt
+index 05113b4..d4b150e 100644
+--- a/app/src/main/java/org/wishyclip/app/export/ExportService.kt
++++ b/app/src/main/java/org/wishyclip/app/export/ExportService.kt
+@@ -108,8 +108,12 @@ class ExportService : Service() {
+             // The gallery now holds its own copy; do not leave a second one in the cache forever.
+             if (savedUri?.authority == MediaStore.AUTHORITY) outputFile.delete()
+ 
+-            showCompletionNotification(fileUri, outputFile.name, format)
+-            BusyTracker.postNotice("Export complete: ${outputFile.name}")
++            val savedToDevice = savedUri != null
++            showCompletionNotification(fileUri, outputFile.name, format, savedToDevice)
++            BusyTracker.postNotice(
++                if (savedToDevice) "Export complete: ${outputFile.name}"
++                else "Export finished, but it could not be saved to your gallery. Tap the notification to open or share it."
++            )
+         } catch (e: CancellationException) {
+             outputFile?.delete()
+             BusyTracker.postNotice("Export cancelled")
+@@ -333,11 +337,7 @@ class ExportService : Service() {
+             FileProvider.getUriForFile(this, "$packageName.fileprovider", destFile)
+         } catch (e: Exception) {
+             e.printStackTrace()
+-            try {
+-                FileProvider.getUriForFile(this, "$packageName.fileprovider", outputFile)
+-            } catch (e2: Exception) {
+-                null
+-            }
++            null // the caller falls back to the private copy and tells the person the truth
+         }
+     }
+ 
+@@ -356,7 +356,7 @@ class ExportService : Service() {
+         manager.notify(NOTIFICATION_ID, notification)
+     }
+ 
+-    private fun showCompletionNotification(uri: Uri?, fileName: String, format: ExportFormat) {
++    private fun showCompletionNotification(uri: Uri?, fileName: String, format: ExportFormat, savedToDevice: Boolean) {
+         val mimeType = when (format) {
+             ExportFormat.MP4 -> "video/mp4"
+             ExportFormat.GIF -> "image/gif"
+@@ -366,7 +366,7 @@ class ExportService : Service() {
+ 
+         val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
+             .setContentTitle("Export Complete!")
+-            .setContentText("Saved $fileName to device")
++            .setContentText(if (savedToDevice) "Saved $fileName to device" else "$fileName is ready (not saved to gallery)")
+             .setSmallIcon(R.drawable.ic_menu_save)
+             .setAutoCancel(true)
+             .setOngoing(false)
+diff --git a/app/src/main/java/org/wishyclip/app/ui/screens/EditorScreen.kt b/app/src/main/java/org/wishyclip/app/ui/screens/EditorScreen.kt
+index 5f0e121..6429881 100644
+--- a/app/src/main/java/org/wishyclip/app/ui/screens/EditorScreen.kt
++++ b/app/src/main/java/org/wishyclip/app/ui/screens/EditorScreen.kt
+@@ -163,6 +163,17 @@ fun EditorScreen(
+         vm.importFonts(uris)
+     }
+     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
++    val runExport: (ExportFormat, Int) -> Unit = { format, frameIndex ->
++        // Flush unsaved strokes first: the export service renders from the saved files.
++        vm.saveThen { vm.project?.let { ExportService.start(context, it.id, format, frameIndex) } }
++    }
++    var pendingExport by remember { mutableStateOf<Pair<ExportFormat, Int>?>(null) }
++    // Android 8-9 have no scoped storage: saving into Movies/Pictures needs this permission.
++    // If it is refused the export still runs; the service then keeps the file in the app's storage.
++    val storagePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
++        pendingExport?.let { (format, frameIndex) -> runExport(format, frameIndex) }
++        pendingExport = null
++    }
+     /** Starts an export; on Android 13+ also asks once for permission to show its progress notification. */
+     val startExport: (ExportFormat, Int) -> Unit = { format, frameIndex ->
+         if (Build.VERSION.SDK_INT >= 33 &&
+@@ -171,8 +182,15 @@ fun EditorScreen(
+         ) {
+             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+         }
+-        // Flush unsaved strokes first: the export service renders from the saved files.
+-        vm.saveThen { vm.project?.let { ExportService.start(context, it.id, format, frameIndex) } }
++        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
++            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
++            PackageManager.PERMISSION_GRANTED
++        ) {
++            pendingExport = Pair(format, frameIndex)
++            storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
++        } else {
++            runExport(format, frameIndex)
++        }
+     }
+     val onSelectTool: (Tool) -> Unit = { selected ->
+         showBrushMenu = false
+# ===== PATCH 5: MultiTrackAudioPlayer loop resync and playWhenReady buffering fix =====
+diff --git a/app/src/main/java/org/wishyclip/app/audio/AudioTracks.kt b/app/src/main/java/org/wishyclip/app/audio/AudioTracks.kt
+index 0210f0a..be72b1e 100644
+--- a/app/src/main/java/org/wishyclip/app/audio/AudioTracks.kt
++++ b/app/src/main/java/org/wishyclip/app/audio/AudioTracks.kt
+@@ -211,6 +259,7 @@ class MultiTrackAudioPlayer(private val context: Context) {
+     private class Slot(val player: ExoPlayer, val path: String)
+ 
+     private val slots = HashMap<Long, Slot>()
++    private var lastFrame = -1
+ 
+     private fun slotFor(track: org.wishyclip.app.data.AudioTrackEntity): Slot {
+         val existing = slots[track.id]
+@@ -227,6 +276,11 @@ class MultiTrackAudioPlayer(private val context: Context) {
+ 
+     /** Starts, seeks or stops each clip so it matches [frame]. */
+     fun sync(tracks: List<org.wishyclip.app.data.AudioTrackEntity>, frame: Int, fps: Int) {
++        // The playhead jumped back (the animation looped): stop everything so each clip below is
++        // re-seeked to its own position. Otherwise a clip that is longer than the animation just
++        // keeps playing and drifts out of sync with the picture on every loop.
++        if (frame < lastFrame) slots.values.forEach { it.player.playWhenReady = false }
++        lastFrame = frame
+         val liveIds = tracks.map { it.id }.toSet()
+         slots.keys.filter { it !in liveIds }.forEach { remove(it) }
+         for (t in tracks) {
+@@ -234,7 +288,9 @@ class MultiTrackAudioPlayer(private val context: Context) {
+             val active = frame >= t.startFrame && frame < t.startFrame + clipFrames(t, fps) && t.volume > 0f
+             slot.player.volume = t.volume
+             if (active) {
+-                if (!slot.player.isPlaying) {
++                // playWhenReady (not isPlaying): isPlaying is false while a clip is still buffering,
++                // which made every frame change seek again and kept the audio from ever starting.
++                if (!slot.player.playWhenReady) {
+                     val posMs = (frame - t.startFrame) * 1000L / fps + t.trimStartMs
+                     slot.player.seekTo(posMs.coerceAtLeast(0L))
+                     slot.player.playWhenReady = true
+@@ -250,7 +306,10 @@ class MultiTrackAudioPlayer(private val context: Context) {
+         slots[trackId]?.player?.volume = volume.coerceIn(0f, 1f)
+     }
+ 
+-    fun pauseAll() = slots.values.forEach { it.player.playWhenReady = false }
++    fun pauseAll() {
++        lastFrame = -1
++        slots.values.forEach { it.player.playWhenReady = false }
++    }
+ 
+     fun remove(trackId: Long) {
+         slots.remove(trackId)?.player?.release()
+# ===== PATCH 6: EditorViewModel.executeFill main-thread execution for undo/layer state =====
+diff --git a/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt b/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt
+index 5ea83e3..ae6f447 100644
+--- a/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt
++++ b/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt
+@@ -685,19 +687,37 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+         if (layer.locked) { showMessage("This layer is locked"); return }
+         val frameId = frames.getOrNull(currentIndex)?.id ?: return
+ 
+-        viewModelScope.launch(Dispatchers.Default) {
++        // Everything that touches the layer, the undo stack or UI state must stay on the main thread
++        // (a fill on a background thread raced with strokes, undo and layer deletion, and could crash on
++        // a recycled bitmap). Only the flood computation runs in the background, on a private copy.
++        val fillColor = color
++        val tolerance = fillTolerance
++        val startVersion = layer.version
++        val fx = x.toInt()
++        val fy = y.toInt()
++        viewModelScope.launch {
+             val before = layer.bitmap.snapshot()
+-            val filler = ScanlineFillTool()
+-            val changed = filler.fill(layer.bitmap, x.toInt(), y.toInt(), color, fillTolerance)
+-            if (changed) {
+-                undoManager.push(UndoEntry(frameId, layer.id, before))
+-                layer.version++
+-                syncUndoFlags()
+-                revision++
+-                scheduleSave()
+-            } else {
++            val work = layer.bitmap.copy(Bitmap.Config.ARGB_8888, true)
++            if (work == null) {
+                 before.recycle()
++                return@launch
++            }
++            val changed = withContext(Dispatchers.Default) {
++                ScanlineFillTool().fill(work, fx, fy, fillColor, tolerance)
+             }
++            // The layer may have been edited, deleted or evicted while the fill was computed.
++            if (!changed || layer.bitmap.isRecycled || layer.version != startVersion) {
++                before.recycle()
++                work.recycle()
++                return@launch
++            }
++            BitmapOps.replace(layer.bitmap, work)
++            work.recycle()
++            undoManager.push(UndoEntry(frameId, layer.id, before))
++            layer.version++
++            syncUndoFlags()
++            revision++
++            scheduleSave()
+         }
+     }
+ 
+# ===== PATCH 7: WishyDatabase schema MIGRATION_1_2 for audio_tracks table =====
+diff --git a/app/src/main/java/org/wishyclip/app/data/WishyDatabase.kt b/app/src/main/java/org/wishyclip/app/data/WishyDatabase.kt
+index 640db09..79c2207 100644
+--- a/app/src/main/java/org/wishyclip/app/data/WishyDatabase.kt
++++ b/app/src/main/java/org/wishyclip/app/data/WishyDatabase.kt
+@@ -19,6 +19,28 @@ abstract class WishyDatabase : RoomDatabase() {
+     abstract fun audioTrackDao(): AudioTrackDao
+ 
+     companion object {
++        /** v2: audio tracks table. Existing projects keep all their data. */
++        val MIGRATION_1_2 = object : Migration(1, 2) {
++            override fun migrate(db: SupportSQLiteDatabase) {
++                db.execSQL(
++                    """
++                    CREATE TABLE IF NOT EXISTS `audio_tracks` (
++                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
++                        `projectId` INTEGER NOT NULL,
++                        `filePath` TEXT NOT NULL,
++                        `name` TEXT NOT NULL,
++                        `startFrame` INTEGER NOT NULL DEFAULT 0,
++                        `trimStartMs` INTEGER NOT NULL DEFAULT 0,
++                        `durationMs` INTEGER NOT NULL DEFAULT 0,
++                        `volume` REAL NOT NULL DEFAULT 1.0,
++                        FOREIGN KEY(`projectId`) REFERENCES `projects`(`id`) ON DELETE CASCADE
++                    )
++                    """.trimIndent()
++                )
++                db.execSQL("CREATE INDEX IF NOT EXISTS `index_audio_tracks_projectId` ON `audio_tracks` (`projectId`)")
++            }
++        }
++
+         /** v3: per-layer lock and blend mode. Existing projects keep all their data. */
+         val MIGRATION_2_3 = object : Migration(2, 3) {
+             override fun migrate(db: SupportSQLiteDatabase) {
+@@ -36,7 +58,7 @@ abstract class WishyDatabase : RoomDatabase() {
+ 
+         fun build(context: Context): WishyDatabase =
+             Room.databaseBuilder(context.applicationContext, WishyDatabase::class.java, "wishyclip.db")
+-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
++                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                 .fallbackToDestructiveMigration()
+                 .build()
+     }
+# ===== PATCH 8: BitmapStore writePng handles compress failure, fsyncs, and prevents target overwrite =====
+diff --git a/app/src/main/java/org/wishyclip/app/data/BitmapStore.kt b/app/src/main/java/org/wishyclip/app/data/BitmapStore.kt
+index 1fc7ae3..ff11dc7 100644
+--- a/app/src/main/java/org/wishyclip/app/data/BitmapStore.kt
++++ b/app/src/main/java/org/wishyclip/app/data/BitmapStore.kt
+@@ -62,12 +62,23 @@ class BitmapStore(private val context: Context) {
+     private fun writePng(target: File, bitmap: Bitmap) {
+         target.parentFile?.mkdirs()
+         val tmp = File(target.parentFile, target.name + ".tmp")
+-        FileOutputStream(tmp).use { out ->
+-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+-        }
+-        if (!tmp.renameTo(target)) {
+-            tmp.copyTo(target, overwrite = true)
++        try {
++            FileOutputStream(tmp).use { out ->
++                val ok = bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
++                if (!ok) {
++                    out.close()
++                    tmp.delete()
++                    throw java.io.IOException("Failed to compress bitmap to PNG")
++                }
++                out.fd.sync()
++            }
++            if (!tmp.renameTo(target)) {
++                tmp.copyTo(target, overwrite = true)
++                tmp.delete()
++            }
++        } catch (e: Exception) {
+             tmp.delete()
++            throw e
+         }
+     }
+ }
+diff --git a/app/src/test/java/org/wishyclip/app/data/ProjectPersistenceTest.kt b/app/src/test/java/org/wishyclip/app/data/ProjectPersistenceTest.kt
+index 638bc17..8e2f19b 100644
+--- a/app/src/test/java/org/wishyclip/app/data/ProjectPersistenceTest.kt
++++ b/app/src/test/java/org/wishyclip/app/data/ProjectPersistenceTest.kt
+@@ -107,4 +107,36 @@ class ProjectPersistenceTest {
+         assertNull(repository.getProject(pid))
+         assertFalse(store.layerFile(pid, layers[0].id).exists())
+     }
++
++    @Test
++    fun testBitmapStoreWriteFailureDoesNotOverwriteTarget() {
++        val projectId = 200L
++        val layerId = 600L
++        val width = 50
++        val height = 50
++
++        val validBmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
++        validBmp.setPixel(0, 0, Color.BLUE)
++        store.save(projectId, layerId, validBmp)
++
++        val layerFile = store.layerFile(projectId, layerId)
++        assertTrue(layerFile.exists())
++        val originalLength = layerFile.length()
++
++        val tmpFile = java.io.File(layerFile.parentFile, layerFile.name + ".tmp")
++        tmpFile.mkdirs() // Directory at .tmp path causes FileOutputStream(tmp) to fail
++
++        var caught = false
++        try {
++            store.save(projectId, layerId, validBmp)
++        } catch (_: Exception) {
++            caught = true
++        }
++        assertTrue(caught)
++        assertTrue(layerFile.exists())
++        assertEquals(originalLength, layerFile.length())
++
++        tmpFile.delete()
++        validBmp.recycle()
++    }
+ }
+# ===== PATCH 9: EditorViewModel audio track additions Main-thread state mutation and deleteCustomBrush IO offloading =====
+diff --git a/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt b/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt
+index 5ea83e3..ae6f447 100644
+--- a/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt
++++ b/app/src/main/java/org/wishyclip/app/ui/EditorViewModel.kt
+@@ -595,11 +595,13 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+     }
+ 
+     fun deleteCustomBrush(id: String) {
+-        wishy.brushLibrary.delete(id)
+-        customBrushes = wishy.brushLibrary.list()
+-        if (activeCustomBrushId == id) {
+-            activeCustomBrushId = null
+-            if (tool == Tool.CUSTOM) tool = Tool.PEN
++        viewModelScope.launch {
++            withContext(Dispatchers.IO) { wishy.brushLibrary.delete(id) }
++            customBrushes = withContext(Dispatchers.IO) { wishy.brushLibrary.list() }
++            if (activeCustomBrushId == id) {
++                activeCustomBrushId = null
++                if (tool == Tool.CUSTOM) tool = Tool.PEN
++            }
+         }
+     }
+ 
+@@ -858,6 +891,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+     }
+ 
+     fun addAudioTrackFromUri(uri: Uri, name: String = "Imported Track") {
++        val startFrame = timelineFrameOf(currentIndex)
+         viewModelScope.launch(Dispatchers.IO) {
+             val audioDir = File(getApplication<Application>().filesDir, "projects/$projectId/audio").apply { mkdirs() }
+             val destFile = File(audioDir, "track_${System.currentTimeMillis()}.m4a")
+@@ -869,28 +903,35 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
+                 projectId = projectId,
+                 filePath = destFile.absolutePath,
+                 name = name,
+-                startFrame = timelineFrameOf(currentIndex),
++                startFrame = startFrame,
+                 durationMs = duration
+             )
+             repo.addAudioTrack(entity)
+-            audioTracks = repo.getAudioTracks(projectId)
+-            revision++
++            val tracks = repo.getAudioTracks(projectId)
++            withContext(Dispatchers.Main) {
++                audioTracks = tracks
++                revision++
++            }
+         }
+     }
+ 
+     fun addRecordedVoiceTrack(recordedFile: File) {
++        val startFrame = timelineFrameOf(currentIndex)
+         viewModelScope.launch(Dispatchers.IO) {
+             val duration = WaveformExtractor.getAudioDurationMs(recordedFile.absolutePath)
+             val entity = AudioTrackEntity(
+                 projectId = projectId,
+                 filePath = recordedFile.absolutePath,
+                 name = "Voice Record",
+-                startFrame = timelineFrameOf(currentIndex),
++                startFrame = startFrame,
+                 durationMs = duration
+             )
+             repo.addAudioTrack(entity)
+-            audioTracks = repo.getAudioTracks(projectId)
+-            revision++
++            val tracks = repo.getAudioTracks(projectId)
++            withContext(Dispatchers.Main) {
++                audioTracks = tracks
++                revision++
++            }
+         }
+     }
+ 
+# ===== PATCH 10: WaveformExtractor MediaCodec audio decoding for real waveform amplitudes =====
+diff --git a/app/src/main/java/org/wishyclip/app/audio/AudioTracks.kt b/app/src/main/java/org/wishyclip/app/audio/AudioTracks.kt
+index 0210f0a..be72b1e 100644
+--- a/app/src/main/java/org/wishyclip/app/audio/AudioTracks.kt
++++ b/app/src/main/java/org/wishyclip/app/audio/AudioTracks.kt
+@@ -1,6 +1,7 @@
+ package org.wishyclip.app.audio
+ 
+ import android.content.Context
++import android.media.MediaCodec
+ import android.media.MediaExtractor
+ import android.media.MediaFormat
+ import android.media.MediaMetadataRetriever
+@@ -152,36 +153,82 @@ object WaveformExtractor {
+         if (!audioFile.exists() || audioFile.length() <= 0) return result
+ 
+         val extractor = MediaExtractor()
++        var codec: MediaCodec? = null
+         try {
+             extractor.setDataSource(audioFile.absolutePath)
+             var trackIndex = -1
++            var format: MediaFormat? = null
+             for (i in 0 until extractor.trackCount) {
+-                val format = extractor.getTrackFormat(i)
+-                val mime = format.getString(MediaFormat.KEY_MIME)
++                val f = extractor.getTrackFormat(i)
++                val mime = f.getString(MediaFormat.KEY_MIME)
+                 if (mime != null && mime.startsWith("audio/")) {
+                     trackIndex = i
++                    format = f
+                     break
+                 }
+             }
+-            if (trackIndex >= 0) {
++            if (trackIndex >= 0 && format != null) {
+                 extractor.selectTrack(trackIndex)
+-                val buffer = ByteBuffer.allocate(4096)
+-                var sampleIdx = 0
+-                while (extractor.readSampleData(buffer, 0) > 0 && sampleIdx < samplesCount) {
+-                    var maxVal = 0
+-                    val sampleSize = buffer.remaining()
+-                    var i = 0
+-                    while (i < sampleSize) {
+-                        val byteVal = buffer.get(i).toInt()
+-                        if (abs(byteVal) > maxVal) {
+-                            maxVal = abs(byteVal)
++                val mime = format.getString(MediaFormat.KEY_MIME) ?: ""
++                codec = MediaCodec.createDecoderByType(mime)
++                codec.configure(format, null, null, 0)
++                codec.start()
++
++                val info = MediaCodec.BufferInfo()
++                var isEOS = false
++                val pcmPeaks = ArrayList<Float>()
++
++                while (!isEOS && pcmPeaks.size < samplesCount * 20) {
++                    val inIdx = codec.dequeueInputBuffer(5000L)
++                    if (inIdx >= 0) {
++                        val inputBuf = codec.getInputBuffer(inIdx)
++                        if (inputBuf != null) {
++                            val sampleSize = extractor.readSampleData(inputBuf, 0)
++                            if (sampleSize < 0) {
++                                codec.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
++                                isEOS = true
++                            } else {
++                                codec.queueInputBuffer(inIdx, 0, sampleSize, extractor.sampleTime, 0)
++                                extractor.advance()
++                            }
++                        }
++                    }
++
++                    var outIdx = codec.dequeueOutputBuffer(info, 5000L)
++                    while (outIdx >= 0) {
++                        val outputBuf = codec.getOutputBuffer(outIdx)
++                        if (outputBuf != null && info.size > 0) {
++                            outputBuf.position(info.offset)
++                            outputBuf.limit(info.offset + info.size)
++                            val shortBuf = outputBuf.asShortBuffer()
++                            var maxVal = 0
++                            while (shortBuf.hasRemaining()) {
++                                val s = abs(shortBuf.get().toInt())
++                                if (s > maxVal) maxVal = s
++                            }
++                            pcmPeaks.add((maxVal / 32768f).coerceIn(0.05f, 1f))
++                        }
++                        codec.releaseOutputBuffer(outIdx, false)
++                        if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
++                            isEOS = true
++                            break
+                         }
+-                        i += 4
++                        outIdx = codec.dequeueOutputBuffer(info, 0L)
+                     }
+-                    result[sampleIdx] = (maxVal / 128f).coerceIn(0.1f, 1f)
+-                    sampleIdx++
+-                    extractor.advance()
+-                    buffer.clear()
++                }
++
++                if (pcmPeaks.isNotEmpty()) {
++                    val chunkSize = pcmPeaks.size.toFloat() / samplesCount
++                    for (i in 0 until samplesCount) {
++                        val start = (i * chunkSize).toInt().coerceIn(0, pcmPeaks.lastIndex)
++                        val end = ((i + 1) * chunkSize).toInt().coerceIn(start + 1, pcmPeaks.size)
++                        var maxPeak = 0f
++                        for (j in start until end) {
++                            if (pcmPeaks[j] > maxPeak) maxPeak = pcmPeaks[j]
++                        }
++                        result[i] = maxPeak.coerceIn(0.05f, 1f)
++                    }
++                    return result
+                 }
+             }
+         } catch (e: Exception) {

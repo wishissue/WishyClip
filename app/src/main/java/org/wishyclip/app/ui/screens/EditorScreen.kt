@@ -163,6 +163,17 @@ fun EditorScreen(
         vm.importFonts(uris)
     }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val runExport: (ExportFormat, Int) -> Unit = { format, frameIndex ->
+        // Flush unsaved strokes first: the export service renders from the saved files.
+        vm.saveThen { vm.project?.let { ExportService.start(context, it.id, format, frameIndex) } }
+    }
+    var pendingExport by remember { mutableStateOf<Pair<ExportFormat, Int>?>(null) }
+    // Android 8-9 have no scoped storage: saving into Movies/Pictures needs this permission.
+    // If it is refused the export still runs; the service then keeps the file in the app's storage.
+    val storagePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        pendingExport?.let { (format, frameIndex) -> runExport(format, frameIndex) }
+        pendingExport = null
+    }
     /** Starts an export; on Android 13+ also asks once for permission to show its progress notification. */
     val startExport: (ExportFormat, Int) -> Unit = { format, frameIndex ->
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -171,8 +182,15 @@ fun EditorScreen(
         ) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        // Flush unsaved strokes first: the export service renders from the saved files.
-        vm.saveThen { vm.project?.let { ExportService.start(context, it.id, format, frameIndex) } }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingExport = Pair(format, frameIndex)
+            storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            runExport(format, frameIndex)
+        }
     }
     val onSelectTool: (Tool) -> Unit = { selected ->
         showBrushMenu = false

@@ -1,6 +1,7 @@
 package org.wishyclip.app.audio
 
 import android.content.Context
+import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
@@ -152,36 +153,82 @@ object WaveformExtractor {
         if (!audioFile.exists() || audioFile.length() <= 0) return result
 
         val extractor = MediaExtractor()
+        var codec: MediaCodec? = null
         try {
             extractor.setDataSource(audioFile.absolutePath)
             var trackIndex = -1
+            var format: MediaFormat? = null
             for (i in 0 until extractor.trackCount) {
-                val format = extractor.getTrackFormat(i)
-                val mime = format.getString(MediaFormat.KEY_MIME)
+                val f = extractor.getTrackFormat(i)
+                val mime = f.getString(MediaFormat.KEY_MIME)
                 if (mime != null && mime.startsWith("audio/")) {
                     trackIndex = i
+                    format = f
                     break
                 }
             }
-            if (trackIndex >= 0) {
+            if (trackIndex >= 0 && format != null) {
                 extractor.selectTrack(trackIndex)
-                val buffer = ByteBuffer.allocate(4096)
-                var sampleIdx = 0
-                while (extractor.readSampleData(buffer, 0) > 0 && sampleIdx < samplesCount) {
-                    var maxVal = 0
-                    val sampleSize = buffer.remaining()
-                    var i = 0
-                    while (i < sampleSize) {
-                        val byteVal = buffer.get(i).toInt()
-                        if (abs(byteVal) > maxVal) {
-                            maxVal = abs(byteVal)
+                val mime = format.getString(MediaFormat.KEY_MIME) ?: ""
+                codec = MediaCodec.createDecoderByType(mime)
+                codec.configure(format, null, null, 0)
+                codec.start()
+
+                val info = MediaCodec.BufferInfo()
+                var isEOS = false
+                val pcmPeaks = ArrayList<Float>()
+
+                while (!isEOS && pcmPeaks.size < samplesCount * 20) {
+                    val inIdx = codec.dequeueInputBuffer(5000L)
+                    if (inIdx >= 0) {
+                        val inputBuf = codec.getInputBuffer(inIdx)
+                        if (inputBuf != null) {
+                            val sampleSize = extractor.readSampleData(inputBuf, 0)
+                            if (sampleSize < 0) {
+                                codec.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                isEOS = true
+                            } else {
+                                codec.queueInputBuffer(inIdx, 0, sampleSize, extractor.sampleTime, 0)
+                                extractor.advance()
+                            }
                         }
-                        i += 4
                     }
-                    result[sampleIdx] = (maxVal / 128f).coerceIn(0.1f, 1f)
-                    sampleIdx++
-                    extractor.advance()
-                    buffer.clear()
+
+                    var outIdx = codec.dequeueOutputBuffer(info, 5000L)
+                    while (outIdx >= 0) {
+                        val outputBuf = codec.getOutputBuffer(outIdx)
+                        if (outputBuf != null && info.size > 0) {
+                            outputBuf.position(info.offset)
+                            outputBuf.limit(info.offset + info.size)
+                            val shortBuf = outputBuf.asShortBuffer()
+                            var maxVal = 0
+                            while (shortBuf.hasRemaining()) {
+                                val s = abs(shortBuf.get().toInt())
+                                if (s > maxVal) maxVal = s
+                            }
+                            pcmPeaks.add((maxVal / 32768f).coerceIn(0.05f, 1f))
+                        }
+                        codec.releaseOutputBuffer(outIdx, false)
+                        if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                            isEOS = true
+                            break
+                        }
+                        outIdx = codec.dequeueOutputBuffer(info, 0L)
+                    }
+                }
+
+                if (pcmPeaks.isNotEmpty()) {
+                    val chunkSize = pcmPeaks.size.toFloat() / samplesCount
+                    for (i in 0 until samplesCount) {
+                        val start = (i * chunkSize).toInt().coerceIn(0, pcmPeaks.lastIndex)
+                        val end = ((i + 1) * chunkSize).toInt().coerceIn(start + 1, pcmPeaks.size)
+                        var maxPeak = 0f
+                        for (j in start until end) {
+                            if (pcmPeaks[j] > maxPeak) maxPeak = pcmPeaks[j]
+                        }
+                        result[i] = maxPeak.coerceIn(0.05f, 1f)
+                    }
+                    return result
                 }
             }
         } catch (e: Exception) {
@@ -211,6 +258,7 @@ class MultiTrackAudioPlayer(private val context: Context) {
     private class Slot(val player: ExoPlayer, val path: String)
 
     private val slots = HashMap<Long, Slot>()
+    private var lastFrame = -1
 
     private fun slotFor(track: org.wishyclip.app.data.AudioTrackEntity): Slot {
         val existing = slots[track.id]
@@ -227,6 +275,11 @@ class MultiTrackAudioPlayer(private val context: Context) {
 
     /** Starts, seeks or stops each clip so it matches [frame]. */
     fun sync(tracks: List<org.wishyclip.app.data.AudioTrackEntity>, frame: Int, fps: Int) {
+        // The playhead jumped back (the animation looped): stop everything so each clip below is
+        // re-seeked to its own position. Otherwise a clip that is longer than the animation just
+        // keeps playing and drifts out of sync with the picture on every loop.
+        if (frame < lastFrame) slots.values.forEach { it.player.playWhenReady = false }
+        lastFrame = frame
         val liveIds = tracks.map { it.id }.toSet()
         slots.keys.filter { it !in liveIds }.forEach { remove(it) }
         for (t in tracks) {
@@ -234,7 +287,9 @@ class MultiTrackAudioPlayer(private val context: Context) {
             val active = frame >= t.startFrame && frame < t.startFrame + clipFrames(t, fps) && t.volume > 0f
             slot.player.volume = t.volume
             if (active) {
-                if (!slot.player.isPlaying) {
+                // playWhenReady (not isPlaying): isPlaying is false while a clip is still buffering,
+                // which made every frame change seek again and kept the audio from ever starting.
+                if (!slot.player.playWhenReady) {
                     val posMs = (frame - t.startFrame) * 1000L / fps + t.trimStartMs
                     slot.player.seekTo(posMs.coerceAtLeast(0L))
                     slot.player.playWhenReady = true
@@ -250,7 +305,10 @@ class MultiTrackAudioPlayer(private val context: Context) {
         slots[trackId]?.player?.volume = volume.coerceIn(0f, 1f)
     }
 
-    fun pauseAll() = slots.values.forEach { it.player.playWhenReady = false }
+    fun pauseAll() {
+        lastFrame = -1
+        slots.values.forEach { it.player.playWhenReady = false }
+    }
 
     fun remove(trackId: Long) {
         slots.remove(trackId)?.player?.release()
