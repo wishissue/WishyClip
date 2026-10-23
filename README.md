@@ -16,6 +16,13 @@
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License">
 </p>
 
+<p align="center">
+  <sub>WishyClip is free and ad-free. A tip keeps the cat fed 🐱</sub><br><br>
+  <a href="https://ko-fi.com/wishismachine"><img src="https://img.shields.io/badge/%E2%98%95-Buy%20Wishy%20a%20coffee-FFF1DC?style=for-the-badge&labelColor=FF8A65" alt="Buy Wishy a coffee on Ko-fi"></a>
+  &nbsp;
+  <a href="https://wishissue.github.io/wishy-apps/donate.html"><img src="https://img.shields.io/badge/%F0%9F%AA%99-Tip%20a%20little%20USDT-E3F6EC?style=for-the-badge&labelColor=26A17B" alt="Tip Wishy with USDT"></a>
+</p>
+
 > **Heads up:** WishyClip is an early beta and a small independent project, so some things may be rough or not work on your device. Please read [Known issues and limits](#known-issues-and-limits) and [tell me](#contact-and-bug-reports) if you hit a problem.
 >
 > *WishyClip is not affiliated with or endorsed by FlipaClip or Vblast.*
@@ -235,6 +242,34 @@ Being upfront about what can go wrong:
 **Things that may go wrong**
 - Imported brush packs come from many sources, and some may not import or may look different from the original app.
 - Very long video imports are limited to a maximum number of frames so a clip cannot fill your device.
+
+---
+
+## Support the project
+
+WishyClip is free, has no ads and no tracking, and is built in spare time. If it is useful to you, a tip helps me keep it going. It is completely optional.
+
+<p align="center">
+  <a href="https://ko-fi.com/wishismachine"><img src="https://img.shields.io/badge/%E2%98%95-Buy%20Wishy%20a%20coffee-FFF1DC?style=for-the-badge&labelColor=FF8A65" alt="Buy Wishy a coffee on Ko-fi"></a>
+  &nbsp;
+  <a href="https://wishissue.github.io/wishy-apps/donate.html"><img src="https://img.shields.io/badge/%F0%9F%AA%99-Tip%20a%20little%20USDT-E3F6EC?style=for-the-badge&labelColor=26A17B" alt="Tip Wishy with USDT"></a>
+</p>
+
+The crypto page has QR codes and a copy button for each network. You can also use the addresses below directly.
+
+<details>
+<summary><b>USDT wallet addresses</b></summary>
+
+| Network | Address |
+| --- | --- |
+| **Tron (TRC20)** | `TUn7M6syjxrgfcUskaxH7UdjnpUngh3fYp` |
+| **Ethereum (ERC20)** | `0x7c11cd045bb237e579e8ce58591313aff6f87781` |
+
+Only send **USDT** on the matching network. Funds sent on a different network can't be recovered. Tron has much lower fees, and the minimum is 1 USDT.
+
+</details>
+
+Not able to donate? Starring the repo and sharing it with a friend helps just as much.
 
 ---
 
