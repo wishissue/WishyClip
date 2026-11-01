@@ -30,7 +30,8 @@ android {
     signingConfigs {
         create("release") {
             if (keystoreProperties.containsKey("storeFile")) {
-                storeFile = rootProject.file("keystore/${keystoreProperties.getProperty("storeFile")}")
+                val propPath = keystoreProperties.getProperty("storeFile")
+                storeFile = if (propPath.startsWith("/")) file(propPath) else rootProject.file("keystore/$propPath")
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
