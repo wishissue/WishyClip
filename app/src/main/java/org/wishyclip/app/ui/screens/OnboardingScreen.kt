@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -17,7 +18,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,7 +45,7 @@ private val Pages = listOf(
 @Composable
 fun OnboardingScreen(onFinish: () -> Unit) {
     val tokens = WishyTheme.tokens
-    var currentPage by remember { mutableIntStateOf(0) }
+    var currentPage by rememberSaveable { mutableIntStateOf(0) }
 
     WishyTheme {
         Surface(
@@ -54,6 +55,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .systemBarsPadding() // edge-to-edge: keep Skip/Next clear of the gesture bar
                     .padding(tokens.spaceLarge)
             ) {
                 val page = Pages[currentPage]
@@ -93,7 +95,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(onClick = onFinish) {
-                        Text(text = "Skip")
+                        Text(text = stringResource(R.string.ui_skip))
                     }
                     Button(
                         onClick = {

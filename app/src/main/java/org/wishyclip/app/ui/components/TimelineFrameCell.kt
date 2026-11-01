@@ -53,7 +53,7 @@ fun TimelineFrameCell(
             text = "${frameIndex + 1}",
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = if (selected) tokens.primary else Color(0xFF6B6B73),
+            color = if (selected) tokens.primary else tokens.onSurfaceVariant,
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = 8.dp, bottom = 5.dp)

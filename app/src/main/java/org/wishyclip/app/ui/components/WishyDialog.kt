@@ -1,7 +1,11 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,6 +46,9 @@ fun WishyDialog(
     content: @Composable () -> Unit
 ) {
     val tokens = WishyTheme.tokens
+
+    // This dialog is an in-tree overlay, not a window: without this, Back left the whole editor.
+    BackHandler(onBack = onDismissRequest)
 
     Box(
         modifier = Modifier
@@ -91,7 +98,7 @@ fun WishyDialog(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(tokens.smallRadius))
-                                .clickable { onDismiss() }
+                                .clickable(role = Role.Button) { onDismiss() }
                                 .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceSmall)
                         ) {
                             Text(
@@ -105,7 +112,7 @@ fun WishyDialog(
                         modifier = Modifier
                             .clip(RoundedCornerShape(tokens.smallRadius))
                             .background(tokens.primary)
-                            .clickable { onConfirm() }
+                            .clickable(role = Role.Button) { onConfirm() }
                             .padding(horizontal = tokens.spaceLarge, vertical = tokens.spaceSmall)
                     ) {
                         Text(
@@ -126,9 +133,9 @@ fun ShortcutDialog(
     onDismissRequest: () -> Unit
 ) {
     WishyDialog(
-        title = "Keyboard Shortcuts",
+        title = stringResource(R.string.ui_keyboard_shortcuts),
         onDismissRequest = onDismissRequest,
-        confirmText = "Close",
+        confirmText = stringResource(R.string.ui_close),
         onConfirm = onDismissRequest,
         dismissText = null,
         onDismiss = null
@@ -170,11 +177,11 @@ fun ProjectRecoveryDialog(
     onDiscard: () -> Unit
 ) {
     WishyDialog(
-        title = "Unsaved Changes Found",
+        title = stringResource(R.string.ui_unsaved_changes_found),
         onDismissRequest = onDiscard,
-        confirmText = "Recover Project",
+        confirmText = stringResource(R.string.ui_recover_project),
         onConfirm = onRecover,
-        dismissText = "Discard",
+        dismissText = stringResource(R.string.ui_discard),
         onDismiss = onDiscard
     ) {
         Text("Unsaved artwork changes were found for \"$projectName\". Would you like to recover your work?")
@@ -186,14 +193,14 @@ fun ProjectRecoveryDialog(
 private fun WishyDialogLightPreview() {
     WishyTheme(tokens = LightTokens) {
         WishyDialog(
-            title = "Delete Frame?",
+            title = stringResource(R.string.ui_delete_frame_2),
             onDismissRequest = {},
-            confirmText = "Delete",
+            confirmText = stringResource(R.string.ui_delete),
             onConfirm = {},
-            dismissText = "Cancel",
+            dismissText = stringResource(R.string.ui_cancel),
             onDismiss = {}
         ) {
-            Text("Frame 2 will be deleted.")
+            Text(stringResource(R.string.ui_frame_2_will_be_deleted))
         }
     }
 }
@@ -203,12 +210,12 @@ private fun WishyDialogLightPreview() {
 private fun WishyDialogDarkPreview() {
     WishyTheme(tokens = DarkTokens) {
         WishyDialog(
-            title = "Project Settings",
+            title = stringResource(R.string.ui_project_settings),
             onDismissRequest = {},
-            confirmText = "Save",
+            confirmText = stringResource(R.string.ui_save),
             onConfirm = {}
         ) {
-            Text("Project settings content")
+            Text(stringResource(R.string.ui_project_settings_content))
         }
     }
 }

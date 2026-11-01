@@ -20,6 +20,8 @@ import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.FlipDarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 import org.wishyclip.app.ui.design.themes.MidnightTokens
+import org.wishyclip.app.ui.design.themes.WishyDarkTokens
+import org.wishyclip.app.ui.design.themes.WishyLightTokens
 import org.wishyclip.app.ui.design.themes.ThemeImporter
 import org.wishyclip.app.brush.MiniJson
 
@@ -43,6 +45,7 @@ class SettingsStore(private val context: Context) {
     private val keyIconPack = stringPreferencesKey("icon_pack")
     private val keyDefaultFps = intPreferencesKey("default_fps")
     private val keyHaptics = booleanPreferencesKey("haptics_enabled")
+    private val keyStarterBrushes = androidx.datastore.preferences.core.intPreferencesKey("starter_brush_version")
     private val keyPalmRejection = booleanPreferencesKey("palm_rejection")
     private val keyCustomThemes = stringSetPreferencesKey("custom_themes")
     private val keyOnboardingDone = booleanPreferencesKey("onboarding_done")
@@ -51,7 +54,7 @@ class SettingsStore(private val context: Context) {
     val brushSize: Flow<Float> = context.settingsDataStore.data.map { it[keySize] ?: 8f }
     val brushOpacity: Flow<Float> = context.settingsDataStore.data.map { it[keyOpacity] ?: 1f }
 
-    val themeName: Flow<String> = context.settingsDataStore.data.map { it[keyThemeName] ?: "Cloud" }
+    val themeName: Flow<String> = context.settingsDataStore.data.map { it[keyThemeName] ?: "" }
     val isLeftHanded: Flow<Boolean> = context.settingsDataStore.data.map { it[keyIsLeftHanded] ?: false }
     val iconPack: Flow<String> = context.settingsDataStore.data.map { it[keyIconPack] ?: IconPack.CUTE.name }
     val defaultFps: Flow<Int> = context.settingsDataStore.data.map { it[keyDefaultFps] ?: 12 }
@@ -151,6 +154,13 @@ class SettingsStore(private val context: Context) {
         context.settingsDataStore.edit { it[keyDefaultFps] = fps }
     }
 
+    /** Version of the starter brush pack already installed (0 = never). */
+    val starterBrushVersion: Flow<Int> = context.settingsDataStore.data.map { it[keyStarterBrushes] ?: 0 }
+
+    suspend fun saveStarterBrushVersion(version: Int) {
+        context.settingsDataStore.edit { it[keyStarterBrushes] = version }
+    }
+
     suspend fun saveHaptics(enabled: Boolean) {
         context.settingsDataStore.edit { it[keyHaptics] = enabled }
     }
@@ -163,6 +173,8 @@ class SettingsStore(private val context: Context) {
         const val DEFAULT_COLOR: Int = -16777216 // 0xFF000000 (opaque black) as signed Int
 
         val BuiltInThemes = listOf(
+            WishyLightTokens,
+            WishyDarkTokens,
             CloudTokens,
             MidnightTokens,
             FlipDarkTokens,
@@ -172,10 +184,19 @@ class SettingsStore(private val context: Context) {
             CandyTokens
         )
 
-        fun getThemeTokensByName(name: String, custom: List<WishyTokens> = emptyList()): WishyTokens {
+        /**
+         * Resolves a saved theme name. A blank name means "no choice yet": follow the system
+         * light/dark setting ([systemDark]). An unknown name (e.g. a deleted custom theme) falls
+         * back the same way.
+         */
+        fun getThemeTokensByName(
+            name: String,
+            custom: List<WishyTokens> = emptyList(),
+            systemDark: Boolean = false
+        ): WishyTokens {
             return BuiltInThemes.find { it.name.equals(name, ignoreCase = true) }
                 ?: custom.find { it.name.equals(name, ignoreCase = true) }
-                ?: CloudTokens
+                ?: if (systemDark) WishyDarkTokens else WishyLightTokens
         }
     }
 }

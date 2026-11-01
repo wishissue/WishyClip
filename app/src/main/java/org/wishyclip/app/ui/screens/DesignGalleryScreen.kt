@@ -1,11 +1,14 @@
 package org.wishyclip.app.ui.screens
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +55,7 @@ fun DesignGalleryScreen(onBack: () -> Unit) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .systemBarsPadding() // edge-to-edge: keep content clear of the status/gesture bars
                     .padding(tokens.spaceLarge)
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(tokens.spaceLarge)
@@ -63,11 +67,11 @@ fun DesignGalleryScreen(onBack: () -> Unit) {
                 ) {
                     ActionIconButton(
                         iconRes = WishyIcons.Back,
-                        contentDescription = "Back",
+                        contentDescription = stringResource(R.string.ui_back),
                         onClick = onBack
                     )
                     Text(
-                        text = "Design Gallery",
+                        text = stringResource(R.string.ui_design_gallery),
                         style = MaterialTheme.typography.titleLarge,
                         color = tokens.onSurface
                     )
@@ -78,15 +82,15 @@ fun DesignGalleryScreen(onBack: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    TextButton(onClick = { activeTokens = CloudTokens }) { Text("Cloud") }
-                    TextButton(onClick = { activeTokens = MidnightTokens }) { Text("Midnight") }
-                    TextButton(onClick = { activeTokens = LightTokens }) { Text("Light") }
-                    TextButton(onClick = { activeTokens = DarkTokens }) { Text("Dark") }
-                    TextButton(onClick = { activeTokens = AmoledTokens }) { Text("AMOLED") }
-                    TextButton(onClick = { activeTokens = CandyTokens }) { Text("Candy") }
+                    TextButton(onClick = { activeTokens = CloudTokens }) { Text(stringResource(R.string.ui_cloud)) }
+                    TextButton(onClick = { activeTokens = MidnightTokens }) { Text(stringResource(R.string.ui_midnight)) }
+                    TextButton(onClick = { activeTokens = LightTokens }) { Text(stringResource(R.string.ui_light)) }
+                    TextButton(onClick = { activeTokens = DarkTokens }) { Text(stringResource(R.string.ui_dark)) }
+                    TextButton(onClick = { activeTokens = AmoledTokens }) { Text(stringResource(R.string.ui_amoled)) }
+                    TextButton(onClick = { activeTokens = CandyTokens }) { Text(stringResource(R.string.ui_candy)) }
                 }
 
-                SectionHeader(title = "Tool Buttons")
+                SectionHeader(title = stringResource(R.string.ui_tool_buttons))
                 Row(horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
                     ToolButton(iconRes = WishyIcons.Pen, description = "Pen", selected = true, onClick = {})
                     ToolButton(iconRes = WishyIcons.Pencil, description = "Pencil", selected = false, onClick = {})
@@ -94,39 +98,39 @@ fun DesignGalleryScreen(onBack: () -> Unit) {
                     ToolButton(iconRes = WishyIcons.Fill, description = "Fill", selected = false, onClick = {})
                 }
 
-                SectionHeader(title = "Action Icon Buttons")
+                SectionHeader(title = stringResource(R.string.ui_action_icon_buttons))
                 Row(horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
-                    ActionIconButton(iconRes = WishyIcons.Undo, contentDescription = "Undo", onClick = {})
-                    ActionIconButton(iconRes = WishyIcons.Redo, contentDescription = "Redo", onClick = {})
-                    ActionIconButton(iconRes = WishyIcons.Play, contentDescription = "Play", onClick = {})
-                    ActionIconButton(iconRes = WishyIcons.Onion, contentDescription = "Onion", selected = true, onClick = {})
+                    ActionIconButton(iconRes = WishyIcons.Undo, contentDescription = stringResource(R.string.ui_undo), onClick = {})
+                    ActionIconButton(iconRes = WishyIcons.Redo, contentDescription = stringResource(R.string.ui_redo), onClick = {})
+                    ActionIconButton(iconRes = WishyIcons.Play, contentDescription = stringResource(R.string.ui_play), onClick = {})
+                    ActionIconButton(iconRes = WishyIcons.Onion, contentDescription = stringResource(R.string.ui_onion), selected = true, onClick = {})
                 }
 
-                SectionHeader(title = "WishySlider")
+                SectionHeader(title = stringResource(R.string.ui_wishyslider))
                 var sliderVal by remember { mutableStateOf(32f) }
                 WishySlider(
                     value = sliderVal,
                     onValueChange = { sliderVal = it },
                     valueRange = 1f..100f,
-                    label = "Brush Size",
+                    label = stringResource(R.string.ui_brush_size),
                     unit = "px"
                 )
 
-                SectionHeader(title = "Color Swatches")
+                SectionHeader(title = stringResource(R.string.ui_color_swatches))
                 Row(horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
                     ColorSwatch(color = Color.Red, selected = true, onClick = {})
                     ColorSwatch(color = Color.Green, selected = false, onClick = {})
                     ColorSwatch(color = Color.Blue, selected = false, onClick = {})
                 }
 
-                SectionHeader(title = "Timeline Frame Cell")
+                SectionHeader(title = stringResource(R.string.ui_timeline_frame_cell))
                 Row(horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
                     TimelineFrameCell(frameIndex = 0, selected = true, onClick = {})
                     TimelineFrameCell(frameIndex = 1, selected = false, onClick = {})
                     TimelineFrameCell(frameIndex = 2, selected = false, onClick = {})
                 }
 
-                SectionHeader(title = "Project Card")
+                SectionHeader(title = stringResource(R.string.ui_project_card))
                 ProjectCard(
                     title = "Sample Animation Project",
                     info = "24 frames • 12 FPS",

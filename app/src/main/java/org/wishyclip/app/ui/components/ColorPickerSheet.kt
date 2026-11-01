@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -69,9 +71,16 @@ fun ColorPickerSheet(
     var sat by remember { mutableFloatStateOf(start[1]) }
     var value by remember { mutableFloatStateOf(start[2]) }
 
-    val argb = remember(hue, sat, value) {
+    val hsvArgb = remember(hue, sat, value) {
         android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, value))
     }
+    // A color typed as hex (or tapped as a swatch) is kept EXACTLY; the HSV round trip can be off by one
+    // in a channel. The exact value is used only while hue/saturation/value are still the ones it produced.
+    var exactColor by remember { mutableStateOf<Int?>(null) }
+    var exactHsv by remember { mutableStateOf<FloatArray?>(null) }
+    val argb = exactColor?.takeIf {
+        exactHsv?.let { h -> h[0] == hue && h[1] == sat && h[2] == value } == true
+    } ?: hsvArgb
 
     var hexText by remember(argb) {
         mutableStateOf(String.format(Locale.US, "%06X", 0xFFFFFF and argb))
@@ -83,6 +92,8 @@ fun ColorPickerSheet(
         hue = hsv[0]
         sat = hsv[1]
         value = hsv[2]
+        exactColor = c or 0xFF000000.toInt()
+        exactHsv = floatArrayOf(hsv[0], hsv[1], hsv[2])
     }
 
     // Full-screen scrim overlay
@@ -119,7 +130,7 @@ fun ColorPickerSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Color",
+                            text = stringResource(R.string.ui_color),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = tokens.onSurface
@@ -131,7 +142,7 @@ fun ColorPickerSheet(
                                     .clickable { onDismiss() }
                                     .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs)
                             ) {
-                                Text("Cancel", style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
+                                Text(stringResource(R.string.ui_cancel), style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
                             }
                             Box(
                                 modifier = Modifier
@@ -140,7 +151,7 @@ fun ColorPickerSheet(
                                     .clickable { onPick(argb) }
                                     .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs)
                             ) {
-                                Text("Select", style = MaterialTheme.typography.labelMedium, color = tokens.onPrimary, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.ui_select), style = MaterialTheme.typography.labelMedium, color = tokens.onPrimary, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -420,7 +431,10 @@ private fun ColorComparisonAndHex(
             Text("#", style = MaterialTheme.typography.labelSmall, color = tokens.onSurfaceVariant)
             BasicTextField(
                 value = hexText,
-                onValueChange = onHexChange,
+                // Only hex digits (and an optional #), at most 7 characters: stops junk like "zz!!" or 40-char pastes.
+                onValueChange = { raw ->
+                    onHexChange(raw.filter { c -> c == '#' || c.isDigit() || c.lowercaseChar() in 'a'..'f' }.take(7))
+                },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.labelSmall.copy(color = tokens.onSurface),
                 modifier = Modifier.padding(start = 4.dp)

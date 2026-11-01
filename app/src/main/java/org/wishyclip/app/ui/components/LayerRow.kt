@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -41,7 +43,8 @@ fun LayerRow(
     onCycleBlend: () -> Unit = {},
     onDuplicate: (() -> Unit)? = null,
     /** Null for the bottom layer (nothing below to merge into). */
-    onMergeDown: (() -> Unit)? = null
+    onMergeDown: (() -> Unit)? = null,
+    onRename: (() -> Unit)? = null
 ) {
     val tokens = WishyTheme.tokens
     Column(
@@ -58,7 +61,7 @@ fun LayerRow(
         ) {
             ActionIconButton(
                 iconRes = if (layer.visible) WishyIcons.VisibilityOn else WishyIcons.VisibilityOff,
-                contentDescription = "Visibility",
+                contentDescription = stringResource(R.string.ui_visibility),
                 onClick = { onToggleVisibility(!layer.visible) }
             )
             ActionIconButton(
@@ -78,22 +81,22 @@ fun LayerRow(
             )
             ActionIconButton(
                 iconRes = WishyIcons.ArrowUp,
-                contentDescription = "Move up",
+                contentDescription = stringResource(R.string.ui_move_up),
                 onClick = { onMoveUp() }
             )
             ActionIconButton(
                 iconRes = WishyIcons.ArrowDown,
-                contentDescription = "Move down",
+                contentDescription = stringResource(R.string.ui_move_down),
                 onClick = { onMoveDown() }
             )
             ActionIconButton(
                 iconRes = WishyIcons.Duplicate,
-                contentDescription = "Duplicate Layer",
+                contentDescription = stringResource(R.string.ui_duplicate_layer),
                 onClick = { onDuplicate?.invoke() }
             )
             ActionIconButton(
                 iconRes = WishyIcons.Delete,
-                contentDescription = "Delete Layer",
+                contentDescription = stringResource(R.string.ui_delete_layer),
                 onClick = onDelete
             )
         }
@@ -102,7 +105,7 @@ fun LayerRow(
                 value = layer.opacity * 100f,
                 onValueChange = { onOpacityChange(it / 100f) },
                 valueRange = 0f..100f,
-                label = "Opacity",
+                label = stringResource(R.string.ui_opacity),
                 unit = "%",
                 modifier = Modifier.padding(horizontal = tokens.spaceSmall)
             )
@@ -119,8 +122,16 @@ fun LayerRow(
                 }
                 if (onMergeDown != null) {
                     TextButton(onClick = onMergeDown) {
-                        Text("Merge down", style = MaterialTheme.typography.labelLarge)
+                        Text(stringResource(R.string.ui_merge_down), style = MaterialTheme.typography.labelLarge)
                     }
+                }
+            }
+            if (onRename != null) {
+                TextButton(
+                    onClick = onRename,
+                    modifier = Modifier.padding(horizontal = tokens.spaceXs)
+                ) {
+                    Text("Rename layer", style = MaterialTheme.typography.labelLarge)
                 }
             }
         }

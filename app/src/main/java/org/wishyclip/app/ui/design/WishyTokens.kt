@@ -56,7 +56,7 @@ data class WishyTokens(
     // Dimensions (big, easy-to-hit targets)
     val toolIconSize: Dp = 22.dp,
     val actionIconSize: Dp = 28.dp,
-    val toolButtonSize: Dp = 44.dp,
+    val toolButtonSize: Dp = 48.dp,
     val minTouchTarget: Dp = 52.dp,
     /** Large primary action (play, new project): the biggest thing on screen. */
     val primaryButtonSize: Dp = 64.dp,

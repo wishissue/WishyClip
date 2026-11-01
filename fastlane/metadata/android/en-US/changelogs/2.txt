@@ -1,0 +1,4 @@
+v1.1.0: layers rebuilt. Empty layers use no memory, so 21+ layers no longer lag. Layers are shared by all frames, with rename, and delete/merge now ask first.
+16 new original brushes (graphite, inks, charcoal, pastel, gouache, bristle and more); pencils darken with pressure.
+Smoother, accurate playback timing up to 60 fps.
+New light and dark look, follows system theme. Fixes for palm rejection, haptics, keyboard shortcuts, screen edges, TalkBack and saving duplicated layers.

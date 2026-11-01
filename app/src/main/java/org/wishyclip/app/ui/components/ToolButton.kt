@@ -16,6 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick as semanticsOnClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import org.wishyclip.app.ui.design.WishyIcons
 import org.wishyclip.app.ui.design.WishyTheme
@@ -51,9 +55,18 @@ fun ToolButton(
         modifier = modifier
             .size(tokens.toolButtonSize)
             .then(
-                if (onDoubleClick != null) Modifier.pointerInput(enabled) {
-                    detectTapGestures(onTap = { if (enabled) onClick() }, onDoubleTap = { if (enabled) onDoubleClick() })
-                } else Modifier.bouncyClickable(enabled = enabled, onClick = onClick)
+                if (onDoubleClick != null) Modifier
+                    // pointerInput alone is invisible to TalkBack / switch access: expose a click action.
+                    .semantics(mergeDescendants = true) {
+                        role = Role.Button
+                        semanticsOnClick(label = null) {
+                            if (enabled) { onClick(); true } else false
+                        }
+                    }
+                    .pointerInput(enabled) {
+                        detectTapGestures(onTap = { if (enabled) onClick() }, onDoubleTap = { if (enabled) onDoubleClick() })
+                    }
+                else Modifier.bouncyClickable(enabled = enabled, onClick = onClick)
             )
             .clip(RoundedCornerShape(tokens.mediumRadius))
             .background(bgColor),

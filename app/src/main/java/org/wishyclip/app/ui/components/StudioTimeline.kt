@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -98,7 +100,9 @@ fun StudioTimeline(
         }
     }
 
-    val currentSec = if (fps > 0) currentIndex.toFloat() / fps else 0f
+    // Time counts held frames (exposure), so the timecode matches what playback and export produce.
+    val slotsBefore = frames.take(currentIndex.coerceAtLeast(0)).sumOf { it.exposureDuration.coerceAtLeast(1) }
+    val currentSec = if (fps > 0) slotsBefore.toFloat() / fps else 0f
     val timecode = String.format(Locale.US, "%02d:%02d.%01d", (currentSec / 60).toInt(), (currentSec % 60).toInt(), ((currentSec * 10) % 10).toInt())
 
     // The pieces of the header, shared by the compact (phone) and wide (tablet / landscape) layouts.
@@ -109,7 +113,7 @@ fun StudioTimeline(
         ) {
             ActionIconButton(
                 iconRes = WishyIcons.SkipBack,
-                contentDescription = "Previous Frame",
+                contentDescription = stringResource(R.string.ui_previous_frame),
                 onClick = onPreviousFrame
             )
             PrimaryRoundButton(
@@ -119,7 +123,7 @@ fun StudioTimeline(
             )
             ActionIconButton(
                 iconRes = WishyIcons.SkipForward,
-                contentDescription = "Next Frame",
+                contentDescription = stringResource(R.string.ui_next_frame),
                 onClick = onNextFrame
             )
         }
@@ -156,45 +160,45 @@ fun StudioTimeline(
         ) {
             ActionIconButton(
                 iconRes = WishyIcons.Onion,
-                contentDescription = "Toggle Onion Skin",
+                contentDescription = stringResource(R.string.ui_toggle_onion_skin),
                 selected = onionEnabled,
                 onClick = onToggleOnion
             )
             ActionIconButton(
                 iconRes = WishyIcons.Layers,
-                contentDescription = "Studio Multi-Track View",
+                contentDescription = stringResource(R.string.ui_studio_multi_track_view),
                 selected = isStudioExpanded,
                 onClick = onToggleStudioExpanded
             )
             ActionIconButton(
                 iconRes = WishyIcons.Duplicate,
-                contentDescription = "Duplicate frame",
+                contentDescription = stringResource(R.string.ui_duplicate_frame),
                 onClick = onDuplicateFrame
             )
             ActionIconButton(
                 iconRes = WishyIcons.Delete,
-                contentDescription = "Delete frame",
+                contentDescription = stringResource(R.string.ui_delete_frame),
                 tint = tokens.danger,
                 onClick = onDeleteFrame
             )
             Box {
                 ActionIconButton(
                     iconRes = WishyIcons.More,
-                    contentDescription = "More Frame Options",
+                    contentDescription = stringResource(R.string.ui_more_frame_options),
                     onClick = { showMenu = true }
                 )
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                     DropdownMenuItem(
-                        text = { Text("Copy Frame") },
+                        text = { Text(stringResource(R.string.ui_copy_frame)) },
                         onClick = { showMenu = false; onCopyFrame() }
                     )
                     DropdownMenuItem(
-                        text = { Text("Paste Frame") },
+                        text = { Text(stringResource(R.string.ui_paste_frame)) },
                         enabled = canPaste,
                         onClick = { showMenu = false; onPasteFrame() }
                     )
                     DropdownMenuItem(
-                        text = { Text("Audio Track Manager") },
+                        text = { Text(stringResource(R.string.ui_audio_track_manager)) },
                         onClick = { showMenu = false; onAudioRequested() }
                     )
                 }
@@ -263,7 +267,7 @@ fun StudioTimeline(
                                 .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs)
                         ) {
                             Text(
-                                text = "Layers & tracks",
+                                text = stringResource(R.string.ui_layers_tracks),
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = tokens.onSurfaceVariant,
@@ -284,12 +288,12 @@ fun StudioTimeline(
                                 ) {
                                     ActionIconButton(
                                         iconRes = if (layer.visible) WishyIcons.VisibilityOn else WishyIcons.VisibilityOff,
-                                        contentDescription = "Toggle Visibility",
+                                        contentDescription = stringResource(R.string.ui_toggle_visibility),
                                         onClick = { onToggleLayerVisibility(idx, !layer.visible) }
                                     )
                                     ActionIconButton(
                                         iconRes = WishyIcons.Lock,
-                                        contentDescription = "Toggle Lock",
+                                        contentDescription = stringResource(R.string.ui_toggle_lock),
                                         selected = layer.locked,
                                         onClick = { onToggleLayerLock(idx, !layer.locked) }
                                     )
@@ -317,7 +321,7 @@ fun StudioTimeline(
                         tracks = audioTracks,
                         totalFrames = frames.sumOf { it.exposureDuration.coerceAtLeast(1) },
                         fps = fps,
-                        currentFrame = currentIndex,
+                        currentFrame = slotsBefore,
                         onUpdate = onUpdateAudioTrack,
                         onDelete = onDeleteAudioTrack,
                         onAdd = onAudioRequested,
@@ -359,7 +363,7 @@ fun StudioTimeline(
                             ) {
                                 Icon(
                                     painter = painterResource(WishyIcons.Add),
-                                    contentDescription = "Add frame",
+                                    contentDescription = stringResource(R.string.ui_add_frame),
                                     tint = tokens.primary,
                                     modifier = Modifier.size(32.dp)
                                 )

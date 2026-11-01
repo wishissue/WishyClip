@@ -345,6 +345,11 @@ class StrokeRenderer {
         val c = drawCanvas()
         val pressureScale = if (variablePressure) 0.2f + 0.8f * pressure.coerceIn(0f, 1f) else 1f
         val jitter = if (d.sizeJitter > 0f) 1f - d.sizeJitter * rnd.nextFloat() else 1f
+        // Build-up media (pencil, charcoal, pastel, spray: flow below 0.9) also get darker with pressure.
+        // Solid inks and paints keep full strength and only change size.
+        val flowScale = if (variablePressure && d.flow < 0.9f) 0.35f + 0.65f * pressure.coerceIn(0f, 1f) else 1f
+        val dabAlpha = (d.flow * flowScale * 255f).roundToInt().coerceIn(1, 255)
+        if (dabPaint.alpha != dabAlpha) dabPaint.alpha = dabAlpha
         val diameter = max(1f, size * pressureScale * jitter)
         val scatterPx = d.scatter * size
         val jx = if (scatterPx > 0f) (rnd.nextFloat() * 2f - 1f) * scatterPx else 0f

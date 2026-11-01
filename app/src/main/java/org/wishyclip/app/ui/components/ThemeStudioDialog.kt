@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -117,9 +119,9 @@ fun ThemeStudioDialog(
     WishyDialog(
         title = if (isEditing) "Edit theme" else "Theme Studio",
         onDismissRequest = onDismiss,
-        confirmText = "Save",
+        confirmText = stringResource(R.string.ui_save),
         onConfirm = { if (allValid) onSave(build()) },
-        dismissText = "Cancel",
+        dismissText = stringResource(R.string.ui_cancel),
         onDismiss = onDismiss
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
@@ -128,12 +130,12 @@ fun ThemeStudioDialog(
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it.filter { c -> c >= ' ' }.take(ThemeImporter.MAX_NAME_LENGTH) },
-                label = { Text("Theme name") },
+                label = { Text(stringResource(R.string.ui_theme_name)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Text("Start from", style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
+            Text(stringResource(R.string.ui_start_from), style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)) {
                 for ((label, isDarkChoice) in listOf("Light" to false, "Dark" to true)) {
                     val selected = dark == isDarkChoice
@@ -194,7 +196,7 @@ fun ThemeStudioDialog(
                 }
             }
             Text(
-                text = "Use #RRGGBB. Text colors, containers and borders are worked out for you.",
+                text = stringResource(R.string.ui_use_rrggbb_text_colors_containers_and),
                 style = MaterialTheme.typography.labelSmall,
                 color = tokens.onSurfaceVariant
             )
@@ -236,7 +238,7 @@ private fun ThemePreview(t: WishyTokens) {
                 .background(t.paper),
             contentAlignment = Alignment.Center
         ) {
-            Text("Aa", color = ThemeImporter.contrastOn(t.paper), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.ui_aa), color = ThemeImporter.contrastOn(t.paper), style = MaterialTheme.typography.titleMedium)
         }
         Column(
             modifier = Modifier.width(76.dp),
@@ -250,7 +252,7 @@ private fun ThemePreview(t: WishyTokens) {
                     .background(t.primary),
                 contentAlignment = Alignment.Center
             ) {
-                Text("Main", color = t.onPrimary, style = MaterialTheme.typography.labelSmall)
+                Text(stringResource(R.string.ui_main), color = t.onPrimary, style = MaterialTheme.typography.labelSmall)
             }
             Box(
                 modifier = Modifier
@@ -260,7 +262,7 @@ private fun ThemePreview(t: WishyTokens) {
                     .background(t.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
-                Text("Card", color = t.onSurface, style = MaterialTheme.typography.labelSmall)
+                Text(stringResource(R.string.ui_card), color = t.onSurface, style = MaterialTheme.typography.labelSmall)
             }
             Box(
                 modifier = Modifier

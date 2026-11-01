@@ -1,12 +1,16 @@
 package org.wishyclip.app.ui.design
 
 import androidx.annotation.DrawableRes
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import org.wishyclip.app.R
 
 enum class IconPack { CUTE, CLEAN }
 
 object WishyIcons {
-    var currentPack: IconPack = IconPack.CUTE
+    // Compose state: icons and the Settings highlight recompose when the pack changes.
+    var currentPack: IconPack by mutableStateOf(IconPack.CUTE)
 
     @get:DrawableRes val Pen: Int get() = R.drawable.ic_pen
     @get:DrawableRes val Pencil: Int get() = R.drawable.ic_pencil

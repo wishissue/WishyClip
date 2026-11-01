@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -38,8 +39,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import org.wishyclip.app.ui.components.bouncyClickable
-import org.wishyclip.app.ui.design.themes.CloudTokens
-import org.wishyclip.app.ui.design.themes.MidnightTokens
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Box
 import org.wishyclip.app.R
@@ -51,17 +50,16 @@ import org.wishyclip.app.ui.design.IconPack
 import org.wishyclip.app.ui.design.WishyIcons
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.WishyTokens
-import org.wishyclip.app.ui.design.themes.AmoledTokens
-import org.wishyclip.app.ui.design.themes.CandyTokens
-import org.wishyclip.app.ui.design.themes.DarkTokens
-import org.wishyclip.app.ui.design.themes.FlipDarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
+import org.wishyclip.app.data.SettingsStore
 import org.wishyclip.app.ui.design.themes.ThemeImporter
 
 @Composable
 fun SettingsScreen(
     currentTokens: WishyTokens,
     onSelectTokens: (WishyTokens) -> Unit,
+    followsSystemTheme: Boolean = false,
+    onUseSystemTheme: () -> Unit = {},
     isLeftHanded: Boolean,
     onToggleLeftHanded: (Boolean) -> Unit,
     hapticsEnabled: Boolean,
@@ -109,6 +107,7 @@ fun SettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .systemBarsPadding() // edge-to-edge: keep content clear of the status/gesture bars
                     .padding(tokens.spaceLarge)
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(tokens.spaceLarge)
@@ -139,7 +138,7 @@ fun SettingsScreen(
                         .padding(horizontal = tokens.spaceLarge, vertical = tokens.spaceXs),
                     horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
                 ) {
-                    (listOf(CloudTokens, MidnightTokens, FlipDarkTokens, LightTokens, DarkTokens, AmoledTokens, CandyTokens) + customThemes)
+                    (SettingsStore.BuiltInThemes + customThemes)
                         .forEach { option ->
                             ThemeChip(
                                 name = option.name,
@@ -155,15 +154,21 @@ fun SettingsScreen(
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)
                 ) {
+                    TextButton(onClick = onUseSystemTheme) {
+                        Text(
+                            text = if (followsSystemTheme) "Following system light/dark" else "Follow system light/dark",
+                            color = if (followsSystemTheme) tokens.primary else tokens.onSurface
+                        )
+                    }
                     TextButton(onClick = {
                         themeMessage = null
                         studioEditsCurrent = false
                         showThemeStudio = true
-                    }) { Text("New theme") }
+                    }) { Text(stringResource(R.string.ui_new_theme)) }
                     TextButton(onClick = {
                         themeMessage = null
                         themePicker.launch("*/*")
-                    }) { Text("Import theme (.json)") }
+                    }) { Text(stringResource(R.string.ui_import_theme_json)) }
                     if (currentIsCustom) {
                         TextButton(onClick = {
                             themeMessage = null
@@ -173,7 +178,7 @@ fun SettingsScreen(
                         TextButton(onClick = {
                             onDeleteCustomTheme(currentTokens.name)
                             themeMessage = "Deleted \"${currentTokens.name}\""
-                        }) { Text("Delete", color = tokens.danger) }
+                        }) { Text(stringResource(R.string.ui_delete), color = tokens.danger) }
                     }
                 }
                 themeMessage?.let {
@@ -193,17 +198,17 @@ fun SettingsScreen(
                         WishyIcons.currentPack = IconPack.CUTE
                         onSelectIconPack(IconPack.CUTE)
                     }) {
-                        Text("Cute (Color)", color = if (WishyIcons.currentPack == IconPack.CUTE) tokens.primary else tokens.onSurface)
+                        Text(stringResource(R.string.ui_cute_color), color = if (WishyIcons.currentPack == IconPack.CUTE) tokens.primary else tokens.onSurface)
                     }
                     TextButton(onClick = {
                         WishyIcons.currentPack = IconPack.CLEAN
                         onSelectIconPack(IconPack.CLEAN)
                     }) {
-                        Text("Clean (Minimal)", color = if (WishyIcons.currentPack == IconPack.CLEAN) tokens.primary else tokens.onSurface)
+                        Text(stringResource(R.string.ui_clean_minimal), color = if (WishyIcons.currentPack == IconPack.CLEAN) tokens.primary else tokens.onSurface)
                     }
                 }
 
-                SectionHeader(title = "Drawing & Touch")
+                SectionHeader(title = stringResource(R.string.ui_drawing_touch))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -234,8 +239,13 @@ fun SettingsScreen(
                         onCheckedChange = onTogglePalmRejection
                     )
                 }
+                Text(
+                    text = stringResource(R.string.setting_palm_rejection_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.onSurfaceVariant
+                )
 
-                SectionHeader(title = "Layout & Accessibility")
+                SectionHeader(title = stringResource(R.string.ui_layout_accessibility))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -253,16 +263,16 @@ fun SettingsScreen(
                 }
 
                 if (isDebuggable) {
-                    SectionHeader(title = "Debug & Developer Tools")
+                    SectionHeader(title = stringResource(R.string.ui_debug_developer_tools))
                     TextButton(
                         onClick = onOpenDesignGallery,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Open Design Gallery (Debug)")
+                        Text(stringResource(R.string.ui_open_design_gallery_debug))
                     }
                 }
 
-                SectionHeader(title = "Legal & Attributions")
+                SectionHeader(title = stringResource(R.string.ui_legal_attributions))
                 TextButton(
                     onClick = { showLicensesDialog = true },
                     modifier = Modifier.fillMaxWidth()
@@ -288,18 +298,18 @@ fun SettingsScreen(
 
     if (showLicensesDialog) {
         WishyDialog(
-            title = "Attributions & Open Source Licenses",
+            title = stringResource(R.string.ui_attributions_open_source_licenses),
             onDismissRequest = { showLicensesDialog = false },
             confirmText = stringResource(R.string.action_close),
             onConfirm = { showLicensesDialog = false }
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
-                Text("• AndroidX, Jetpack Compose, Material 3 - Apache 2.0")
-                Text("• Kotlin Coroutines, Room, DataStore - Apache 2.0")
-                Text("• Media3 ExoPlayer, Coil - Apache 2.0")
-                Text("• Animated GIF LZW Encoder - MIT / Apache 2.0")
-                Text("• LZ4 (lz4-java) - Apache 2.0")
-                Text("• Inter typeface - SIL Open Font License 1.1")
+                Text(stringResource(R.string.ui_androidx_jetpack_compose_material_3_ap))
+                Text(stringResource(R.string.ui_kotlin_coroutines_room_datastore_apach))
+                Text(stringResource(R.string.ui_media3_exoplayer_coil_apache_2_0))
+                Text(stringResource(R.string.ui_animated_gif_lzw_encoder_mit_apache_2))
+                Text(stringResource(R.string.ui_lz4_lz4_java_apache_2_0))
+                Text(stringResource(R.string.ui_inter_typeface_sil_open_font_license_1))
             }
         }
     }

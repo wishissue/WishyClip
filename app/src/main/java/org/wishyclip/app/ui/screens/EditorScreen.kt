@@ -48,11 +48,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -97,6 +97,17 @@ import org.wishyclip.app.ui.components.TimelineStrip
 import org.wishyclip.app.ui.components.ToolRail
 import org.wishyclip.app.ui.components.WishyDialog
 import org.wishyclip.app.ui.components.WishySlider
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import org.wishyclip.app.ui.design.WishyIcons
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.themes.LightTokens
@@ -106,6 +117,7 @@ fun EditorScreen(
     vm: EditorViewModel,
     onExit: () -> Unit,
     isLeftHanded: Boolean = false,
+    palmRejection: Boolean = false,
     onOpenDesignGallery: (() -> Unit)? = null
 ) {
     val tokens = WishyTheme.tokens
@@ -132,6 +144,9 @@ fun EditorScreen(
     var activeBrush by rememberSaveable { mutableStateOf(if (vm.tool.isBrush) vm.tool else Tool.PEN) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showDeleteFrameDialog by remember { mutableStateOf(false) }
+    var renameLayerIndex by remember { mutableStateOf<Int?>(null) }
+    // (isMerge, layer index): delete/merge now change EVERY frame, so they are confirmed first.
+    var layerConfirm by remember { mutableStateOf<Pair<Boolean, Int>?>(null) }
     var showOnionSkinDialog by remember { mutableStateOf(false) }
     var showAudioDialog by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
@@ -168,6 +183,17 @@ fun EditorScreen(
         vm.saveThen { vm.project?.let { ExportService.start(context, it.id, format, frameIndex) } }
     }
     var pendingExport by remember { mutableStateOf<Pair<ExportFormat, Int>?>(null) }
+    // Back closes the open panel/menu first; only with nothing open does it leave the editor.
+    // (Registered after the exit handler above, so it wins while enabled. Dialogs handle Back themselves.)
+    BackHandler(enabled = showColorPicker || showBrushMenu || showToolOptions || showLayersPanel || showOverflowMenu) {
+        when {
+            showColorPicker -> showColorPicker = false
+            showBrushMenu -> showBrushMenu = false
+            showToolOptions -> showToolOptions = false
+            showLayersPanel -> showLayersPanel = false
+            showOverflowMenu -> showOverflowMenu = false
+        }
+    }
     // Android 8-9 have no scoped storage: saving into Movies/Pictures needs this permission.
     // If it is refused the export still runs; the service then keeps the file in the app's storage.
     val storagePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -215,6 +241,39 @@ fun EditorScreen(
             showBrushMenu = false
         }
     }
+    // Hardware-keyboard shortcuts (the list shown in "Keyboard Shortcuts"). Uses onKeyEvent, not the
+    // preview variant, so a focused button still gets Space/Enter before this handler sees them.
+    val keyFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { keyFocus.requestFocus() } }
+    val handleKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = handleKey@{ event ->
+        if (event.type != KeyEventType.KeyDown) return@handleKey false
+        val firstPress = event.nativeKeyEvent.repeatCount == 0
+        val mod = event.isCtrlPressed || event.isMetaPressed
+        when {
+            mod && event.key == Key.Z -> { if (event.isShiftPressed) vm.redo() else vm.undo(); true }
+            mod && event.key == Key.Y -> { vm.redo(); true }
+            mod -> false
+            event.key == Key.DirectionLeft -> {
+                if (vm.currentIndex > 0) vm.selectFrame(vm.currentIndex - 1)
+                true
+            }
+            event.key == Key.DirectionRight -> {
+                if (vm.currentIndex < vm.frames.lastIndex) vm.selectFrame(vm.currentIndex + 1)
+                true
+            }
+            !firstPress -> false
+            event.key == Key.Spacebar -> { vm.togglePlay(); true }
+            event.key == Key.B -> { onSelectTool(activeBrush); true }
+            event.key == Key.E -> { onSelectTool(Tool.ERASER); true }
+            event.key == Key.F -> { onSelectTool(Tool.FILL); true }
+            event.key == Key.L -> { onSelectTool(Tool.LASSO); true }
+            event.key == Key.T -> { onSelectTool(Tool.TEXT); true }
+            event.key == Key.R -> { vm.toggleRuler(); true }
+            event.key == Key.M -> { vm.cycleMirror(); true }
+            event.key == Key.O -> { vm.toggleOnionSkin(); true }
+            else -> false
+        }
+    }
     // The color chip lives at the end of the tool bar/rail, like in other animation apps.
     val colorSwatchSlot: @Composable () -> Unit = {
         ColorSwatch(
@@ -225,14 +284,18 @@ fun EditorScreen(
     }
 
     Surface(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .onKeyEvent(handleKey)
+            .focusRequester(keyFocus)
+            .focusable(),
         color = tokens.canvasBackdrop
     ) {
         if (vm.loadError) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Could not open this project.", color = tokens.onSurface)
-                    TextButton(onClick = onExit) { Text("Back") }
+                    Text(stringResource(R.string.ui_could_not_open_this_project), color = tokens.onSurface)
+                    TextButton(onClick = onExit) { Text(stringResource(R.string.ui_back)) }
                 }
             }
         } else {
@@ -264,7 +327,7 @@ fun EditorScreen(
                     ) {
                         ActionIconButton(
                             iconRes = WishyIcons.Back,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(R.string.ui_back),
                             onClick = { vm.saveAndExit(onExit) }
                         )
                         if (showTitle) {
@@ -296,14 +359,14 @@ fun EditorScreen(
                         )
                         ActionIconButton(
                             iconRes = WishyIcons.Layers,
-                            contentDescription = "Layers",
+                            contentDescription = stringResource(R.string.ui_layers),
                             selected = showLayersPanel,
                             onClick = { showLayersPanel = !showLayersPanel }
                         )
                         Box {
                             ActionIconButton(
                                 iconRes = WishyIcons.More,
-                                contentDescription = "More Options",
+                                contentDescription = stringResource(R.string.ui_more_options),
                                 onClick = { showOverflowMenu = true }
                             )
                             DropdownMenu(
@@ -311,28 +374,28 @@ fun EditorScreen(
                                 onDismissRequest = { showOverflowMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Export Animation") },
+                                    text = { Text(stringResource(R.string.ui_export_animation)) },
                                     onClick = {
                                         showOverflowMenu = false
                                         showExportDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Import Media") },
+                                    text = { Text(stringResource(R.string.ui_import_media_2)) },
                                     onClick = {
                                         showOverflowMenu = false
                                         showImportDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Onion Skin Settings") },
+                                    text = { Text(stringResource(R.string.ui_onion_skin_settings)) },
                                     onClick = {
                                         showOverflowMenu = false
                                         showOnionSkinDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Hide interface") },
+                                    text = { Text(stringResource(R.string.ui_hide_interface)) },
                                     onClick = {
                                         showOverflowMenu = false
                                         showBrushMenu = false
@@ -342,28 +405,28 @@ fun EditorScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Rotate Canvas 90°") },
+                                    text = { Text(stringResource(R.string.ui_rotate_canvas_90)) },
                                     onClick = {
                                         showOverflowMenu = false
                                         canvasView.rotateBy(90f)
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Reset View") },
+                                    text = { Text(stringResource(R.string.ui_reset_view)) },
                                     onClick = {
                                         showOverflowMenu = false
                                         canvasView.reset()
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Keyboard Shortcuts") },
+                                    text = { Text(stringResource(R.string.ui_keyboard_shortcuts)) },
                                     onClick = {
                                         showOverflowMenu = false
                                         showShortcutDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Import Brushes") },
+                                    text = { Text(stringResource(R.string.ui_import_brushes_2)) },
                                     onClick = {
                                         showOverflowMenu = false
                                         brushPicker.launch("*/*")
@@ -371,7 +434,7 @@ fun EditorScreen(
                                 )
                                 if (onOpenDesignGallery != null) {
                                     DropdownMenuItem(
-                                        text = { Text("Design Gallery (Debug)") },
+                                        text = { Text(stringResource(R.string.ui_design_gallery_debug)) },
                                         onClick = {
                                             showOverflowMenu = false
                                             onOpenDesignGallery()
@@ -419,10 +482,6 @@ fun EditorScreen(
                                         showBrushMenu = false
                                         showToolOptions = false
                                         showLayersPanel = false
-                                    },
-                                    onDoubleTap = {
-                                        // Double-tap quick undo
-                                        vm.undo()
                                     }
                                 )
                             }
@@ -439,6 +498,7 @@ fun EditorScreen(
                                 lassoPreview = { vm.lassoPreviewPath() },
                                 revision = { vm.revision },
                                 enabled = !vm.isPlaying,
+                                palmRejection = palmRejection,
                                 view = canvasView,
                                 mirror = { vm.mirrorMode },
                                 ruler = { vm.activeRuler() },
@@ -484,7 +544,7 @@ fun EditorScreen(
                             ) {
                                 Icon(
                                     painter = painterResource(WishyIcons.RestoreUi),
-                                    contentDescription = "Show interface",
+                                    contentDescription = stringResource(R.string.ui_show_interface),
                                     tint = tokens.onSurface,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -598,14 +658,14 @@ fun EditorScreen(
                                             value = vm.fillTolerance.toFloat(),
                                             onValueChange = { vm.updateFillTolerance(it.roundToInt()) },
                                             valueRange = 0f..128f,
-                                            label = "Tolerance"
+                                            label = stringResource(R.string.ui_tolerance)
                                         )
                                     } else {
                                         WishySlider(
                                             value = vm.brushSize,
                                             onValueChange = { vm.updateBrushSize(it) },
                                             valueRange = 1f..60f,
-                                            label = "Size",
+                                            label = stringResource(R.string.ui_size),
                                             unit = "px",
                                             onValueChangeFinished = { vm.persistBrush() }
                                         )
@@ -614,7 +674,7 @@ fun EditorScreen(
                                         value = vm.opacity * 100f,
                                         onValueChange = { vm.updateOpacity(it / 100f) },
                                         valueRange = 5f..100f,
-                                        label = "Opacity",
+                                        label = stringResource(R.string.ui_opacity),
                                         unit = "%",
                                         onValueChangeFinished = { vm.persistBrush() }
                                     )
@@ -622,7 +682,7 @@ fun EditorScreen(
                                         value = vm.stabilizer * 100f,
                                         onValueChange = { vm.updateStabilizer(it / 100f) },
                                         valueRange = 0f..100f,
-                                        label = "Stabilizer",
+                                        label = stringResource(R.string.ui_stabilizer),
                                         unit = "%"
                                     )
 
@@ -662,11 +722,12 @@ fun EditorScreen(
                                 onToggleVisibility = { idx, vis -> vm.setLayerVisible(idx, vis) },
                                 onOpacityChange = { idx, op -> vm.setLayerOpacity(idx, op) },
                                 onMoveLayer = { idx, dir -> vm.moveLayer(idx, dir) },
-                                onDeleteLayer = { idx -> vm.deleteLayer(idx) },
+                                onDeleteLayer = { idx -> layerConfirm = Pair(false, idx) },
                                 onToggleLock = { idx, locked -> vm.setLayerLocked(idx, locked) },
                                 onCycleBlend = { idx -> vm.layerUi.getOrNull(idx)?.let { vm.setLayerBlend(idx, it.blendMode.next()) } },
                                 onDuplicateLayer = { idx -> vm.duplicateLayer(idx) },
-                                onMergeDown = { idx -> vm.mergeLayerDown(idx) },
+                                onMergeDown = { idx -> layerConfirm = Pair(true, idx) },
+                                onRenameLayer = { idx -> renameLayerIndex = idx },
                                 maxListHeight = (maxHeight - 140.dp).coerceIn(80.dp, 280.dp),
                                 modifier = Modifier
                                     .align(if (isLeftHanded) Alignment.TopStart else Alignment.TopEnd)
@@ -793,6 +854,47 @@ fun EditorScreen(
         )
     }
 
+    renameLayerIndex?.let { idx ->
+        var text by remember(idx) { mutableStateOf(vm.layerUi.getOrNull(idx)?.name ?: "") }
+        WishyDialog(
+            title = stringResource(R.string.ui_rename_layer),
+            onDismissRequest = { renameLayerIndex = null },
+            confirmText = stringResource(R.string.action_ok),
+            onConfirm = {
+                vm.renameLayer(idx, text)
+                renameLayerIndex = null
+            },
+            dismissText = stringResource(R.string.action_cancel),
+            onDismiss = { renameLayerIndex = null }
+        ) {
+            androidx.compose.material3.OutlinedTextField(
+                value = text,
+                onValueChange = { text = it.take(40) },
+                singleLine = true
+            )
+        }
+    }
+
+    layerConfirm?.let { (isMerge, idx) ->
+        val layerName = vm.layerUi.getOrNull(idx)?.name ?: ""
+        WishyDialog(
+            title = if (isMerge) "Merge layer down?" else "Delete layer?",
+            onDismissRequest = { layerConfirm = null },
+            confirmText = if (isMerge) "Merge" else "Delete",
+            onConfirm = {
+                if (isMerge) vm.mergeLayerDown(idx) else vm.deleteLayer(idx)
+                layerConfirm = null
+            },
+            dismissText = stringResource(R.string.action_cancel),
+            onDismiss = { layerConfirm = null }
+        ) {
+            Text(
+                if (isMerge) "\"$layerName\" will be flattened into the layer below on every frame. This can't be undone."
+                else "\"$layerName\" and its drawings will be removed from every frame. This can't be undone."
+            )
+        }
+    }
+
     if (showDeleteFrameDialog) {
         WishyDialog(
             title = if (vm.frames.size <= 1) "Clear Frame?" else "Delete Frame?",
@@ -815,7 +917,7 @@ fun EditorScreen(
     if (showFpsDialog) {
         var fpsVal by remember { mutableStateOf(vm.project?.fps?.toFloat() ?: 12f) }
         WishyDialog(
-            title = "Project FPS",
+            title = stringResource(R.string.ui_project_fps),
             onDismissRequest = { showFpsDialog = false },
             confirmText = stringResource(R.string.action_ok),
             onConfirm = {
@@ -829,7 +931,7 @@ fun EditorScreen(
                 value = fpsVal,
                 onValueChange = { fpsVal = it },
                 valueRange = 1f..60f,
-                label = "Target FPS",
+                label = stringResource(R.string.ui_target_fps),
                 unit = " fps"
             )
         }
@@ -837,7 +939,7 @@ fun EditorScreen(
 
     if (showExportDialog) {
         WishyDialog(
-            title = "Export Animation",
+            title = stringResource(R.string.ui_export_animation),
             onDismissRequest = { showExportDialog = false },
             confirmText = stringResource(R.string.action_close),
             onConfirm = { showExportDialog = false }
@@ -846,21 +948,21 @@ fun EditorScreen(
                 TextButton(onClick = {
                     startExport(ExportFormat.MP4, -1)
                     showExportDialog = false
-                }) { Text("Export MP4 video") }
+                }) { Text(stringResource(R.string.ui_export_mp4_video)) }
                 TextButton(onClick = {
                     startExport(ExportFormat.GIF, -1)
                     showExportDialog = false
-                }) { Text("Export animated GIF") }
+                }) { Text(stringResource(R.string.ui_export_animated_gif)) }
                 TextButton(onClick = {
                     startExport(ExportFormat.PNG_SEQUENCE, -1)
                     showExportDialog = false
-                }) { Text("Export PNG sequence (ZIP)") }
+                }) { Text(stringResource(R.string.ui_export_png_sequence_zip)) }
                 TextButton(onClick = {
                     startExport(ExportFormat.PNG_CURRENT_FRAME, vm.currentIndex)
                     showExportDialog = false
-                }) { Text("Export current frame (PNG)") }
+                }) { Text(stringResource(R.string.ui_export_current_frame_png)) }
                 Text(
-                    "Video is exported without audio for now.",
+                    stringResource(R.string.ui_video_is_exported_without_audio_for_no),
                     style = MaterialTheme.typography.labelSmall,
                     color = tokens.onSurfaceVariant
                 )
@@ -870,38 +972,38 @@ fun EditorScreen(
 
     if (showImportDialog) {
         WishyDialog(
-            title = "Import Media",
+            title = stringResource(R.string.ui_import_media_2),
             onDismissRequest = { showImportDialog = false },
             confirmText = stringResource(R.string.action_close),
             onConfirm = { showImportDialog = false }
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
-                Text("Into the animation", style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
+                Text(stringResource(R.string.ui_into_the_animation), style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
                 TextButton(onClick = {
                     imageSequencePicker.launch("image/*")
                     showImportDialog = false
-                }) { Text("Images as new frames") }
+                }) { Text(stringResource(R.string.ui_images_as_new_frames)) }
                 TextButton(onClick = {
                     videoPicker.launch("video/*")
                     showImportDialog = false
-                }) { Text("Video as frames") }
+                }) { Text(stringResource(R.string.ui_video_as_frames)) }
                 TextButton(onClick = {
                     imageLayerPicker.launch("image/*")
                     showImportDialog = false
-                }) { Text("Image as a new layer on this frame") }
+                }) { Text(stringResource(R.string.ui_image_as_a_new_layer_on_this_frame)) }
                 TextButton(onClick = {
                     audioPicker.launch("audio/*")
                     showImportDialog = false
-                }) { Text("Audio track") }
-                Text("Customize", style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
+                }) { Text(stringResource(R.string.ui_audio_track)) }
+                Text(stringResource(R.string.ui_customize), style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
                 TextButton(onClick = {
                     brushPicker.launch("*/*")
                     showImportDialog = false
-                }) { Text("Brushes (PNG, ABR, GBR, KPP, Procreate...)") }
+                }) { Text(stringResource(R.string.ui_brushes_png_abr_gbr_kpp_procreate)) }
                 TextButton(onClick = {
                     fontPicker.launch("*/*")
                     showImportDialog = false
-                }) { Text("Fonts (.ttf / .otf)") }
+                }) { Text(stringResource(R.string.ui_fonts_ttf_otf)) }
             }
         }
     }
@@ -910,7 +1012,7 @@ fun EditorScreen(
         val s = vm.onionSkinSettings
         var onionOpacity by remember(s.opacity) { mutableStateOf(s.opacity * 100f) }
         WishyDialog(
-            title = "Onion Skin",
+            title = stringResource(R.string.ui_onion_skin_2),
             onDismissRequest = { showOnionSkinDialog = false },
             confirmText = stringResource(R.string.action_close),
             onConfirm = { showOnionSkinDialog = false }
@@ -923,7 +1025,7 @@ fun EditorScreen(
                         if (v != s.framesBefore) vm.updateOnionSkinSettings(s.copy(framesBefore = v))
                     },
                     valueRange = 0f..3f,
-                    label = "Frames before"
+                    label = stringResource(R.string.ui_frames_before)
                 )
                 WishySlider(
                     value = s.framesAfter.toFloat(),
@@ -932,13 +1034,13 @@ fun EditorScreen(
                         if (v != s.framesAfter) vm.updateOnionSkinSettings(s.copy(framesAfter = v))
                     },
                     valueRange = 0f..3f,
-                    label = "Frames after"
+                    label = stringResource(R.string.ui_frames_after)
                 )
                 WishySlider(
                     value = onionOpacity,
                     onValueChange = { onionOpacity = it },
                     valueRange = 5f..80f,
-                    label = "Opacity",
+                    label = stringResource(R.string.ui_opacity),
                     unit = "%",
                     onValueChangeFinished = {
                         vm.updateOnionSkinSettings(vm.onionSkinSettings.copy(opacity = onionOpacity / 100f))
@@ -950,7 +1052,7 @@ fun EditorScreen(
 
     if (showAudioDialog) {
         WishyDialog(
-            title = "Audio",
+            title = stringResource(R.string.ui_audio),
             onDismissRequest = { showAudioDialog = false },
             confirmText = stringResource(R.string.action_close),
             onConfirm = { showAudioDialog = false }
@@ -958,7 +1060,7 @@ fun EditorScreen(
             Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)) {
                 if (vm.audioTracks.isEmpty()) {
                     Text(
-                        "No audio yet. A track you add starts at the current frame.",
+                        stringResource(R.string.ui_no_audio_yet_a_track_you_add_starts_at),
                         color = tokens.onSurfaceVariant
                     )
                 }
@@ -975,7 +1077,7 @@ fun EditorScreen(
                         )
                         ActionIconButton(
                             iconRes = WishyIcons.Delete,
-                            contentDescription = "Remove audio",
+                            contentDescription = stringResource(R.string.ui_remove_audio),
                             onClick = { vm.deleteAudioTrack(track.id) }
                         )
                     }
@@ -983,7 +1085,7 @@ fun EditorScreen(
                 TextButton(onClick = {
                     audioPicker.launch("audio/*")
                     showAudioDialog = false
-                }) { Text("Add audio file") }
+                }) { Text(stringResource(R.string.ui_add_audio_file)) }
             }
         }
     }
@@ -994,7 +1096,7 @@ fun EditorScreen(
             vm.fontTypeface(vm.activeFontName)?.let { FontFamily(it) }
         }
         WishyDialog(
-            title = "Text Editor",
+            title = stringResource(R.string.ui_text_editor),
             onDismissRequest = { vm.dismissTextEditor() },
             confirmText = stringResource(R.string.action_ok),
             onConfirm = { vm.confirmText(textValue) },
@@ -1005,7 +1107,7 @@ fun EditorScreen(
                 OutlinedTextField(
                     value = textValue,
                     onValueChange = { textValue = it },
-                    label = { Text("Type here") },
+                    label = { Text(stringResource(R.string.ui_type_here)) },
                     // Shows the text in the chosen font, so the preview matches what gets drawn.
                     textStyle = TextStyle(
                         fontFamily = activeFamily,
@@ -1013,7 +1115,7 @@ fun EditorScreen(
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
-                Text("Font", style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
+                Text(stringResource(R.string.ui_font), style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1053,7 +1155,7 @@ fun EditorScreen(
                     }
                 }
                 TextButton(onClick = { fontPicker.launch("*/*") }) {
-                    Text("+ Import fonts (.ttf / .otf)")
+                    Text(stringResource(R.string.ui_import_fonts_ttf_otf))
                 }
             }
         }

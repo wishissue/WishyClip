@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -123,31 +125,31 @@ fun TimelineStrip(
             if (onToggleOnion != null) {
                 ActionIconButton(
                     iconRes = WishyIcons.Onion,
-                    contentDescription = "Onion skin",
+                    contentDescription = stringResource(R.string.ui_onion_skin),
                     selected = onionEnabled,
                     onClick = onToggleOnion
                 )
             }
-            ActionIconButton(iconRes = WishyIcons.Duplicate, contentDescription = "Duplicate frame", onClick = onDuplicateFrame)
-            ActionIconButton(iconRes = WishyIcons.Delete, contentDescription = "Delete frame", onClick = onDeleteRequested)
+            ActionIconButton(iconRes = WishyIcons.Duplicate, contentDescription = stringResource(R.string.ui_duplicate_frame), onClick = onDuplicateFrame)
+            ActionIconButton(iconRes = WishyIcons.Delete, contentDescription = stringResource(R.string.ui_delete_frame), onClick = onDeleteRequested)
             Box {
-                ActionIconButton(iconRes = WishyIcons.More, contentDescription = "More frame actions", onClick = { showMenu = true })
+                ActionIconButton(iconRes = WishyIcons.More, contentDescription = stringResource(R.string.ui_more_frame_actions), onClick = { showMenu = true })
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                     DropdownMenuItem(
-                        text = { Text("Copy frame") },
+                        text = { Text(stringResource(R.string.ui_copy_frame_2)) },
                         onClick = { showMenu = false; onCopyFrame() }
                     )
                     DropdownMenuItem(
-                        text = { Text("Paste frame") },
+                        text = { Text(stringResource(R.string.ui_paste_frame_2)) },
                         enabled = canPaste,
                         onClick = { showMenu = false; onPasteFrame() }
                     )
                     DropdownMenuItem(
-                        text = { Text("Audio") },
+                        text = { Text(stringResource(R.string.ui_audio)) },
                         onClick = { showMenu = false; onAudioRequested() }
                     )
                     DropdownMenuItem(
-                        text = { Text("Import media") },
+                        text = { Text(stringResource(R.string.ui_import_media)) },
                         onClick = { showMenu = false; onImportRequested() }
                     )
                 }
@@ -181,7 +183,7 @@ fun TimelineStrip(
                 ) {
                     Icon(
                         painter = painterResource(WishyIcons.Add),
-                        contentDescription = "Add frame",
+                        contentDescription = stringResource(R.string.ui_add_frame),
                         tint = tokens.onSurface,
                         modifier = Modifier.size(22.dp)
                     )

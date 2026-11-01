@@ -41,6 +41,10 @@ class BrushLibrary(private val store: BrushStore) {
         return b
     }
 
+    /** Adds the built-in starter pack (see [org.wishyclip.app.brush.StarterBrushes]). Returns how many were saved. */
+    fun installStarterPack(): Int =
+        org.wishyclip.app.brush.StarterBrushes.all().count { store.add(it) != null }
+
     /** Saves changed spacing/flow/scatter/... for an existing brush. */
     fun update(brush: StoredBrush) = store.update(brush)
 

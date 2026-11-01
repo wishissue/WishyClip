@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-WishaClip incorporates the following open-source libraries and assets:
+WishyClip incorporates the following open-source libraries and assets:
 
 - **AndroidX & Jetpack Compose**
   - License: Apache License 2.0

@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -44,6 +46,10 @@ enum class AspectPreset(val label: String, val width: Int, val height: Int) {
     CUSTOM("Custom", 1080, 1080)
 }
 
+/** Smallest and largest canvas side in pixels (4096 x 4096 is already 64 MB per painted layer). */
+private const val MIN_CANVAS_SIDE = 64
+private const val MAX_CANVAS_SIDE = 4096
+
 @Composable
 fun NewProjectScreen(
     onCreateProject: (name: String, width: Int, height: Int, fps: Int) -> Unit,
@@ -58,9 +64,12 @@ fun NewProjectScreen(
 
     val scrollState = rememberScrollState()
 
-    val widthInt = widthText.toIntOrNull() ?: 1080
-    val heightInt = heightText.toIntOrNull() ?: 1080
-    val estBytes = widthInt.toLong() * heightInt.toLong() * 4L * 5L
+    var creating by remember { mutableStateOf(false) } // stops a double tap from creating two projects
+    // Canvas sides are clamped: 0 or a huge value would crash when the project is opened (bitmap size / memory).
+    val widthInt = (widthText.toIntOrNull() ?: 1080).coerceIn(MIN_CANVAS_SIDE, MAX_CANVAS_SIDE)
+    val heightInt = (heightText.toIntOrNull() ?: 1080).coerceIn(MIN_CANVAS_SIDE, MAX_CANVAS_SIDE)
+    // Layers are sparse: only PAINTED layers use memory, one bitmap per layer per cached frame.
+    val estBytes = widthInt.toLong() * heightInt.toLong() * 4L
     val estMb = estBytes / (1024 * 1024)
 
     WishyTheme {
@@ -71,6 +80,8 @@ fun NewProjectScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .systemBarsPadding() // edge-to-edge: keep content clear of the status/gesture bars
+                    .imePadding()
                     .padding(tokens.spaceLarge)
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(tokens.spaceLarge)
@@ -95,12 +106,12 @@ fun NewProjectScreen(
 
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Project Name") },
+                    onValueChange = { name = it.take(60) },
+                    label = { Text(stringResource(R.string.ui_project_name)) },
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                SectionHeader(title = "Preset Canvas Size")
+                SectionHeader(title = stringResource(R.string.ui_preset_canvas_size))
                 Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)) {
                     for (p in AspectPreset.entries) {
                         TextButton(
@@ -128,37 +139,53 @@ fun NewProjectScreen(
                     ) {
                         OutlinedTextField(
                             value = widthText,
-                            onValueChange = { widthText = it },
-                            label = { Text("Width (px)") },
+                            onValueChange = { widthText = it.filter(Char::isDigit).take(4) },
+                            label = { Text(stringResource(R.string.ui_width_px)) },
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                            ),
                             modifier = Modifier.weight(1f)
                         )
                         OutlinedTextField(
                             value = heightText,
-                            onValueChange = { heightText = it },
-                            label = { Text("Height (px)") },
+                            onValueChange = { heightText = it.filter(Char::isDigit).take(4) },
+                            label = { Text(stringResource(R.string.ui_height_px)) },
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                            ),
                             modifier = Modifier.weight(1f)
                         )
                     }
+                    Text(
+                        text = "Each side: $MIN_CANVAS_SIDE to $MAX_CANVAS_SIDE px. Using ${widthInt} x ${heightInt}.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tokens.onSurfaceVariant
+                    )
                 }
 
-                SectionHeader(title = "Frame Rate")
+                SectionHeader(title = stringResource(R.string.ui_frame_rate))
                 WishySlider(
                     value = fps.toFloat(),
                     onValueChange = { fps = it.roundToInt() },
                     valueRange = 1f..60f,
-                    label = "Target FPS",
+                    label = stringResource(R.string.ui_target_fps),
                     unit = " fps"
                 )
 
                 Text(
-                    text = "Estimated Cache Memory: ~$estMb MB" + if (estMb > 120) " (Warning: High resolution requires 3GB+ RAM)" else "",
+                    text = "Each painted layer uses about $estMb MB per open frame. Empty layers use none." +
+                        if (estMb > 24) " High resolution: keep painted layers few." else "",
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (estMb > 120) tokens.danger else tokens.onSurfaceVariant
+                    color = if (estMb > 24) tokens.danger else tokens.onSurfaceVariant
                 )
 
                 Button(
+                    enabled = !creating && name.isNotBlank(),
                     onClick = {
-                        if (name.isNotBlank()) {
+                        if (!creating && name.isNotBlank()) {
+                            creating = true
                             onCreateProject(name.trim(), widthInt, heightInt, fps)
                         }
                     },

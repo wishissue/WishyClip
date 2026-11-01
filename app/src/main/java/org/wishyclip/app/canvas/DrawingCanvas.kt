@@ -84,6 +84,8 @@ fun DrawingCanvas(
     onStrokeMove: (Float, Float, Float, Float) -> Unit,
     onStrokeEnd: () -> Unit,
     onStrokeCancel: (() -> Unit)? = null,
+    /** When true, finger touches only pan/zoom/rotate the view; drawing needs a stylus or mouse. */
+    palmRejection: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
@@ -95,6 +97,7 @@ fun DrawingCanvas(
     val rulerChangeCb by rememberUpdatedState(onRulerChange)
     val mirrorCb by rememberUpdatedState(mirror)
     val cancelCb by rememberUpdatedState(onStrokeCancel)
+    val palmCb by rememberUpdatedState(palmRejection)
     val density = LocalDensity.current.density
 
     // Reused every frame instead of being reallocated.
@@ -128,7 +131,6 @@ fun DrawingCanvas(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFD9D9D9))
                 .onSizeChanged { newSize ->
                     val old = viewSize
                     if (old.width > 0 && old.height > 0 && newSize.width > 0 && newSize.height > 0 &&
@@ -204,10 +206,12 @@ fun DrawingCanvas(
                             return Offset(snapOut[0], snapOut[1])
                         }
                         val p0 = snap(rawP0)
-                        startCb(p0.x, p0.y, down.pressure, 0f)
+                        // Palm rejection: a finger contact never starts a stroke, it only navigates.
+                        val rejectTouch = palmCb && down.type == PointerType.Touch
+                        if (!rejectTouch) startCb(p0.x, p0.y, down.pressure, 0f)
                         down.consume()
 
-                        var transforming = false
+                        var transforming = rejectTouch
                         while (true) {
                             val event = awaitPointerEvent()
 
@@ -299,7 +303,7 @@ fun DrawingCanvas(
                             val factor = (1f - (ghost.distance - 1) * 0.25f).coerceAtLeast(0.2f)
                             val alpha = (onion.settings.opacity * factor).coerceIn(0.01f, 1f)
                             for (layer in ghost.layers) {
-                                if (!layer.visible) continue
+                                if (!layer.visible || !layer.allocated) continue
                                 ghostPaint.alpha = (layer.opacity * alpha * 255f).toInt().coerceIn(0, 255)
                                 nativeCanvas.drawBitmap(layer.bitmap, null, dst, ghostPaint)
                             }
@@ -313,10 +317,13 @@ fun DrawingCanvas(
                 val live = strokeOverlay()
                 for (layer in layers()) {
                     if (!layer.visible) continue
-                    layerPaint.alpha = (layer.opacity * 255f).toInt().coerceIn(0, 255)
-                    LayerBlending.apply(layerPaint, layer.blendMode)
-                    nativeCanvas.drawBitmap(layer.bitmap, null, dst, layerPaint)
-                    layerPaint.xfermode = null
+                    // Empty layers have no bitmap: nothing to draw (the live stroke below still can).
+                    if (layer.allocated) {
+                        layerPaint.alpha = (layer.opacity * 255f).toInt().coerceIn(0, 255)
+                        LayerBlending.apply(layerPaint, layer.blendMode)
+                        nativeCanvas.drawBitmap(layer.bitmap, null, dst, layerPaint)
+                        layerPaint.xfermode = null
+                    }
                     if (live != null && live.layerId == layer.id) {
                         val o = live.overlay
                         srcRect.set(o.dirty)

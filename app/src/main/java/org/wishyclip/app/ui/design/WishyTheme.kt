@@ -8,7 +8,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 
-val LocalWishyTokens = staticCompositionLocalOf { WishyTokens() }
+val LocalWishyTokens = staticCompositionLocalOf { org.wishyclip.app.ui.design.themes.WishyLightTokens }
 
 object WishyTheme {
     val tokens: WishyTokens

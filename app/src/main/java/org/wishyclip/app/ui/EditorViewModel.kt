@@ -159,10 +159,15 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     private val lassoTool = StandardLassoTool()
     private val audioManager = org.wishyclip.app.audio.MultiTrackAudioPlayer(app)
     private val saveMutex = Mutex()
+    /** Serialises the "mirror this layer change to the other frames" jobs so they run in order. */
+    private val layerMirrorMutex = Mutex()
+    private val pendingMetaSources = LinkedHashSet<Long>()
+    private var metaTicket = 0
     private var smoothedX = 0f
     private var smoothedY = 0f
     private var saveTicket = 0
     private var playJob: Job? = null
+    private var playPrefetchJob: Job? = null
     private var prefetchJob: Job? = null
     private enum class Gesture { NONE, SELECTING, MOVE, SCALE, ROTATE, TEXT_TAP }
     private var gesture = Gesture.NONE
@@ -203,6 +208,11 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         opacity = settings.brushOpacity.first()
         onionSkinSettings = settings.onionSettings.first()
         audioTracks = repo.getAudioTracks(projectId)
+        // First run of a new pack version: install the starter brushes once (users can delete them).
+        if (settings.starterBrushVersion.first() < org.wishyclip.app.brush.StarterBrushes.VERSION) {
+            withContext(Dispatchers.IO) { wishy.brushLibrary.installStarterPack() }
+            settings.saveStarterBrushVersion(org.wishyclip.app.brush.StarterBrushes.VERSION)
+        }
         customBrushes = withContext(Dispatchers.IO) { wishy.brushLibrary.list() }
         currentIndex = 0
         ensureLoaded(list[0].id)
@@ -218,7 +228,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         frames.getOrNull(currentIndex)?.let { cache[it.id] }
 
     fun currentLayers(): List<LayerData> = currentFrameData()?.layers?.map {
-        LayerData(it.id, it.name, it.visible, it.opacity, it.bitmap, it.locked, it.blendMode).apply {
+        LayerData(it.id, it.name, it.visible, it.opacity, it.peekBitmap(), it.locked, it.blendMode).apply {
             version = it.version
             savedVersion = it.savedVersion
         }
@@ -236,24 +246,51 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                 val layers = entities.map {
                     LayerData(
                         it.id, it.name, it.visible, it.opacity,
-                        store.load(projectId, it.id, p.width, p.height),
-                        it.locked, LayerBlend.from(it.blendMode)
+                        // No file = blank layer: keep it empty (no bitmap) until it is painted.
+                        if (store.hasLayer(projectId, it.id)) store.load(projectId, it.id, p.width, p.height) else null,
+                        it.locked, LayerBlend.from(it.blendMode),
+                        allocator = { Bitmap.createBitmap(p.width, p.height, Bitmap.Config.ARGB_8888) }
                     )
                 }
                 FrameData(frameId, layers.toMutableList())
             }
         }
         val existing = cache[frameId]
-        if (existing != null) return existing
+        if (existing != null) {
+            data.release() // lost a race with another loader: free the duplicate pixels
+            return existing
+        }
         cache[frameId] = data
         return data
     }
+
+    /** Pixel memory the frame cache may hold: 40% of the app heap limit (the rest is undo, UI, exports). */
+    private fun cacheBudgetBytes(): Long = (Runtime.getRuntime().maxMemory() * 0.4).toLong()
 
     private fun trimCache() {
         val maxRange = maxOf(2, onionSkinSettings.framesBefore, onionSkinSettings.framesAfter)
         val keep = HashSet<Long>()
         for (i in (currentIndex - maxRange)..(currentIndex + maxRange)) {
             frames.getOrNull(i)?.let { keep.add(it.id) }
+        }
+        // While playing, also keep the frames about to be shown (wrapping around at the end).
+        if (isPlaying && frames.isNotEmpty()) {
+            for (d in 1..PLAY_AHEAD) frames.getOrNull((currentIndex + d) % frames.size)?.let { keep.add(it.id) }
+        }
+        // Memory budget: if the kept frames hold too many pixels, drop the farthest ones first,
+        // but always keep the current frame and its direct neighbours (onion skin, quick flipping).
+        var used = cache.values.filter { it.frameId in keep }.sumOf { it.allocatedBytes() }
+        if (used > cacheBudgetBytes()) {
+            val byDistance = cache.values
+                .filter { it.frameId in keep }
+                .sortedByDescending { Math.abs(frames.indexOfFirst { f -> f.id == it.frameId } - currentIndex) }
+            for (fd in byDistance) {
+                if (used <= cacheBudgetBytes()) break
+                val distance = Math.abs(frames.indexOfFirst { f -> f.id == fd.frameId } - currentIndex)
+                if (distance <= 1) continue
+                keep.remove(fd.frameId)
+                used -= fd.allocatedBytes()
+            }
         }
         val evicted = cache.values.filter { it.frameId !in keep }
         if (evicted.isEmpty()) return
@@ -264,11 +301,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         viewModelScope.launch {
             for (fd in evicted) {
                 persistFrame(fd)
-                fd.layers.forEach { layer ->
-                    if (!layer.bitmap.isRecycled) {
-                        layer.bitmap.recycle()
-                    }
-                }
+                fd.release()
             }
         }
     }
@@ -278,6 +311,8 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         prefetchJob = viewModelScope.launch {
             val maxRange = maxOf(2, onionSkinSettings.framesBefore, onionSkinSettings.framesAfter)
             for (d in 1..maxRange) {
+                // Beyond the direct neighbours, stop loading when the pixel budget is already used up.
+                if (d > 1 && cache.values.sumOf { it.allocatedBytes() } > cacheBudgetBytes()) break
                 frames.getOrNull(center + d)?.let { ensureLoaded(it.id) }
                 frames.getOrNull(center - d)?.let { ensureLoaded(it.id) }
             }
@@ -303,7 +338,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         refreshLayerUi()
         revision++
         trimCache()
-        prefetch(index)
+        if (!isPlaying) prefetch(index) // playback has its own, uncancelled look-ahead loader
     }
 
     fun addFrame() {
@@ -350,7 +385,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             val evictedFd = cache.remove(frame.id)
             undoManager.dropFrame(frame.id)
             syncUndoFlags()
-            evictedFd?.layers?.forEach { if (!it.bitmap.isRecycled) it.bitmap.recycle() }
+            evictedFd?.release()
             repo.deleteFrame(frame)
             frames = repo.frames(projectId)
             val newIndex = currentIndex.coerceAtMost(frames.lastIndex)
@@ -390,6 +425,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val fd = currentFrameData() ?: return
         val frameId = fd.frameId
         for (layer in fd.layers) {
+            if (!layer.allocated) continue // already blank, nothing to clear or undo
             undoManager.push(UndoEntry(frameId, layer.id, layer.bitmap.snapshot()))
             BitmapOps.clear(layer.bitmap)
             layer.version++
@@ -414,12 +450,29 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         if (strokeLayer != null || frames.size < 2) return
         isPlaying = true
         audioManager.sync(audioTracks, timelineFrameOf(currentIndex), (project?.fps ?: 12).coerceAtLeast(1))
+        // Look-ahead loader: runs for the whole playback and is NOT cancelled on every tick (the normal
+        // prefetch is, which at 60 fps meant frames never finished loading and the tick had to wait).
+        playPrefetchJob = viewModelScope.launch {
+            while (isActive && isPlaying) {
+                val size = frames.size
+                if (size > 0) {
+                    for (d in 1..PLAY_AHEAD) {
+                        if (!isPlaying) break
+                        // Past the next frame, stop when the pixel budget is already used up.
+                        if (d > 1 && cache.values.sumOf { it.allocatedBytes() } > cacheBudgetBytes()) break
+                        frames.getOrNull((currentIndex + d) % size)?.let { ensureLoaded(it.id) }
+                    }
+                }
+                delay(6)
+            }
+        }
         playJob = viewModelScope.launch {
             val fps = (project?.fps ?: 12).coerceAtLeast(1)
-            val frameMs = 1000L / fps
+            // Absolute schedule (see PlaybackClock). The old code waited 1000 / fps whole milliseconds
+            // (24 fps -> 41 ms, 60 fps -> 16 ms), which played up to 4% too fast and drifted.
+            val clock = org.wishyclip.app.canvas.PlaybackClock(fps, SystemClock.elapsedRealtimeNanos())
             var holdTicks = 0
             while (isActive && isPlaying) {
-                val t0 = SystemClock.elapsedRealtime()
                 val currentFrame = frames.getOrNull(currentIndex)
                 val requiredHold = currentFrame?.exposureDuration ?: 1
                 holdTicks++
@@ -429,8 +482,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                     gotoFrame(next)
                     audioManager.sync(audioTracks, timelineFrameOf(next), fps)
                 }
-                val spent = SystemClock.elapsedRealtime() - t0
-                delay((frameMs - spent).coerceAtLeast(1L))
+                delay(clock.delayAfterTick(SystemClock.elapsedRealtimeNanos()))
             }
         }
     }
@@ -440,6 +492,8 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         audioManager.pauseAll()
         playJob?.cancel()
         playJob = null
+        playPrefetchJob?.cancel()
+        playPrefetchJob = null
     }
 
     // ---------------------------------------------------------------- tools
@@ -667,7 +721,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             val src = Rect(ix, iy, ix + 1, iy + 1)
             val dst = Rect(0, 0, 1, 1)
             for (layer in currentLayers()) {
-                if (!layer.visible || layer.opacity <= 0f || layer.bitmap.isRecycled) continue
+                if (!layer.visible || layer.opacity <= 0f || !layer.allocated) continue
                 paint.alpha = (layer.opacity * 255f).toInt().coerceIn(0, 255)
                 LayerBlending.apply(paint, layer.blendMode)
                 c.drawBitmap(layer.bitmap, src, dst, paint)
@@ -679,6 +733,13 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         toolBeforeEyedropper?.let { tool = it }
         toolBeforeEyedropper = null
     }
+
+    /**
+     * True while [layer] is still part of the loaded frame [frameId]. After eviction or deletion a layer's
+     * bitmap getter would quietly create a new blank bitmap, so "is the bitmap recycled" no longer tells.
+     */
+    private fun isLive(frameId: Long, layer: LayerData): Boolean =
+        cache[frameId]?.layers?.any { it === layer } == true
 
     fun executeFill(x: Float, y: Float) {
         if (isPlaying) return
@@ -696,8 +757,15 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val fx = x.toInt()
         val fy = y.toInt()
         viewModelScope.launch {
-            val before = layer.bitmap.snapshot()
-            val work = layer.bitmap.copy(Bitmap.Config.ARGB_8888, true)
+            val before: Bitmap
+            val work: Bitmap?
+            try {
+                before = layer.bitmap.snapshot()
+                work = layer.bitmap.copy(Bitmap.Config.ARGB_8888, true)
+            } catch (e: OutOfMemoryError) {
+                showMessage("Not enough memory to fill this layer")
+                return@launch
+            }
             if (work == null) {
                 before.recycle()
                 return@launch
@@ -706,7 +774,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                 ScanlineFillTool().fill(work, fx, fy, fillColor, tolerance)
             }
             // The layer may have been edited, deleted or evicted while the fill was computed.
-            if (!changed || layer.bitmap.isRecycled || layer.version != startVersion) {
+            if (!changed || !isLive(frameId, layer) || layer.version != startVersion) {
                 before.recycle()
                 work.recycle()
                 return@launch
@@ -741,6 +809,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                 return@launch
             }
             commitLassoSelection()
+            val countBefore = fd.layers.size
             val entity = repo.addLayer(fd.frameId, fd.layers.size, "Image ${fd.layers.size + 1}")
             val layer = LayerData(entity.id, entity.name, true, 1f, bmp)
             layer.version++ // makes the pixels dirty so they are written on the next save
@@ -750,6 +819,8 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             refreshLayerUi()
             revision++
             scheduleSave()
+            // The picture lives on this frame; other frames get an empty layer so the stack stays shared.
+            mirrorLayerOp { mirrorAdd(fd.frameId, countBefore, entity.name) }
             showMessage("Added image as a new layer")
         }
     }
@@ -784,7 +855,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     private suspend fun flushAndEvict(fd: FrameData) {
         persistFrame(fd)
         cache.remove(fd.frameId)
-        fd.layers.forEach { if (!it.bitmap.isRecycled) it.bitmap.recycle() }
+        fd.release()
     }
 
     private var importJob: Job? = null
@@ -1259,9 +1330,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun copyFrame() {
         val fd = currentFrameData() ?: return
-        val copiedLayers = fd.layers.map { l ->
-            LayerData(l.id, l.name, l.visible, l.opacity, l.bitmap.snapshot(), l.locked, l.blendMode)
-        }
+        val copiedLayers = fd.layers.map { it.deepCopy() }
         copiedFrameData = FrameData(fd.frameId, copiedLayers.toMutableList())
         revision++
     }
@@ -1280,8 +1349,11 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             val fd = ensureLoaded(newFrame.id)
             for (i in copy.layers.indices) {
                 if (i in fd.layers.indices) {
-                    BitmapOps.replace(fd.layers[i].bitmap, copy.layers[i].bitmap)
-                    fd.layers[i].version++
+                    val src = copy.layers[i]
+                    if (src.allocated) {
+                        BitmapOps.replace(fd.layers[i].bitmap, src.bitmap)
+                        fd.layers[i].version++
+                    }
                 }
             }
             frames = repo.frames(projectId)
@@ -1341,7 +1413,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             return
         }
         val layer = activeLayer() ?: return
-        if (!layer.visible) return
+        if (!layer.visible) {
+            showMessage("This layer is hidden. Show it to draw on it.")
+            return
+        }
         val frameId = frames.getOrNull(currentIndex)?.id ?: return
         strokeLayer = layer
         strokeFrameId = frameId
@@ -1357,7 +1432,14 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         if (tool == Tool.CUSTOM && dab == null) {
             showMessage("This brush's tip is missing - delete it and import it again")
         }
-        renderer.begin(layer.bitmap, tool, color, brushSize, opacity, x, y, pressure, tilt, mirrorMode, dab)
+        try {
+            // First touch on an empty (sparse) layer allocates its bitmap here.
+            renderer.begin(layer.bitmap, tool, color, brushSize, opacity, x, y, pressure, tilt, mirrorMode, dab)
+        } catch (e: OutOfMemoryError) {
+            strokeLayer = null
+            showMessage("Not enough memory to draw on this layer. Close other apps or use a smaller canvas.")
+            return
+        }
         revision++
     }
 
@@ -1550,49 +1632,87 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun addLayer() {
         val fd = currentFrameData() ?: return
         val p = project ?: return
+        if (fd.layers.size >= MAX_LAYERS) {
+            showMessage("Layer limit reached ($MAX_LAYERS per frame)")
+            return
+        }
+        val countBefore = fd.layers.size
         viewModelScope.launch {
             val entity = repo.addLayer(fd.frameId, fd.layers.size, "Layer ${fd.layers.size + 1}")
-            val bmp = Bitmap.createBitmap(p.width, p.height, Bitmap.Config.ARGB_8888)
-            fd.layers.add(LayerData(entity.id, entity.name, true, 1f, bmp))
+            // Sparse: the new layer holds no memory until something is drawn on it.
+            fd.layers.add(
+                LayerData(
+                    entity.id, entity.name, true, 1f, null,
+                    allocator = { Bitmap.createBitmap(p.width, p.height, Bitmap.Config.ARGB_8888) }
+                )
+            )
             fd.metaVersion++
             activeLayerIndex = fd.layers.lastIndex
             refreshLayerUi()
             revision++
             scheduleSave()
+            mirrorLayerOp { mirrorAdd(fd.frameId, countBefore, entity.name) }
         }
     }
 
     fun deleteLayer(index: Int) {
         val fd = currentFrameData() ?: return
         if (fd.layers.size <= 1 || index !in fd.layers.indices || strokeLayer != null) return
+        val countBefore = fd.layers.size
         val layer = fd.layers.removeAt(index)
         undoManager.dropLayer(layer.id)
         syncUndoFlags()
-        if (!layer.bitmap.isRecycled) {
-            layer.bitmap.recycle()
-        }
+        layer.release()
         fd.metaVersion++
         activeLayerIndex = activeLayerIndex.coerceIn(0, fd.layers.lastIndex)
         refreshLayerUi()
         revision++
         viewModelScope.launch { repo.deleteLayer(projectId, layer.id) }
         scheduleSave()
+        mirrorLayerOp { mirrorDelete(fd.frameId, countBefore, index) }
     }
 
     fun duplicateLayer(index: Int) {
         val fd = currentFrameData() ?: return
         val source = fd.layers.getOrNull(index) ?: return
+        if (fd.layers.size >= MAX_LAYERS) {
+            showMessage("Layer limit reached ($MAX_LAYERS per frame)")
+            return
+        }
+        val countBefore = fd.layers.size
         viewModelScope.launch {
             val entity = repo.addLayer(fd.frameId, fd.layers.size, "${source.name} (Copy)")
-            val bmp = source.bitmap.snapshot()
-            val newLayer = LayerData(entity.id, entity.name, source.visible, source.opacity, bmp, source.locked, source.blendMode)
+            val bmp = source.peekBitmap()?.snapshot()
+            val newLayer = LayerData(
+                entity.id, entity.name, source.visible, source.opacity, bmp, source.locked, source.blendMode,
+                source.allocator
+            )
+            // BUG FIX: the copy was never marked dirty, so its pixels were not written to disk and the
+            // duplicate came back blank after the frame was evicted or the app restarted.
+            if (bmp != null) newLayer.version++
             fd.layers.add(index + 1, newLayer)
             fd.metaVersion++
             activeLayerIndex = index + 1
             refreshLayerUi()
             revision++
             scheduleSave()
+            // Other frames get an empty copy with the same settings (pixels are only copied on this frame).
+            val snap = LayerMetaSnap(entity.name, source.visible, source.opacity, source.locked, source.blendMode)
+            mirrorLayerOp { mirrorInsert(fd.frameId, countBefore, index + 1, snap) }
         }
+    }
+
+    /** Renames a layer in every frame. */
+    fun renameLayer(index: Int, name: String) {
+        val fd = currentFrameData() ?: return
+        val layer = fd.layers.getOrNull(index) ?: return
+        val clean = name.trim().take(40)
+        if (clean.isEmpty() || clean == layer.name) return
+        layer.name = clean
+        fd.metaVersion++
+        refreshLayerUi()
+        scheduleSave()
+        mirrorLayerMeta()
     }
 
     fun setLayerVisible(index: Int, visible: Boolean) {
@@ -1603,6 +1723,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         refreshLayerUi()
         revision++
         scheduleSave()
+        mirrorLayerMeta()
     }
 
     fun setLayerOpacity(index: Int, value: Float) {
@@ -1613,6 +1734,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         refreshLayerUi()
         revision++
         scheduleSave()
+        mirrorLayerMeta()
     }
 
     fun setLayerLocked(index: Int, locked: Boolean) {
@@ -1623,6 +1745,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         refreshLayerUi()
         revision++
         scheduleSave()
+        mirrorLayerMeta()
     }
 
     fun setLayerBlend(index: Int, blend: LayerBlend) {
@@ -1633,6 +1756,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         refreshLayerUi()
         revision++
         scheduleSave()
+        mirrorLayerMeta()
     }
 
     /** Flattens the layer at [index] into the one below it (cannot be undone). */
@@ -1640,6 +1764,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val fd = currentFrameData() ?: return
         if (strokeLayer != null || index !in 1..fd.layers.lastIndex) return
         commitLassoSelection()
+        val countBefore = fd.layers.size
         val upper = fd.layers[index]
         val lower = fd.layers[index - 1]
         if (lower.locked) {
@@ -1650,7 +1775,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             showMessage("Set the blend mode to Normal to merge")
             return
         }
-        if (upper.visible && upper.opacity > 0f) {
+        if (upper.visible && upper.opacity > 0f && upper.allocated) {
             val paint = Paint(Paint.FILTER_BITMAP_FLAG)
             paint.alpha = (upper.opacity * 255f).toInt().coerceIn(0, 255)
             Canvas(lower.bitmap).drawBitmap(upper.bitmap, 0f, 0f, paint)
@@ -1660,7 +1785,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         undoManager.dropLayer(upper.id)
         undoManager.dropLayer(lower.id)
         syncUndoFlags()
-        if (!upper.bitmap.isRecycled) upper.bitmap.recycle()
+        upper.release()
         fd.metaVersion++
         activeLayerIndex = (if (activeLayerIndex >= index) activeLayerIndex - 1 else activeLayerIndex)
             .coerceIn(0, fd.layers.lastIndex)
@@ -1669,6 +1794,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         viewModelScope.launch { repo.deleteLayer(projectId, upper.id) }
         scheduleSave()
         showMessage("Layers merged")
+        mirrorLayerOp { mirrorMerge(fd.frameId, countBefore, index) }
     }
 
     /** [delta] +1 moves the layer up (towards the top of the stack), -1 down. */
@@ -1676,10 +1802,246 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val fd = currentFrameData() ?: return
         val target = index + delta
         if (index !in fd.layers.indices || target !in fd.layers.indices) return
+        val countBefore = fd.layers.size
         val layer = fd.layers.removeAt(index)
         fd.layers.add(target, layer)
         if (activeLayerIndex == index) activeLayerIndex = target
         fd.metaVersion++
+        refreshLayerUi()
+        revision++
+        scheduleSave()
+        mirrorLayerOp { mirrorMove(fd.frameId, countBefore, index, target) }
+    }
+
+    // ------------------------------------------------ layers shared by all frames
+    //
+    // A layer is one stack position across the whole animation: adding, deleting, moving, hiding,
+    // renaming ... a layer on one frame applies to every frame. Empty layers cost no memory (sparse
+    // layers), so this is cheap. A frame only follows when its stack has the same size as the one
+    // that changed (older projects may differ; those frames are left alone instead of guessed at).
+
+    private data class LayerMetaSnap(
+        val name: String,
+        val visible: Boolean,
+        val opacity: Float,
+        val locked: Boolean,
+        val blendMode: LayerBlend
+    )
+
+    /** Runs a mirroring step after earlier ones (FIFO), off the caller's path. */
+    private fun mirrorLayerOp(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            layerMirrorMutex.withLock {
+                try {
+                    block()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    showMessage("Could not update layers on other frames")
+                }
+            }
+        }
+    }
+
+    /** Other frames whose layer stack still has [expectedCount] layers. */
+    private suspend fun framesMirroring(sourceFrameId: Long, expectedCount: Int): List<FrameEntity> =
+        frames.filter { f ->
+            f.id != sourceFrameId &&
+                (cache[f.id]?.layers?.size ?: repo.layers(f.id).size) == expectedCount
+        }
+
+    private suspend fun mirrorAdd(sourceFrameId: Long, countBefore: Int, name: String) {
+        val p = project ?: return
+        for (f in framesMirroring(sourceFrameId, countBefore)) {
+            val entity = repo.addLayer(f.id, countBefore, name)
+            cache[f.id]?.let { fd ->
+                fd.layers.add(
+                    LayerData(
+                        entity.id, entity.name, true, 1f, null,
+                        allocator = { Bitmap.createBitmap(p.width, p.height, Bitmap.Config.ARGB_8888) }
+                    )
+                )
+                fd.metaVersion++
+            }
+        }
+        scheduleSave()
+    }
+
+    private suspend fun mirrorDelete(sourceFrameId: Long, countBefore: Int, index: Int) {
+        for (f in framesMirroring(sourceFrameId, countBefore)) {
+            val cached = cache[f.id]
+            if (cached != null) {
+                val victim = cached.layers.getOrNull(index) ?: continue
+                cached.layers.removeAt(index)
+                undoManager.dropLayer(victim.id)
+                victim.release()
+                cached.metaVersion++
+                repo.deleteLayer(projectId, victim.id)
+            } else {
+                val rows = repo.layers(f.id).sortedBy { it.position }
+                val victim = rows.getOrNull(index) ?: continue
+                repo.deleteLayer(projectId, victim.id)
+                repo.saveLayers(rows.filter { it.id != victim.id }.mapIndexed { i, e -> e.copy(position = i) })
+            }
+        }
+        syncUndoFlags()
+        scheduleSave()
+    }
+
+    private suspend fun mirrorInsert(sourceFrameId: Long, countBefore: Int, at: Int, snap: LayerMetaSnap) {
+        val p = project ?: return
+        for (f in framesMirroring(sourceFrameId, countBefore)) {
+            val entity = repo.addLayer(f.id, countBefore, snap.name)
+            val cached = cache[f.id]
+            if (cached != null) {
+                val layer = LayerData(
+                    entity.id, snap.name, snap.visible, snap.opacity, null, snap.locked, snap.blendMode,
+                    allocator = { Bitmap.createBitmap(p.width, p.height, Bitmap.Config.ARGB_8888) }
+                )
+                cached.layers.add(at.coerceIn(0, cached.layers.size), layer)
+                cached.metaVersion++
+            } else {
+                val rows = repo.layers(f.id).sortedBy { it.position }.toMutableList()
+                val created = rows.firstOrNull { it.id == entity.id } ?: continue
+                rows.remove(created)
+                rows.add(
+                    at.coerceIn(0, rows.size),
+                    created.copy(
+                        visible = snap.visible, opacity = snap.opacity, locked = snap.locked,
+                        blendMode = snap.blendMode.name
+                    )
+                )
+                repo.saveLayers(rows.mapIndexed { i, e -> e.copy(position = i) })
+            }
+        }
+        scheduleSave()
+    }
+
+    private suspend fun mirrorMove(sourceFrameId: Long, countBefore: Int, from: Int, to: Int) {
+        for (f in framesMirroring(sourceFrameId, countBefore)) {
+            val cached = cache[f.id]
+            if (cached != null) {
+                if (from !in cached.layers.indices || to !in cached.layers.indices) continue
+                cached.layers.add(to, cached.layers.removeAt(from))
+                cached.metaVersion++
+            } else {
+                val rows = repo.layers(f.id).sortedBy { it.position }.toMutableList()
+                if (from !in rows.indices || to !in rows.indices) continue
+                rows.add(to, rows.removeAt(from))
+                repo.saveLayers(rows.mapIndexed { i, e -> e.copy(position = i) })
+            }
+        }
+        scheduleSave()
+    }
+
+    /** Flattens [index] into the layer below on every other frame (loads each frame in turn). */
+    private suspend fun mirrorMerge(sourceFrameId: Long, countBefore: Int, index: Int) {
+        for (f in framesMirroring(sourceFrameId, countBefore)) {
+            val fd = ensureLoaded(f.id)
+            if (index !in 1..fd.layers.lastIndex) continue
+            val upper = fd.layers[index]
+            val lower = fd.layers[index - 1]
+            if (upper.visible && upper.opacity > 0f && upper.allocated) {
+                val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+                paint.alpha = (upper.opacity * 255f).toInt().coerceIn(0, 255)
+                Canvas(lower.bitmap).drawBitmap(upper.bitmap, 0f, 0f, paint)
+                lower.version++
+            }
+            fd.layers.removeAt(index)
+            undoManager.dropLayer(upper.id)
+            undoManager.dropLayer(lower.id)
+            upper.release()
+            fd.metaVersion++
+            repo.deleteLayer(projectId, upper.id)
+            persistFrame(fd)
+            // Do not let a long merge pull the whole animation into memory.
+            val distance = Math.abs(frames.indexOfFirst { it.id == f.id } - currentIndex)
+            if (distance > 2) cache.remove(f.id)?.release()
+        }
+        syncUndoFlags()
+    }
+
+    /**
+     * Copies the current frame's layer settings (name, visibility, opacity, lock, blend) to all frames.
+     * Debounced: dragging an opacity slider must not write to every frame on every change. The snapshot is
+     * taken when the copy RUNS (not when it was requested), and runs are never cancelled half way, so quick
+     * edits on two different frames cannot overwrite each other with stale values.
+     */
+    private fun mirrorLayerMeta() {
+        val sourceId = currentFrameData()?.frameId ?: return
+        pendingMetaSources.add(sourceId)
+        metaTicket += 1
+        val ticket = metaTicket
+        viewModelScope.launch {
+            delay(350)
+            if (ticket == metaTicket) runPendingMetaMirrors()
+        }
+    }
+
+    /** Runs every pending settings copy now, after any earlier queued layer operations (FIFO). */
+    private suspend fun runPendingMetaMirrors() {
+        layerMirrorMutex.withLock {
+            while (pendingMetaSources.isNotEmpty()) {
+                val sourceId = pendingMetaSources.first()
+                pendingMetaSources.remove(sourceId)
+                try {
+                    val snaps = metaSnapsOf(sourceId) ?: continue
+                    mirrorMetaNow(sourceId, snaps)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    showMessage("Could not update layers on other frames")
+                }
+            }
+        }
+    }
+
+    /** Layer settings of [frameId] as they are right now (memory if loaded, otherwise the database). */
+    private suspend fun metaSnapsOf(frameId: Long): List<LayerMetaSnap>? {
+        cache[frameId]?.let { fd ->
+            return fd.layers.map { LayerMetaSnap(it.name, it.visible, it.opacity, it.locked, it.blendMode) }
+        }
+        val rows = repo.layers(frameId).sortedBy { it.position }
+        if (rows.isEmpty()) return null
+        return rows.map { LayerMetaSnap(it.name, it.visible, it.opacity, it.locked, LayerBlend.from(it.blendMode)) }
+    }
+
+    /** Finishes all pending layer syncing; call before leaving the editor or exporting. */
+    private suspend fun settleLayerMirrors() {
+        runPendingMetaMirrors()
+    }
+
+    private suspend fun mirrorMetaNow(sourceId: Long, snaps: List<LayerMetaSnap>) {
+        for (f in frames) {
+            if (f.id == sourceId) continue
+            val cached = cache[f.id]
+            if (cached != null) {
+                if (cached.layers.size != snaps.size) continue
+                var changed = false
+                cached.layers.forEachIndexed { i, l ->
+                    val s = snaps[i]
+                    if (l.name != s.name || l.visible != s.visible || l.opacity != s.opacity ||
+                        l.locked != s.locked || l.blendMode != s.blendMode
+                    ) {
+                        l.name = s.name; l.visible = s.visible; l.opacity = s.opacity
+                        l.locked = s.locked; l.blendMode = s.blendMode
+                        changed = true
+                    }
+                }
+                if (changed) cached.metaVersion++
+            } else {
+                val rows = repo.layers(f.id).sortedBy { it.position }
+                if (rows.size != snaps.size) continue
+                val updated = rows.mapIndexed { i, e ->
+                    val s = snaps[i]
+                    e.copy(
+                        name = s.name, visible = s.visible, opacity = s.opacity,
+                        locked = s.locked, blendMode = s.blendMode.name
+                    )
+                }
+                if (updated != rows) repo.saveLayers(updated)
+            }
+        }
         refreshLayerUi()
         revision++
         scheduleSave()
@@ -1711,7 +2073,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         if (dirtyLayers.isEmpty() && !metaDirty) return false
         val pid = projectId
         // Copies are taken on the calling (main) thread so the IO thread never reads a bitmap being drawn on.
-        val copies = dirtyLayers.map { Triple(it, it.version, it.bitmap.snapshot()) }
+        val copies = dirtyLayers.filter { it.allocated }.map { Triple(it, it.version, it.bitmap.snapshot()) }
         val metaVersion = fd.metaVersion
         val metas = fd.layers.mapIndexed { i, l ->
             LayerEntity(
@@ -1735,6 +2097,8 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             }
         }
         for ((layer, version, _) in copies) layer.savedVersion = version
+        // Empty layers have nothing to write (and no file): they are simply up to date.
+        dirtyLayers.filter { !it.allocated }.forEach { it.savedVersion = it.version }
         fd.metaSavedVersion = metaVersion
         return true
     }
@@ -1749,7 +2113,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val paint = Paint(Paint.FILTER_BITMAP_FLAG)
         val dst = Rect(0, 0, tw, th)
         for (l in fd.layers) {
-            if (!l.visible) continue
+            if (!l.visible || !l.allocated) continue
             paint.alpha = (l.opacity * 255f).toInt().coerceIn(0, 255)
             LayerBlending.apply(paint, l.blendMode)
             canvas.drawBitmap(l.bitmap, null, dst, paint)
@@ -1761,7 +2125,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun onHostStop() {
         commitLassoSelection()
         stopPlay()
-        viewModelScope.launch { saveAll() }
+        viewModelScope.launch {
+            settleLayerMirrors()
+            saveAll()
+        }
     }
 
     /**
@@ -1772,6 +2139,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         commitLassoSelection()
         stopPlay()
         viewModelScope.launch {
+            settleLayerMirrors()
             saveAll()
             onDone()
         }
@@ -1781,6 +2149,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         commitLassoSelection()
         stopPlay()
         viewModelScope.launch {
+            settleLayerMirrors()
             saveAll()
             onDone()
         }
@@ -1797,7 +2166,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             // Nothing sensible to do while the ViewModel is being destroyed.
         }
         for (fd in remaining) {
-            fd.layers.forEach { if (!it.bitmap.isRecycled) it.bitmap.recycle() }
+            fd.release()
         }
         cache.clear()
         undoManager.clear()
@@ -1806,6 +2175,12 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 }
 
 private const val TAP_SLOP = 12f
+
+/** Layers per frame. Empty layers are free, but each painted one costs a full bitmap per cached frame. */
+private const val MAX_LAYERS = 64
+
+/** Frames kept loaded ahead of the playhead during playback. */
+private const val PLAY_AHEAD = 6
 
 class EditorViewModelFactory(
     private val app: Application,

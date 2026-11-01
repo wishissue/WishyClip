@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -42,6 +44,7 @@ fun LayerPanel(
     onCycleBlend: (Int) -> Unit = {},
     onDuplicateLayer: (Int) -> Unit = {},
     onMergeDown: (Int) -> Unit = {},
+    onRenameLayer: (Int) -> Unit = {},
     /** Cap for the list; the editor lowers it in short (landscape) windows. */
     maxListHeight: Dp = 280.dp
 ) {
@@ -55,14 +58,14 @@ fun LayerPanel(
             .background(tokens.toolRail)
             .padding(tokens.spaceMedium)
     ) {
-        SectionHeader(title = "Layers (Current Frame)")
+        SectionHeader(title = stringResource(R.string.ui_layers_all_frames))
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = maxListHeight),
             verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)
         ) {
-            items(layers.indices.reversed().toList()) { idx ->
+            items(layers.indices.reversed().toList(), key = { idx -> layers[idx].id }) { idx ->
                 val layer = layers[idx]
                 LayerRow(
                     layer = layer,
@@ -76,7 +79,8 @@ fun LayerPanel(
                     onToggleLock = { onToggleLock(idx, it) },
                     onCycleBlend = { onCycleBlend(idx) },
                     onDuplicate = { onDuplicateLayer(idx) },
-                    onMergeDown = if (idx > 0) ({ onMergeDown(idx) }) else null
+                    onMergeDown = if (idx > 0) ({ onMergeDown(idx) }) else null,
+                    onRename = { onRenameLayer(idx) }
                 )
             }
         }
@@ -88,10 +92,10 @@ fun LayerPanel(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = onAddLayer) {
-                Text("+ Add Layer", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.ui_add_layer), style = MaterialTheme.typography.labelLarge)
             }
             TextButton(onClick = onImportImageLayer) {
-                Text("Import image", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.ui_import_image), style = MaterialTheme.typography.labelLarge)
             }
         }
     }

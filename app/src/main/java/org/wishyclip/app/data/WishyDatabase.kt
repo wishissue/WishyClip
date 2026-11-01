@@ -58,8 +58,10 @@ abstract class WishyDatabase : RoomDatabase() {
 
         fun build(context: Context): WishyDatabase =
             Room.databaseBuilder(context.applicationContext, WishyDatabase::class.java, "wishyclip.db")
+                // No destructive fallback: with it, ANY future schema change without a migration silently
+                // deleted every project's frames/layers (the PNG files stayed behind, orphaned). A missing
+                // migration now fails loudly in development instead. Add a Migration for every version bump.
                 .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
-                .fallbackToDestructiveMigration()
                 .build()
     }
 }

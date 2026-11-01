@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -113,7 +115,7 @@ fun BusyOverlayContent(busy: BusyState?, modifier: Modifier = Modifier) {
                     }
                     shown.onCancel?.let { cancel ->
                         TextButton(onClick = cancel, modifier = Modifier.align(Alignment.End)) {
-                            Text("Cancel", color = tokens.danger)
+                            Text(stringResource(R.string.ui_cancel), color = tokens.danger)
                         }
                     }
                 }

@@ -32,3 +32,9 @@ Imported brushes are drawn by stamping the tip (an 8-bit alpha mask) along the s
 - Procreate: only the shape is used. Grain textures, dynamics and the plist parameters are ignored.
 - Krita: only an embedded tip, name, spacing and angle are read. Dynamics, textures and blending modes are ignored.
 - Photoshop v6+ sample records have a variable header, so the image header is found by scanning for a plausible one.
+
+### Pressure response
+Dab brushes change size with pressure (20% to 100% of the set size). Brushes whose own flow is below 0.9 (pencils, charcoal, pastel, spray) also build up darker with pressure (35% to 100% of their flow). Solid inks and paints (flow 0.9 or more) change size only.
+
+## 3. Starter pack (16 original brushes)
+Graphite HB, Graphite 6B, Sketch pencil, Colour pencil, Technical pen, Ink liner, Brush pen, Dry ink, Charcoal stick, Pastel, Gouache, Oil flat, Bristle, Splatter, Stipple, Spray grain. Generated in code (`brush/StarterBrushes.kt`), installed once per pack version, editable and deletable. No third-party brush files or textures are used.

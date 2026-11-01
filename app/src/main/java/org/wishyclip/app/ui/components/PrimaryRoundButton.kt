@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -49,6 +51,6 @@ fun PrimaryRoundButton(
 @Composable
 private fun PrimaryRoundButtonPreview() {
     WishyTheme(tokens = CloudTokens) {
-        PrimaryRoundButton(iconRes = WishyIcons.Play, contentDescription = "Play", onClick = {})
+        PrimaryRoundButton(iconRes = WishyIcons.Play, contentDescription = stringResource(R.string.ui_play), onClick = {})
     }
 }

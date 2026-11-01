@@ -139,9 +139,9 @@ Grab an APK from the [Releases page](https://github.com/wishissue/WishyClip/rele
 
 | File | Use it on |
 | --- | --- |
-| `WishaClip-1.0.0-arm64-v8a-release.apk` | Almost all modern phones and tablets (64-bit ARM) |
-| `WishaClip-1.0.0-armeabi-v7a-release.apk` | Older 32-bit ARM devices |
-| `WishaClip-1.0.0-universal-release.apk` | Any architecture (larger file) |
+| `WishyClip-1.1.0-arm64-v8a-release.apk` | Almost all modern phones and tablets (64-bit ARM) |
+| `WishyClip-1.1.0-armeabi-v7a-release.apk` | Older 32-bit ARM devices |
+| `WishyClip-1.1.0-universal-release.apk` | Any architecture (larger file) |
 
 ### Let GitHub build it for you
 

@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "wishissue-redesign" ]
   pull_request:
     branches: [ "main", "master" ]
 

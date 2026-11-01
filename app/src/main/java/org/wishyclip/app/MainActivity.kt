@@ -10,8 +10,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,9 +30,9 @@ import org.wishyclip.app.ui.EditorViewModel
 import org.wishyclip.app.ui.EditorViewModelFactory
 import org.wishyclip.app.ui.HomeViewModel
 import org.wishyclip.app.ui.components.BusyOverlay
+import org.wishyclip.app.ui.components.LocalHapticsEnabled
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.WishyTokens
-import org.wishyclip.app.ui.design.themes.CloudTokens
 import org.wishyclip.app.ui.screens.DesignGalleryScreen
 import org.wishyclip.app.ui.screens.EditorScreen
 import androidx.compose.runtime.LaunchedEffect
@@ -40,7 +42,6 @@ import kotlinx.coroutines.launch
 import org.wishyclip.app.data.SettingsStore
 import org.wishyclip.app.ui.design.IconPack
 import org.wishyclip.app.ui.design.WishyIcons
-import org.wishyclip.app.ui.screens.ExportScreen
 import org.wishyclip.app.ui.screens.HomeScreen
 import org.wishyclip.app.ui.screens.NewProjectScreen
 import org.wishyclip.app.ui.screens.OnboardingScreen
@@ -54,7 +55,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val scope = rememberCoroutineScope()
-            val savedThemeName by settingsStore.themeName.collectAsState(initial = "Cloud")
+            val savedThemeName by settingsStore.themeName.collectAsState(initial = "")
             val savedIsLeftHanded by settingsStore.isLeftHanded.collectAsState(initial = false)
             val savedIconPack by settingsStore.iconPack.collectAsState(initial = IconPack.CUTE.name)
             val savedHaptics by settingsStore.hapticsEnabled.collectAsState(initial = true)
@@ -66,8 +67,9 @@ class MainActivity : ComponentActivity() {
             val onboardingDone by settingsStore.onboardingDone.collectAsState(initial = null)
             val isDebuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
-            val currentTokens = remember(savedThemeName, customThemes) {
-                SettingsStore.getThemeTokensByName(savedThemeName, customThemes)
+            val systemDark = isSystemInDarkTheme()
+            val currentTokens = remember(savedThemeName, customThemes, systemDark) {
+                SettingsStore.getThemeTokensByName(savedThemeName, customThemes, systemDark)
             }
 
             LaunchedEffect(savedIconPack) {
@@ -90,6 +92,7 @@ class MainActivity : ComponentActivity() {
                 onDispose { }
             }
 
+            CompositionLocalProvider(LocalHapticsEnabled provides savedHaptics) {
             WishyTheme(tokens = currentTokens) {
                 val done = onboardingDone
                 if (done == null || customThemesLoaded == null) {
@@ -100,6 +103,10 @@ class MainActivity : ComponentActivity() {
                             currentTokens = currentTokens,
                             onSelectTokens = { tokens ->
                                 scope.launch { settingsStore.saveThemeName(tokens.name) }
+                            },
+                            followsSystemTheme = savedThemeName.isBlank(),
+                            onUseSystemTheme = {
+                                scope.launch { settingsStore.saveThemeName("") }
                             },
                             isLeftHanded = savedIsLeftHanded,
                             onToggleLeftHanded = { left ->
@@ -128,7 +135,7 @@ class MainActivity : ComponentActivity() {
                                 scope.launch {
                                     settingsStore.deleteCustomTheme(name)
                                     if (savedThemeName.equals(name, ignoreCase = true)) {
-                                        settingsStore.saveThemeName(CloudTokens.name)
+                                        settingsStore.saveThemeName("")
                                     }
                                 }
                             },
@@ -141,6 +148,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+            }
         }
     }
 }
@@ -149,6 +157,8 @@ class MainActivity : ComponentActivity() {
 fun WishyNavHost(
     currentTokens: WishyTokens,
     onSelectTokens: (WishyTokens) -> Unit,
+    followsSystemTheme: Boolean = false,
+    onUseSystemTheme: () -> Unit = {},
     isLeftHanded: Boolean,
     onToggleLeftHanded: (Boolean) -> Unit,
     hapticsEnabled: Boolean,
@@ -194,6 +204,8 @@ fun WishyNavHost(
             SettingsScreen(
                 currentTokens = currentTokens,
                 onSelectTokens = onSelectTokens,
+                followsSystemTheme = followsSystemTheme,
+                onUseSystemTheme = onUseSystemTheme,
                 isLeftHanded = isLeftHanded,
                 onToggleLeftHanded = onToggleLeftHanded,
                 hapticsEnabled = hapticsEnabled,
@@ -218,17 +230,6 @@ fun WishyNavHost(
             })
         }
         composable(
-            route = "export/{projectId}",
-            arguments = listOf(navArgument("projectId") { type = NavType.LongType })
-        ) { entry ->
-            val id = entry.arguments?.getLong("projectId") ?: 0L
-            ExportScreen(
-                projectId = id,
-                projectName = "Project $id",
-                onBack = { nav.popBackStack() }
-            )
-        }
-        composable(
             route = "editor/{projectId}",
             arguments = listOf(navArgument("projectId") { type = NavType.LongType })
         ) { entry ->
@@ -238,6 +239,7 @@ fun WishyNavHost(
                 vm = vm,
                 onExit = { nav.popBackStack() },
                 isLeftHanded = isLeftHanded,
+                palmRejection = palmRejection,
                 onOpenDesignGallery = if (showDebugTools) { { nav.navigate("design_gallery") } } else null
             )
         }

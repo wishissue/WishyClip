@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,7 +57,7 @@ private fun WishyBottomSheetLightPreview() {
                 .padding(16.dp)
         ) {
             Column {
-                Text("Bottom Sheet Content")
+                Text(stringResource(R.string.ui_bottom_sheet_content))
             }
         }
     }
@@ -72,7 +74,7 @@ private fun WishyBottomSheetDarkPreview() {
                 .padding(16.dp)
         ) {
             Column {
-                Text("Bottom Sheet Dark Content")
+                Text(stringResource(R.string.ui_bottom_sheet_dark_content))
             }
         }
     }

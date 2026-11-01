@@ -64,7 +64,7 @@ class WishyDrawingSurface(
             try {
                 canvas.drawColor(Color.WHITE)
                 for (layer in getLayers()) {
-                    if (layer.visible) {
+                    if (layer.visible && layer.allocated) {
                         val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
                             alpha = (layer.opacity * 255f).toInt()
                         }

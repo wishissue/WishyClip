@@ -31,3 +31,9 @@ All UI icons use permissive open-source vector icon systems:
 | **Tabler Icons** | MIT | https://tabler.io/license | Primary drawing toolbar, navigation, and frame action icons |
 | **Lucide Icons** | ISC / MIT | https://lucide.dev/license | Secondary tools (ruler, mirror, audio track, transport controls) |
 | **Material Symbols** | Apache 2.0 | https://fonts.google.com/icons | Fallback system overflow menu icons |
+
+## Fonts
+
+- **Plus Jakarta Sans** (interface font): SIL Open Font License 1.1, see `docs/licenses/PlusJakartaSans-OFL.txt`. Bundled as a Latin subset.
+- **Bagel Fat One** (logo / display font): SIL Open Font License 1.1, see `docs/licenses/BagelFatOne-OFL.txt`. Bundled as a Basic Latin subset.
+- **Inter**: SIL Open Font License 1.1, see `docs/licenses/Inter-OFL.txt`. Still bundled as a choice in the text tool.

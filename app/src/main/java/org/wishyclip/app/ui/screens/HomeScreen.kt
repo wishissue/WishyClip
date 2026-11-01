@@ -47,6 +47,8 @@ import org.wishyclip.app.ui.HomeViewModel
 import org.wishyclip.app.ui.components.ActionIconButton
 import org.wishyclip.app.ui.components.ProjectCard
 import org.wishyclip.app.ui.components.WishyDialog
+import androidx.compose.ui.unit.sp
+import org.wishyclip.app.ui.design.BagelFamily
 import org.wishyclip.app.ui.design.WishyIcons
 import org.wishyclip.app.ui.design.WishyTheme
 
@@ -62,6 +64,7 @@ fun HomeScreen(
 
     var selectedProjectForOptions by remember { mutableStateOf<ProjectEntity?>(null) }
     var showRenameDialog by remember { mutableStateOf(false) }
+    var projectPendingDelete by remember { mutableStateOf<ProjectEntity?>(null) }
     var renameText by remember { mutableStateOf("") }
 
     Scaffold(
@@ -76,17 +79,19 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // iOS-style large title with a small app-name caption above it.
+                // Bagel Fat One wordmark (brand moment), with the page title in the interface font.
                 Column {
                     Text(
                         text = stringResource(R.string.app_name),
-                        style = MaterialTheme.typography.labelLarge,
+                        fontFamily = BagelFamily,
+                        fontSize = 30.sp,
+                        lineHeight = 36.sp,
                         color = tokens.primary
                     )
                     Text(
-                        text = "My Animations",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = tokens.onSurface
+                        text = stringResource(R.string.ui_my_animations),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = tokens.onSurfaceVariant
                     )
                 }
                 ActionIconButton(
@@ -100,7 +105,7 @@ fun HomeScreen(
             ExtendedFloatingActionButton(
                 text = {
                     Text(
-                        text = "New Animation",
+                        text = stringResource(R.string.ui_new_animation),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -115,8 +120,8 @@ fun HomeScreen(
                 onClick = onNewProject,
                 containerColor = tokens.primary,
                 contentColor = tokens.onPrimary,
-                shape = RoundedCornerShape(tokens.largeRadius),
-                modifier = Modifier.height(tokens.primaryButtonSize)
+                shape = RoundedCornerShape(tokens.mediumRadius),
+                modifier = Modifier.height(56.dp)
             )
         }
     ) { innerPadding ->
@@ -151,12 +156,12 @@ fun HomeScreen(
                         }
                         Spacer(Modifier.height(tokens.spaceSmall))
                         Text(
-                            text = "Let's make something!",
+                            text = stringResource(R.string.ui_let_s_make_something),
                             style = MaterialTheme.typography.titleLarge,
                             color = tokens.onSurface
                         )
                         Text(
-                            text = "Tap New Animation to start your first one.",
+                            text = stringResource(R.string.ui_tap_new_animation_to_start_your_first),
                             style = MaterialTheme.typography.bodyLarge,
                             color = tokens.onSurfaceVariant
                         )
@@ -206,25 +211,42 @@ fun HomeScreen(
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Rename Project")
+                    Text(stringResource(R.string.ui_rename_project))
                 }
                 TextButton(
                     onClick = {
-                        vm.delete(project)
+                        // Destructive: ask first (the options dialog closes, the confirmation opens).
+                        projectPendingDelete = project
                         selectedProjectForOptions = null
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Delete Project", color = tokens.danger)
+                    Text(stringResource(R.string.ui_delete_project), color = tokens.danger)
                 }
             }
+        }
+    }
+
+    projectPendingDelete?.let { project ->
+        WishyDialog(
+            title = stringResource(R.string.ui_delete_animation),
+            onDismissRequest = { projectPendingDelete = null },
+            confirmText = stringResource(R.string.ui_delete),
+            onConfirm = {
+                vm.delete(project)
+                projectPendingDelete = null
+            },
+            dismissText = stringResource(R.string.action_cancel),
+            onDismiss = { projectPendingDelete = null }
+        ) {
+            Text("\"${project.name}\" and all of its frames will be permanently deleted. This can't be undone.")
         }
     }
 
     if (showRenameDialog && selectedProjectForOptions != null) {
         val proj = selectedProjectForOptions!!
         WishyDialog(
-            title = "Rename Project",
+            title = stringResource(R.string.ui_rename_project),
             onDismissRequest = { showRenameDialog = false },
             confirmText = stringResource(R.string.action_save),
             onConfirm = {
@@ -240,7 +262,7 @@ fun HomeScreen(
             OutlinedTextField(
                 value = renameText,
                 onValueChange = { renameText = it },
-                label = { Text("Project Name") },
+                label = { Text(stringResource(R.string.ui_project_name)) },
                 modifier = Modifier.fillMaxWidth()
             )
         }

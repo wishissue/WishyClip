@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -23,6 +25,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -49,6 +57,13 @@ fun WishySlider(
 
     val onFinishedState by rememberUpdatedState(onValueChangeFinished)
     val onValueChangeState by rememberUpdatedState(onValueChange)
+    // The thumb is inset by its radius so it is never cut off at either end of the track.
+    val thumbRadius = 10.dp
+    fun valueAt(x: Float, width: Float, padPx: Float): Float {
+        val span = (width - 2f * padPx).coerceAtLeast(1f)
+        val f = ((x - padPx) / span).coerceIn(0f, 1f)
+        return valueRange.start + f * (valueRange.endInclusive - valueRange.start)
+    }
 
     Column(modifier = modifier) {
         if (label.isNotEmpty()) {
@@ -83,11 +98,21 @@ fun WishySlider(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(28.dp)
+                .height(44.dp) // comfortable touch target (was 28dp)
+                // TalkBack / switch access: expose this as an adjustable range with a name and value.
+                .semantics(mergeDescendants = true) {
+                    if (label.isNotEmpty()) contentDescription = label
+                    stateDescription = "${clampedValue.roundToInt()}$unit"
+                    progressBarRangeInfo = ProgressBarRangeInfo(clampedValue, valueRange)
+                    setProgress { target ->
+                        onValueChangeState(target.coerceIn(valueRange.start, valueRange.endInclusive))
+                        onFinishedState?.invoke()
+                        true
+                    }
+                }
                 .pointerInput(valueRange) {
                     detectTapGestures { offset ->
-                        val newFraction = (offset.x / size.width).coerceIn(0f, 1f)
-                        val newValue = valueRange.start + newFraction * (valueRange.endInclusive - valueRange.start)
+                        val newValue = valueAt(offset.x, size.width.toFloat(), thumbRadius.toPx())
                         onValueChangeState(newValue)
                         onFinishedState?.invoke()
                     }
@@ -98,41 +123,42 @@ fun WishySlider(
                         onDragCancel = { onFinishedState?.invoke() }
                     ) { change, _ ->
                         change.consume()
-                        val newFraction = (change.position.x / size.width).coerceIn(0f, 1f)
-                        val newValue = valueRange.start + newFraction * (valueRange.endInclusive - valueRange.start)
+                        val newValue = valueAt(change.position.x, size.width.toFloat(), thumbRadius.toPx())
                         onValueChangeState(newValue)
                     }
                 },
             contentAlignment = Alignment.Center
         ) {
-            Canvas(modifier = Modifier.fillMaxWidth().height(16.dp)) {
+            Canvas(modifier = Modifier.fillMaxWidth().height(20.dp)) {
                 val w = size.width
                 val h = size.height
                 val centerY = h / 2f
                 val trackHeight = 4.dp.toPx()
-                val radius = 8.dp.toPx()
+                val radius = thumbRadius.toPx()
+                val trackStart = radius
+                val trackSpan = (w - 2f * radius).coerceAtLeast(1f)
 
                 // Inactive track
                 drawRoundRect(
                     color = tokens.surfaceVariant,
-                    topLeft = Offset(0f, centerY - trackHeight / 2f),
-                    size = Size(w, trackHeight),
+                    topLeft = Offset(trackStart, centerY - trackHeight / 2f),
+                    size = Size(trackSpan, trackHeight),
                     cornerRadius = CornerRadius(trackHeight / 2f, trackHeight / 2f)
                 )
 
                 // Active track
-                val activeWidth = fraction * w
+                val activeWidth = fraction * trackSpan
                 if (activeWidth > 0) {
                     drawRoundRect(
                         color = tokens.primary,
-                        topLeft = Offset(0f, centerY - trackHeight / 2f),
+                        topLeft = Offset(trackStart, centerY - trackHeight / 2f),
                         size = Size(activeWidth, trackHeight),
                         cornerRadius = CornerRadius(trackHeight / 2f, trackHeight / 2f)
                     )
                 }
 
                 // Thumb
-                val thumbX = fraction * w
+                val thumbX = trackStart + fraction * trackSpan
                 drawCircle(
                     color = tokens.primary,
                     radius = radius,
@@ -153,7 +179,7 @@ fun WishySlider(
 @Composable
 private fun WishySliderLightPreview() {
     WishyTheme(tokens = LightTokens) {
-        WishySlider(value = 16f, onValueChange = {}, valueRange = 1f..60f, label = "Brush Size", unit = "px")
+        WishySlider(value = 16f, onValueChange = {}, valueRange = 1f..60f, label = stringResource(R.string.ui_brush_size), unit = "px")
     }
 }
 
@@ -161,6 +187,6 @@ private fun WishySliderLightPreview() {
 @Composable
 private fun WishySliderDarkPreview() {
     WishyTheme(tokens = DarkTokens) {
-        WishySlider(value = 80f, onValueChange = {}, valueRange = 0f..100f, label = "Opacity", unit = "%")
+        WishySlider(value = 80f, onValueChange = {}, valueRange = 0f..100f, label = stringResource(R.string.ui_opacity), unit = "%")
     }
 }

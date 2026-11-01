@@ -19,6 +19,9 @@ class BitmapStore(private val context: Context) {
     fun layerFile(projectId: Long, layerId: Long): File =
         File(projectDir(projectId), "layers/$layerId.png")
 
+    /** True when pixels were ever saved for this layer. A layer without a file is blank. */
+    fun hasLayer(projectId: Long, layerId: Long): Boolean = layerFile(projectId, layerId).exists()
+
     fun thumbFile(projectId: Long): File = File(projectDir(projectId), "thumb.png")
 
     /** Returns a mutable ARGB_8888 bitmap of exactly width x height. */
@@ -33,6 +36,12 @@ class BitmapStore(private val context: Context) {
             }
         }
         return result
+    }
+
+    /** The saved pixels as a bitmap, or null when the layer was never painted (blank). Caller recycles. */
+    fun decodeOrNull(projectId: Long, layerId: Long): Bitmap? {
+        val file = layerFile(projectId, layerId)
+        return if (file.exists()) BitmapFactory.decodeFile(file.absolutePath) else null
     }
 
     fun save(projectId: Long, layerId: Long, bitmap: Bitmap) {

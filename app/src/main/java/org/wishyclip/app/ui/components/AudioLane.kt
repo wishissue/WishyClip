@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -57,16 +59,16 @@ fun AudioLane(
     Column(modifier = modifier.fillMaxWidth().padding(vertical = tokens.spaceXs)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "Audio",
+                text = stringResource(R.string.ui_audio),
                 style = MaterialTheme.typography.labelMedium,
                 color = tokens.onSurfaceVariant,
                 modifier = Modifier.weight(1f)
             )
-            ActionIconButton(iconRes = WishyIcons.Add, contentDescription = "Add audio", onClick = onAdd)
+            ActionIconButton(iconRes = WishyIcons.Add, contentDescription = stringResource(R.string.ui_add_audio), onClick = onAdd)
         }
         if (tracks.isEmpty()) {
             Text(
-                text = "No audio. Tap + to add a track.",
+                text = stringResource(R.string.ui_no_audio_tap_to_add_a_track),
                 style = MaterialTheme.typography.labelSmall,
                 color = tokens.onSurfaceVariant
             )
@@ -144,13 +146,13 @@ fun AudioLane(
                         onValueChange = { vol = it },
                         onValueChangeFinished = { onUpdate(track.copy(volume = vol / 100f)) },
                         valueRange = 0f..100f,
-                        label = "Volume",
+                        label = stringResource(R.string.ui_volume),
                         unit = "%",
                         modifier = Modifier.weight(1f)
                     )
                     ActionIconButton(
                         iconRes = WishyIcons.Delete,
-                        contentDescription = "Remove audio",
+                        contentDescription = stringResource(R.string.ui_remove_audio),
                         onClick = { selectedId = null; onDelete(track.id) }
                     )
                 }

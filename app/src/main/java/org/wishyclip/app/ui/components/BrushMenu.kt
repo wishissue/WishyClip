@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -111,7 +113,7 @@ fun BrushMenu(
             verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
         ) {
             Text(
-                text = "Brushes",
+                text = stringResource(R.string.ui_brushes),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = tokens.onSurface
@@ -171,7 +173,7 @@ fun BrushMenu(
                 onValueChange = onSizeChange,
                 // Stamp brushes need room: a 8-60 px dab hides the tip's shape entirely.
                 valueRange = 1f..(if (selectedBrush == Tool.CUSTOM) 200f else 60f),
-                label = "Size",
+                label = stringResource(R.string.ui_size),
                 unit = "px",
                 onValueChangeFinished = onSettingsFinished
             )
@@ -179,7 +181,7 @@ fun BrushMenu(
                 value = opacity * 100f,
                 onValueChange = { onOpacityChange(it / 100f) },
                 valueRange = 5f..100f,
-                label = "Opacity",
+                label = stringResource(R.string.ui_opacity),
                 unit = "%",
                 onValueChangeFinished = onSettingsFinished
             )
@@ -187,7 +189,7 @@ fun BrushMenu(
                 value = stabilizer * 100f,
                 onValueChange = { onStabilizerChange(it / 100f) },
                 valueRange = 0f..100f,
-                label = "Stabilizer",
+                label = stringResource(R.string.ui_stabilizer),
                 unit = "%"
             )
         }
@@ -246,7 +248,7 @@ private fun CustomBrushRow(
             }
         } else {
             Text(
-                text = "Tip file missing - delete and re-import",
+                text = stringResource(R.string.ui_tip_file_missing_delete_and_re_import),
                 style = MaterialTheme.typography.labelSmall,
                 color = tokens.danger,
                 modifier = Modifier.weight(1f)
@@ -269,7 +271,7 @@ private fun CustomBrushSettings(
 ) {
     val tokens = WishyTheme.tokens
     Text(
-        text = "Brush shape",
+        text = stringResource(R.string.ui_brush_shape),
         style = MaterialTheme.typography.labelLarge,
         fontWeight = FontWeight.SemiBold,
         color = tokens.onSurface
@@ -278,7 +280,7 @@ private fun CustomBrushSettings(
         value = brush.spacing * 100f,
         onValueChange = { onChange(brush.copy(spacing = it / 100f)) },
         valueRange = 2f..200f,
-        label = "Spacing",
+        label = stringResource(R.string.ui_spacing),
         unit = "%",
         onValueChangeFinished = onFinished
     )
@@ -286,7 +288,7 @@ private fun CustomBrushSettings(
         value = brush.flow * 100f,
         onValueChange = { onChange(brush.copy(flow = it / 100f)) },
         valueRange = 5f..100f,
-        label = "Flow",
+        label = stringResource(R.string.ui_flow),
         unit = "%",
         onValueChangeFinished = onFinished
     )
@@ -294,7 +296,7 @@ private fun CustomBrushSettings(
         value = brush.scatter * 100f,
         onValueChange = { onChange(brush.copy(scatter = it / 100f)) },
         valueRange = 0f..200f,
-        label = "Scatter",
+        label = stringResource(R.string.ui_scatter),
         unit = "%",
         onValueChangeFinished = onFinished
     )
@@ -302,7 +304,7 @@ private fun CustomBrushSettings(
         value = brush.sizeJitter * 100f,
         onValueChange = { onChange(brush.copy(sizeJitter = it / 100f)) },
         valueRange = 0f..100f,
-        label = "Size jitter",
+        label = stringResource(R.string.ui_size_jitter),
         unit = "%",
         onValueChangeFinished = onFinished
     )
@@ -310,7 +312,7 @@ private fun CustomBrushSettings(
         value = brush.angle,
         onValueChange = { onChange(brush.copy(angle = it)) },
         valueRange = 0f..360f,
-        label = "Angle",
+        label = stringResource(R.string.ui_angle),
         unit = "°",
         onValueChangeFinished = onFinished
     )
@@ -319,7 +321,7 @@ private fun CustomBrushSettings(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "Follow stroke direction",
+            text = stringResource(R.string.ui_follow_stroke_direction),
             style = MaterialTheme.typography.bodyMedium,
             color = tokens.onSurface,
             modifier = Modifier.weight(1f)

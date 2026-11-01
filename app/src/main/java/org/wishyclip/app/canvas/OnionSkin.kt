@@ -55,7 +55,7 @@ object DefaultOnionSkinRenderer : OnionSkinRenderer {
             paint.colorFilter = PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_IN)
         }
         for (layer in ghost.layers) {
-            if (!layer.visible) continue
+            if (!layer.visible || !layer.allocated) continue
             paint.alpha = (layer.opacity * alpha * 255f).toInt().coerceIn(0, 255)
             canvas.drawBitmap(layer.bitmap, null, dstRect, paint)
         }

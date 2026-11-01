@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -61,7 +63,7 @@ fun ActionIconButton(
 @Composable
 private fun ActionIconButtonLightPreview() {
     WishyTheme(tokens = LightTokens) {
-        ActionIconButton(iconRes = WishyIcons.Undo, contentDescription = "Undo", onClick = {})
+        ActionIconButton(iconRes = WishyIcons.Undo, contentDescription = stringResource(R.string.ui_undo), onClick = {})
     }
 }
 
@@ -69,6 +71,6 @@ private fun ActionIconButtonLightPreview() {
 @Composable
 private fun ActionIconButtonDarkPreview() {
     WishyTheme(tokens = DarkTokens) {
-        ActionIconButton(iconRes = WishyIcons.Undo, contentDescription = "Undo", selected = true, onClick = {})
+        ActionIconButton(iconRes = WishyIcons.Undo, contentDescription = stringResource(R.string.ui_undo), selected = true, onClick = {})
     }
 }

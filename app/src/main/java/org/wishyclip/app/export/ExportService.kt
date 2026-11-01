@@ -197,13 +197,22 @@ class ExportService : Service() {
                 ExportFormat.GIF -> {
                     val encoder = AnimatedGifEncoder()
                     val fps = project.fps.coerceAtLeast(1)
+                    // GIF delays are whole hundredths of a second. Rounding each frame on its own made 24 fps play at
+                    // 25 fps; instead the running total is rounded, so frames alternate 4 and 5 and the length is right.
+                    var totalSlots = 0L
+                    var elapsedCs = 0L
                     FileOutputStream(outputFile).use { os ->
                         encoder.start(os)
                         for (i in 0 until n) {
                             job.ensureActive()
                             composeFrame(scratch, store, projectId, w, h, layerLists[i])
                             // Honour each frame's hold time so the GIF lasts as long as the preview.
-                            encoder.setDelay(1000 * frames[i].exposureDuration.coerceAtLeast(1) / fps)
+                            totalSlots += frames[i].exposureDuration.coerceAtLeast(1)
+                            val targetCs = Math.round(totalSlots * 100.0 / fps)
+                            // Viewers treat anything under 2 cs as 10 cs, so 2 is the shortest usable delay.
+                            val cs = (targetCs - elapsedCs).toInt().coerceAtLeast(2)
+                            elapsedCs += cs
+                            encoder.setDelay(cs * 10)
                             encoder.addFrame(scratch)
                             report(i + 1, (i + 1f) / n)
                         }
@@ -257,7 +266,9 @@ class ExportService : Service() {
             if (!l.visible) continue
             paint.alpha = (l.opacity * 255f).roundToInt().coerceIn(0, 255)
             LayerBlending.apply(paint, LayerBlend.from(l.blendMode)) // was ignored: exports looked different from the canvas
-            val layerBmp = store.load(projectId, l.id, w, h)
+            // Blank (never painted) layers have no file: skip them instead of allocating a full-size
+            // empty bitmap per layer per frame (21 empty layers made exports crawl).
+            val layerBmp = store.decodeOrNull(projectId, l.id) ?: continue
             canvas.drawBitmap(layerBmp, null, dst, paint)
             layerBmp.recycle()
         }

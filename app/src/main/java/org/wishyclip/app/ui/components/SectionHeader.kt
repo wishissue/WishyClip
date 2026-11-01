@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -30,7 +32,7 @@ fun SectionHeader(
 @Composable
 private fun SectionHeaderLightPreview() {
     WishyTheme(tokens = LightTokens) {
-        SectionHeader(title = "Project Settings")
+        SectionHeader(title = stringResource(R.string.ui_project_settings))
     }
 }
 
@@ -38,6 +40,6 @@ private fun SectionHeaderLightPreview() {
 @Composable
 private fun SectionHeaderDarkPreview() {
     WishyTheme(tokens = DarkTokens) {
-        SectionHeader(title = "Layers")
+        SectionHeader(title = stringResource(R.string.ui_layers))
     }
 }

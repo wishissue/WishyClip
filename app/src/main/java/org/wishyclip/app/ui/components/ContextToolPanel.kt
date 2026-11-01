@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui.components
 
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -74,12 +76,12 @@ fun ContextToolPanel(
             when {
                 activeLasso != null -> {
                     TextButton(onClick = onCommitLasso) {
-                        Text("Done", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.ui_done), fontWeight = FontWeight.Bold)
                     }
                     if (activeLasso.isText) {
                         // Editing text used to need a hidden tap on the selection; make it a button.
                         if (onEditText != null) {
-                            TextButton(onClick = onEditText) { Text("Edit text") }
+                            TextButton(onClick = onEditText) { Text(stringResource(R.string.ui_edit_text)) }
                         }
                         ColorSwatch(
                             color = Color(color),
@@ -106,10 +108,10 @@ fun ContextToolPanel(
                         }
                     }
                     TextButton(onClick = onCancelLasso) {
-                        Text("Put back")
+                        Text(stringResource(R.string.ui_put_back))
                     }
                     TextButton(onClick = onDeleteLasso) {
-                        Text("Delete", color = tokens.danger)
+                        Text(stringResource(R.string.ui_delete), color = tokens.danger)
                     }
                 }
 
@@ -127,7 +129,7 @@ fun ContextToolPanel(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 painter = painterResource(brushIcon(tool)),
-                                contentDescription = "Select brush",
+                                contentDescription = stringResource(R.string.ui_select_brush),
                                 tint = tokens.onSurface,
                                 modifier = Modifier.size(24.dp)
                             )
@@ -191,7 +193,7 @@ fun ContextToolPanel(
 
                 tool == Tool.ERASER -> {
                     Text(
-                        text = "Eraser",
+                        text = stringResource(R.string.ui_eraser),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = tokens.onSurface
@@ -218,7 +220,7 @@ fun ContextToolPanel(
 
                 tool == Tool.FILL -> {
                     Text(
-                        text = "Fill Tolerance",
+                        text = stringResource(R.string.ui_fill_tolerance),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = tokens.onSurface
@@ -250,7 +252,7 @@ fun ContextToolPanel(
 
                 tool == Tool.TEXT -> {
                     Text(
-                        text = "Tap the canvas to add text",
+                        text = stringResource(R.string.ui_tap_the_canvas_to_add_text),
                         style = MaterialTheme.typography.labelMedium,
                         color = tokens.onSurface,
                         fontWeight = FontWeight.SemiBold
@@ -284,19 +286,19 @@ fun ContextToolPanel(
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         ActionIconButton(
                             iconRes = WishyIcons.ShapeLine,
-                            contentDescription = "Line",
+                            contentDescription = stringResource(R.string.ui_line),
                             selected = tool == Tool.LINE,
                             onClick = { onSelectShapeTool?.invoke(Tool.LINE) }
                         )
                         ActionIconButton(
                             iconRes = WishyIcons.ShapeRect,
-                            contentDescription = "Rectangle",
+                            contentDescription = stringResource(R.string.ui_rectangle),
                             selected = tool == Tool.RECT,
                             onClick = { onSelectShapeTool?.invoke(Tool.RECT) }
                         )
                         ActionIconButton(
                             iconRes = WishyIcons.ShapeEllipse,
-                            contentDescription = "Ellipse",
+                            contentDescription = stringResource(R.string.ui_ellipse),
                             selected = tool == Tool.ELLIPSE,
                             onClick = { onSelectShapeTool?.invoke(Tool.ELLIPSE) }
                         )

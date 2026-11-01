@@ -69,8 +69,8 @@ fun ProjectCard(
             } else {
                 Icon(
                     painter = painterResource(WishyIcons.Pencil),
-                    contentDescription = title,
-                    tint = Color(0xFFC9C9D0),
+                    contentDescription = null, // decorative: the card's title text already names it
+                    tint = tokens.onSurfaceVariant.copy(alpha = 0.45f),
                     modifier = Modifier.size(40.dp)
                 )
             }
