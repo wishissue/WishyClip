@@ -2,34 +2,38 @@ package org.wishyclip.app.ui.components
 
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.onClick as semanticsOnClick
-import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import org.wishyclip.app.ui.design.WishyIcons
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 
 /**
- * A single tool: a big rounded button. The selected tool fills with the accent color and the
- * icon turns white, so the active tool is obvious at a glance (and easy to hit with a thumb).
+ * One drawing tool in the rail. The selected tool sits in a solid `primary` container with an
+ * `onPrimary` icon, so the active tool is unmistakable; the others are plain icons with a ripple.
+ * A double tap ([onDoubleClick]) opens the tool's options without blocking a single tap.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ToolButton(
     @DrawableRes iconRes: Int,
@@ -40,43 +44,40 @@ fun ToolButton(
     onDoubleClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val tokens = WishyTheme.tokens
-    val target = when {
-        !enabled -> tokens.onSurface.copy(alpha = 0.35f)
-        selected -> tokens.onPrimary
-        else -> tokens.onSurfaceVariant
+    val scheme = MaterialTheme.colorScheme
+    val containerTarget = if (selected) scheme.primary else Color.Transparent
+    val contentTarget = when {
+        !enabled -> scheme.onSurface.copy(alpha = 0.38f)
+        selected -> scheme.onPrimary
+        else -> scheme.onSurfaceVariant
     }
-    val iconColor by animateColorAsState(target, label = "toolIcon")
-    val bgColor by animateColorAsState(
-        if (selected) tokens.primary else Color.Transparent,
-        label = "toolBg"
-    )
+    val container by animateColorAsState(containerTarget, label = "toolContainer")
+    val content by animateColorAsState(contentTarget, label = "toolContent")
+    val haptics = LocalHapticFeedback.current
+    val hapticsOn = LocalHapticsEnabled.current
+    val isSelected = selected
     Box(
         modifier = modifier
-            .size(tokens.toolButtonSize)
-            .then(
-                if (onDoubleClick != null) Modifier
-                    // pointerInput alone is invisible to TalkBack / switch access: expose a click action.
-                    .semantics(mergeDescendants = true) {
-                        role = Role.Button
-                        semanticsOnClick(label = null) {
-                            if (enabled) { onClick(); true } else false
-                        }
-                    }
-                    .pointerInput(enabled) {
-                        detectTapGestures(onTap = { if (enabled) onClick() }, onDoubleTap = { if (enabled) onDoubleClick() })
-                    }
-                else Modifier.bouncyClickable(enabled = enabled, onClick = onClick)
-            )
-            .clip(RoundedCornerShape(tokens.mediumRadius))
-            .background(bgColor),
+            .size(48.dp)
+            .clip(MaterialTheme.shapes.medium)
+            .background(container)
+            .semantics { this.selected = isSelected }
+            .combinedClickable(
+                enabled = enabled,
+                role = Role.Button,
+                onClick = {
+                    if (hapticsOn) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                },
+                onDoubleClick = onDoubleClick
+            ),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             painter = painterResource(iconRes),
             contentDescription = description,
-            modifier = Modifier.size(tokens.toolIconSize),
-            tint = iconColor
+            modifier = Modifier.size(24.dp),
+            tint = content
         )
     }
 }

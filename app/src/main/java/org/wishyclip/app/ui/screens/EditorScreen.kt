@@ -59,6 +59,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.graphics.Bitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -154,6 +157,24 @@ fun EditorScreen(
     var showExportDialog by remember { mutableStateOf(false) }
     var showShortcutDialog by remember { mutableStateOf(false) }
     var isStudioExpanded by rememberSaveable { mutableStateOf(false) }
+
+    // Layer previews for the layers panel / Studio view; rebuilt (debounced) only while one is visible.
+    var layerThumbs by remember { mutableStateOf<Map<Long, ImageBitmap>>(emptyMap()) }
+    val thumbsWanted = showLayersPanel || isStudioExpanded
+    LaunchedEffect(thumbsWanted, vm.revision, vm.currentIndex, vm.layerUi.size) {
+        if (!thumbsWanted) return@LaunchedEffect
+        kotlinx.coroutines.delay(150)
+        layerThumbs = vm.currentLayers().mapNotNull { layer ->
+            layer.peekBitmap()?.let { layer.id to scaledLayerThumb(it) }
+        }.toMap()
+    }
+    // Which frames have a drawing on which layer (Studio per-layer tracks).
+    var layerContent by remember { mutableStateOf<Map<Long, Set<Int>>>(emptyMap()) }
+    LaunchedEffect(isStudioExpanded, vm.frameThumbVersion, vm.frames.size, vm.layerUi.size) {
+        if (isStudioExpanded) layerContent = vm.layerContentMap()
+    }
+    // Frames saved before per-frame thumbnails existed get theirs generated in the background.
+    LaunchedEffect(vm.frames.size) { vm.backfillFrameThumbs() }
 
     val imageLayerPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) vm.importImageForPlacement(uri)
@@ -358,6 +379,12 @@ fun EditorScreen(
                             onClick = { vm.redo() }
                         )
                         ActionIconButton(
+                            iconRes = WishyIcons.Reorder,
+                            contentDescription = stringResource(if (isStudioExpanded) R.string.ui_layout_studio else R.string.ui_layout_classic),
+                            selected = isStudioExpanded,
+                            onClick = { isStudioExpanded = !isStudioExpanded }
+                        )
+                        ActionIconButton(
                             iconRes = WishyIcons.Layers,
                             contentDescription = stringResource(R.string.ui_layers),
                             selected = showLayersPanel,
@@ -454,21 +481,6 @@ fun EditorScreen(
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
-                    if (isLandscape && !isLeftHanded && !isUiHidden) {
-                        ToolRail(
-                            selectedTool = vm.tool,
-                            onSelectTool = onSelectTool,
-                            activeBrush = activeBrush,
-                            onBrushClick = onBrushClick,
-                            onToolDoubleTap = onToolDoubleTap,
-                            activeShape = activeShape,
-                            mirrorMode = vm.mirrorMode,
-                            onMirrorClick = { vm.cycleMirror() },
-                            rulerOn = vm.rulerVisible,
-                            onRulerClick = { vm.toggleRuler() },
-                            trailing = colorSwatchSlot
-                        )
-                    }
 
                     // Canvas area (BoxWithConstraints: floating panels are capped to the window height)
                     BoxWithConstraints(
@@ -551,6 +563,27 @@ fun EditorScreen(
                             }
                         }
 
+                        // Floating tool rail over the stage (never takes canvas space); flips for left-handed use
+                        if (!isUiHidden) {
+                            ToolRail(
+                                selectedTool = vm.tool,
+                                onSelectTool = onSelectTool,
+                                maxHeight = maxHeight - tokens.floatMargin * 2,
+                                activeBrush = activeBrush,
+                                onBrushClick = onBrushClick,
+                                onToolDoubleTap = onToolDoubleTap,
+                                activeShape = activeShape,
+                                mirrorMode = vm.mirrorMode,
+                                onMirrorClick = { vm.cycleMirror() },
+                                rulerOn = vm.rulerVisible,
+                                onRulerClick = { vm.toggleRuler() },
+                                trailing = colorSwatchSlot,
+                                modifier = Modifier
+                                    .align(if (isLeftHanded) Alignment.CenterEnd else Alignment.CenterStart)
+                                    .padding(tokens.floatMargin)
+                            )
+                        }
+
                         // Floating Contextual Bar tailored to active tool
                         if (!isUiHidden && !showBrushMenu) {
                             ContextToolPanel(
@@ -570,149 +603,136 @@ fun EditorScreen(
                                 onDeleteLasso = { vm.deleteLassoSelection() },
                                 onSelectShapeTool = { vm.selectTool(it) },
                                 onEditText = { vm.editActiveText() },
+                                onOpenToolOptions = {
+                                    if (vm.tool.isBrush) showBrushMenu = true else showToolOptions = true
+                                },
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
                                     .padding(top = tokens.spaceSmall)
                             )
                         }
 
-                        // Tool options: floats just above the tool bar (portrait) or beside the rail (landscape)
-                        if (showBrushMenu && vm.tool.isBrush && !isUiHidden) {
-                            BrushMenu(
-                                selectedBrush = vm.tool,
-                                onSelectBrush = {
-                                    activeBrush = it
-                                    vm.selectTool(it)
-                                },
-                                color = vm.color,
-                                size = vm.brushSize,
-                                onSizeChange = { vm.updateBrushSize(it) },
-                                opacity = vm.opacity,
-                                onOpacityChange = { vm.updateOpacity(it) },
-                                stabilizer = vm.stabilizer,
-                                onStabilizerChange = { vm.updateStabilizer(it) },
-                                onSettingsFinished = { vm.persistBrush() },
-                                customBrushes = vm.customBrushes,
-                                selectedCustomId = vm.activeCustomBrushId,
-                                onSelectCustom = {
-                                    activeBrush = Tool.CUSTOM
-                                    vm.selectCustomBrush(it)
-                                },
-                                onDeleteCustom = {
-                                    vm.deleteCustomBrush(it)
-                                    if (activeBrush == Tool.CUSTOM) activeBrush = Tool.PEN
-                                },
-                                onImportBrushes = { brushPicker.launch("*/*") },
-                                dabFor = { vm.customDab(it) },
-                                onUpdateCustom = { vm.updateCustomBrush(it) },
-                                onCommitCustom = { vm.commitCustomBrush() },
+                        // Floating Brush Selector Panel (collapsible popover over the canvas)
+                        if (!isUiHidden && showBrushMenu) {
+                            GlassSurface(
                                 modifier = Modifier
-                                    .align(
-                                        when {
-                                            !isLandscape -> Alignment.BottomCenter
-                                            isLeftHanded -> Alignment.TopEnd
-                                            else -> Alignment.TopStart
-                                        }
-                                    )
+                                    .align(if (isLeftHanded) Alignment.TopEnd else Alignment.TopStart)
                                     .padding(tokens.spaceSmall)
+                                    .padding(
+                                        start = if (isLandscape && !isLeftHanded) 64.dp else 0.dp,
+                                        end = if (isLandscape && isLeftHanded) 64.dp else 0.dp
+                                    )
                                     .then(
                                         if (isLandscape) Modifier.width(300.dp)
                                         else Modifier.fillMaxWidth().widthIn(max = 380.dp)
                                     )
-                                    .heightIn(max = maxHeight - tokens.spaceSmall * 2)
-                            )
+                            ) {
+                                BrushMenu(
+                                    selectedBrush = activeBrush,
+                                    onSelectBrush = { selected ->
+                                        activeBrush = selected
+                                        onSelectTool(selected)
+                                        showBrushMenu = false
+                                    },
+                                    color = vm.color,
+                                    size = vm.brushSize,
+                                    onSizeChange = { vm.updateBrushSize(it) },
+                                    opacity = vm.opacity,
+                                    onOpacityChange = { vm.updateOpacity(it) },
+                                    stabilizer = vm.stabilizer,
+                                    onStabilizerChange = { vm.updateStabilizer(it) },
+                                    onSettingsFinished = { vm.persistBrush() },
+                                    customBrushes = vm.customBrushes,
+                                    selectedCustomId = vm.activeCustomBrushId,
+                                    onSelectCustom = { id ->
+                                        vm.selectCustomBrush(id)
+                                        showBrushMenu = false
+                                    },
+                                    onImportBrushes = { brushPicker.launch("*/*") },
+                                    dabFor = { vm.customDab(it) },
+                                    onUpdateCustom = { vm.updateCustomBrush(it) },
+                                    onCommitCustom = { vm.commitCustomBrush() },
+                                    onDeleteCustom = { vm.deleteCustomBrush(it) },
+                                    modifier = Modifier.padding(tokens.spaceSmall)
+                                )
+                            }
                         }
 
-                        if (showToolOptions && !vm.tool.isBrush && !isUiHidden) {
+                        // Floating Tool Options Panel for size, opacity, fill tolerance
+                        if (!isUiHidden && showToolOptions) {
                             GlassSurface(
                                 modifier = Modifier
-                                    .align(
-                                        when {
-                                            !isLandscape -> Alignment.BottomCenter
-                                            isLeftHanded -> Alignment.TopEnd
-                                            else -> Alignment.TopStart
-                                        }
-                                    )
+                                    .align(if (isLeftHanded) Alignment.TopEnd else Alignment.TopStart)
                                     .padding(tokens.spaceSmall)
+                                    .padding(
+                                        start = if (isLandscape && !isLeftHanded) 64.dp else 0.dp,
+                                        end = if (isLandscape && isLeftHanded) 64.dp else 0.dp
+                                    )
                                     .then(
                                         if (isLandscape) Modifier.width(240.dp)
                                         else Modifier.fillMaxWidth().widthIn(max = 380.dp)
                                     )
-                                    .heightIn(max = maxHeight - tokens.spaceSmall * 2),
-                                shape = RoundedCornerShape(tokens.largeRadius)
                             ) {
                                 Column(
-                                    modifier = Modifier
-                                        .verticalScroll(rememberScrollState())
-                                        .padding(tokens.spaceMedium),
+                                    modifier = Modifier.padding(tokens.spaceMedium),
                                     verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
                                 ) {
                                     Text(
-                                        text = vm.tool.displayName,
+                                        text = "${vm.tool.displayName} Options",
                                         style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.SemiBold,
+                                        fontWeight = FontWeight.Bold,
                                         color = tokens.onSurface
                                     )
+                                    if (vm.tool.isBrush || vm.tool == Tool.ERASER ||
+                                        vm.tool == Tool.LINE || vm.tool == Tool.RECT || vm.tool == Tool.ELLIPSE
+                                    ) {
+                                        WishySlider(
+                                            value = vm.brushSize,
+                                            onValueChange = { vm.updateBrushSize(it) },
+                                            valueRange = 1f..(if (vm.tool == Tool.CUSTOM) 200f else 100f),
+                                            label = stringResource(R.string.ui_brush_size),
+                                            unit = "px"
+                                        )
+                                    }
+                                    if (vm.tool.isBrush || vm.tool == Tool.TEXT) {
+                                        WishySlider(
+                                            value = vm.opacity * 100f,
+                                            onValueChange = { vm.updateOpacity(it / 100f) },
+                                            valueRange = 5f..100f,
+                                            label = stringResource(R.string.ui_opacity),
+                                            unit = "%"
+                                        )
+                                    }
+                                    if (vm.tool.isBrush) {
+                                        WishySlider(
+                                            value = vm.stabilizer * 100f,
+                                            onValueChange = { vm.updateStabilizer(it / 100f) },
+                                            valueRange = 0f..100f,
+                                            label = stringResource(R.string.ui_stabilizer),
+                                            unit = "%"
+                                        )
+                                    }
                                     if (vm.tool == Tool.FILL) {
                                         WishySlider(
                                             value = vm.fillTolerance.toFloat(),
                                             onValueChange = { vm.updateFillTolerance(it.roundToInt()) },
-                                            valueRange = 0f..128f,
-                                            label = stringResource(R.string.ui_tolerance)
-                                        )
-                                    } else {
-                                        WishySlider(
-                                            value = vm.brushSize,
-                                            onValueChange = { vm.updateBrushSize(it) },
-                                            valueRange = 1f..60f,
-                                            label = stringResource(R.string.ui_size),
-                                            unit = "px",
-                                            onValueChangeFinished = { vm.persistBrush() }
+                                            valueRange = 0f..255f,
+                                            label = stringResource(R.string.ui_tolerance),
+                                            unit = ""
                                         )
                                     }
-                                    WishySlider(
-                                        value = vm.opacity * 100f,
-                                        onValueChange = { vm.updateOpacity(it / 100f) },
-                                        valueRange = 5f..100f,
-                                        label = stringResource(R.string.ui_opacity),
-                                        unit = "%",
-                                        onValueChangeFinished = { vm.persistBrush() }
-                                    )
-                                    WishySlider(
-                                        value = vm.stabilizer * 100f,
-                                        onValueChange = { vm.updateStabilizer(it / 100f) },
-                                        valueRange = 0f..100f,
-                                        label = stringResource(R.string.ui_stabilizer),
-                                        unit = "%"
-                                    )
-
-                                    // Live brush stroke preview (on paper, like the real canvas)
-                                    val brushColor = Color(vm.color)
-                                    val bSize = vm.brushSize
-                                    val bOp = vm.opacity
-                                    Canvas(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(36.dp)
-                                            .clip(RoundedCornerShape(tokens.smallRadius))
-                                            .background(tokens.paper)
+                                    TextButton(
+                                        onClick = { showToolOptions = false },
+                                        modifier = Modifier.align(Alignment.End)
                                     ) {
-                                        val centerY = size.height / 2f
-                                        drawLine(
-                                            color = brushColor,
-                                            start = Offset(20f, centerY),
-                                            end = Offset(size.width - 20f, centerY),
-                                            strokeWidth = bSize,
-                                            cap = StrokeCap.Round,
-                                            alpha = bOp
-                                        )
+                                        Text(stringResource(R.string.ui_close))
                                     }
                                 }
                             }
                         }
 
-                        // Layers panel floats over the canvas instead of squeezing it
-                        if (showLayersPanel && !isUiHidden) {
+                        // Floating Layers Panel (collapsible popover over the canvas)
+                        if (!isUiHidden && showLayersPanel) {
                             LayerPanel(
                                 layers = vm.layerUi,
                                 activeLayerIndex = vm.activeLayerIndex,
@@ -724,76 +744,43 @@ fun EditorScreen(
                                 onMoveLayer = { idx, dir -> vm.moveLayer(idx, dir) },
                                 onDeleteLayer = { idx -> layerConfirm = Pair(false, idx) },
                                 onToggleLock = { idx, locked -> vm.setLayerLocked(idx, locked) },
-                                onCycleBlend = { idx -> vm.layerUi.getOrNull(idx)?.let { vm.setLayerBlend(idx, it.blendMode.next()) } },
+                                onCycleBlend = { idx ->
+                                    val cur = vm.layerUi.getOrNull(idx)?.blendMode
+                                    if (cur != null) vm.setLayerBlend(idx, cur.next())
+                                },
                                 onDuplicateLayer = { idx -> vm.duplicateLayer(idx) },
                                 onMergeDown = { idx -> layerConfirm = Pair(true, idx) },
                                 onRenameLayer = { idx -> renameLayerIndex = idx },
                                 maxListHeight = (maxHeight - 140.dp).coerceIn(80.dp, 280.dp),
+                                thumbnails = layerThumbs,
                                 modifier = Modifier
                                     .align(if (isLeftHanded) Alignment.TopStart else Alignment.TopEnd)
                                     .padding(tokens.spaceSmall)
-                                    .width(260.dp)
+                                    .then(
+                                        if (isLandscape) Modifier.width(300.dp)
+                                        else Modifier.fillMaxWidth().widthIn(max = 380.dp)
+                                    )
                             )
                         }
 
-                        // Brief status text (locked layer, brush import result, mirror mode, ...)
+                        // Status pill (e.g. "This layer is locked").
                         vm.message?.let { msg ->
-                            Surface(
+                            Box(
                                 modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .padding(top = tokens.spaceMedium),
-                                shape = RoundedCornerShape(20.dp),
-                                color = tokens.surface,
-                                shadowElevation = tokens.elevationMedium
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = tokens.spaceLarge)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(tokens.primary)
+                                    .padding(horizontal = tokens.spaceLarge, vertical = tokens.spaceSmall)
                             ) {
                                 Text(
                                     text = msg,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = tokens.onSurface
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = tokens.onPrimary,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
-                    }
-
-                    if (isLandscape && isLeftHanded && !isUiHidden) {
-                        ToolRail(
-                            selectedTool = vm.tool,
-                            onSelectTool = onSelectTool,
-                            activeBrush = activeBrush,
-                            onBrushClick = onBrushClick,
-                            onToolDoubleTap = onToolDoubleTap,
-                            activeShape = activeShape,
-                            mirrorMode = vm.mirrorMode,
-                            onMirrorClick = { vm.cycleMirror() },
-                            rulerOn = vm.rulerVisible,
-                            onRulerClick = { vm.toggleRuler() },
-                            trailing = colorSwatchSlot
-                        )
-                    }
-                }
-
-                // ---- Portrait: horizontal tool bar sits right above the timeline ----
-                if (!isLandscape) {
-                    AnimatedVisibility(
-                        visible = !isUiHidden,
-                        enter = fadeIn(),
-                        exit = fadeOut()
-                    ) {
-                        ToolRail(
-                            selectedTool = vm.tool,
-                            onSelectTool = onSelectTool,
-                            horizontal = true,
-                            activeBrush = activeBrush,
-                            onBrushClick = onBrushClick,
-                            onToolDoubleTap = onToolDoubleTap,
-                            activeShape = activeShape,
-                            mirrorMode = vm.mirrorMode,
-                            onMirrorClick = { vm.cycleMirror() },
-                            rulerOn = vm.rulerVisible,
-                            onRulerClick = { vm.toggleRuler() },
-                            trailing = colorSwatchSlot
-                        )
                     }
                 }
 
@@ -803,7 +790,11 @@ fun EditorScreen(
                     enter = fadeIn(),
                     exit = fadeOut()
                 ) {
-                    Column {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = tokens.spaceXs)
+                    ) {
                         StudioTimeline(
                             frames = vm.frames,
                             currentIndex = vm.currentIndex,
@@ -817,8 +808,12 @@ fun EditorScreen(
                             onToggleStudioExpanded = { isStudioExpanded = !isStudioExpanded },
                             onSelectFrame = { vm.selectFrame(it) },
                             onTogglePlay = { vm.togglePlay() },
-                            onPreviousFrame = { if (vm.currentIndex > 0) vm.selectFrame(vm.currentIndex - 1) },
-                            onNextFrame = { if (vm.currentIndex < vm.frames.lastIndex) vm.selectFrame(vm.currentIndex + 1) },
+                            onPreviousFrame = {
+                                if (vm.currentIndex > 0) vm.selectFrame(vm.currentIndex - 1)
+                            },
+                            onNextFrame = {
+                                if (vm.currentIndex < vm.frames.lastIndex) vm.selectFrame(vm.currentIndex + 1)
+                            },
                             onAddFrame = { vm.addFrame() },
                             onDuplicateFrame = { vm.duplicateFrame() },
                             onCopyFrame = { vm.copyFrame() },
@@ -834,7 +829,13 @@ fun EditorScreen(
                             onAudioRequested = { showAudioDialog = true },
                             onUpdateAudioTrack = { vm.updateAudioTrack(it) },
                             onDeleteAudioTrack = { vm.deleteAudioTrack(it) },
-                            onUpdateFrameExposure = { index, duration -> vm.updateFrameExposure(index, duration) }
+                            onUpdateFrameExposure = { index, duration -> vm.updateFrameExposure(index, duration) },
+                            frameThumb = { id -> vm.frameThumbFile(id) },
+                            thumbVersion = vm.frameThumbVersion,
+                            onOpenLayers = { showLayersPanel = !showLayersPanel },
+                            onMoveFrame = { vm.moveFrame(it) },
+                            onMoveFrameTo = { from, to -> vm.moveFrameTo(from, to) },
+                            layerContent = layerContent
                         )
                     }
                 }
@@ -842,130 +843,254 @@ fun EditorScreen(
         }
     }
 
-    // Dialogs & Sheets
-    if (showColorPicker) {
-        ColorPickerSheet(
-            initialColor = vm.color,
-            onPick = {
-                vm.updateColor(it)
-                showColorPicker = false
-            },
-            onDismiss = { showColorPicker = false }
-        )
-    }
-
-    renameLayerIndex?.let { idx ->
-        var text by remember(idx) { mutableStateOf(vm.layerUi.getOrNull(idx)?.name ?: "") }
+    if (showDeleteFrameDialog) {
+        val total = vm.frames.size
         WishyDialog(
-            title = stringResource(R.string.ui_rename_layer),
-            onDismissRequest = { renameLayerIndex = null },
-            confirmText = stringResource(R.string.action_ok),
+            title = stringResource(R.string.ui_delete_frame_2),
+            onDismissRequest = { showDeleteFrameDialog = false },
+            confirmText = stringResource(R.string.ui_delete),
             onConfirm = {
-                vm.renameLayer(idx, text)
-                renameLayerIndex = null
+                vm.deleteFrame()
+                showDeleteFrameDialog = false
             },
-            dismissText = stringResource(R.string.action_cancel),
-            onDismiss = { renameLayerIndex = null }
+            dismissText = stringResource(R.string.ui_cancel),
+            onDismiss = { showDeleteFrameDialog = false }
         ) {
-            androidx.compose.material3.OutlinedTextField(
-                value = text,
-                onValueChange = { text = it.take(40) },
-                singleLine = true
+            Text(
+                if (total <= 1) "This is the only frame: deleting it will clear all layers on this frame."
+                else "Frame ${vm.currentIndex + 1} of $total will be permanently deleted."
             )
         }
     }
 
     layerConfirm?.let { (isMerge, idx) ->
-        val layerName = vm.layerUi.getOrNull(idx)?.name ?: ""
+        val layerName = vm.layerUi.getOrNull(idx)?.name ?: "Layer"
+        val title = if (isMerge) "Merge \"$layerName\" down?" else "Delete \"$layerName\"?"
+        val detail = if (isMerge)
+            "\"$layerName\" will be merged into the layer below on EVERY frame. This can't be undone."
+        else
+            "\"$layerName\" will be permanently deleted from EVERY frame in the animation. This can't be undone."
         WishyDialog(
-            title = if (isMerge) "Merge layer down?" else "Delete layer?",
+            title = title,
             onDismissRequest = { layerConfirm = null },
             confirmText = if (isMerge) "Merge" else "Delete",
             onConfirm = {
                 if (isMerge) vm.mergeLayerDown(idx) else vm.deleteLayer(idx)
                 layerConfirm = null
             },
-            dismissText = stringResource(R.string.action_cancel),
+            dismissText = stringResource(R.string.ui_cancel),
             onDismiss = { layerConfirm = null }
         ) {
-            Text(
-                if (isMerge) "\"$layerName\" will be flattened into the layer below on every frame. This can't be undone."
-                else "\"$layerName\" and its drawings will be removed from every frame. This can't be undone."
-            )
+            Text(detail)
         }
     }
 
-    if (showDeleteFrameDialog) {
-        WishyDialog(
-            title = if (vm.frames.size <= 1) "Clear Frame?" else "Delete Frame?",
-            onDismissRequest = { showDeleteFrameDialog = false },
-            confirmText = stringResource(R.string.action_ok),
-            onConfirm = {
-                vm.deleteFrame()
-                showDeleteFrameDialog = false
-            },
-            dismissText = stringResource(R.string.action_cancel),
-            onDismiss = { showDeleteFrameDialog = false }
-        ) {
-            Text(
-                if (vm.frames.size <= 1) "This is the only frame, so it will be cleared (you can undo)."
-                else "Frame ${vm.currentIndex + 1} will be deleted."
-            )
+    renameLayerIndex?.let { idx ->
+        val layer = vm.layerUi.getOrNull(idx)
+        if (layer != null) {
+            var text by remember(idx) { mutableStateOf(layer.name) }
+            WishyDialog(
+                title = stringResource(R.string.ui_rename_layer),
+                onDismissRequest = { renameLayerIndex = null },
+                confirmText = stringResource(R.string.action_save),
+                onConfirm = {
+                    vm.renameLayer(idx, text)
+                    renameLayerIndex = null
+                },
+                dismissText = stringResource(R.string.ui_cancel),
+                onDismiss = { renameLayerIndex = null }
+            ) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Layer Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
     }
 
     if (showFpsDialog) {
-        var fpsVal by remember { mutableStateOf(vm.project?.fps?.toFloat() ?: 12f) }
+        val currentFps = vm.project?.fps ?: 12
+        var pickedFps by remember { mutableStateOf(currentFps) }
         WishyDialog(
             title = stringResource(R.string.ui_project_fps),
             onDismissRequest = { showFpsDialog = false },
-            confirmText = stringResource(R.string.action_ok),
+            confirmText = stringResource(R.string.action_save),
             onConfirm = {
-                vm.updateProjectFps(fpsVal.roundToInt())
+                vm.updateProjectFps(pickedFps)
                 showFpsDialog = false
             },
-            dismissText = stringResource(R.string.action_cancel),
+            dismissText = stringResource(R.string.ui_cancel),
             onDismiss = { showFpsDialog = false }
         ) {
-            WishySlider(
-                value = fpsVal,
-                onValueChange = { fpsVal = it },
-                valueRange = 1f..60f,
-                label = stringResource(R.string.ui_target_fps),
-                unit = " fps"
-            )
-        }
-    }
-
-    if (showExportDialog) {
-        WishyDialog(
-            title = stringResource(R.string.ui_export_animation),
-            onDismissRequest = { showExportDialog = false },
-            confirmText = stringResource(R.string.action_close),
-            onConfirm = { showExportDialog = false }
-        ) {
             Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
-                TextButton(onClick = {
-                    startExport(ExportFormat.MP4, -1)
-                    showExportDialog = false
-                }) { Text(stringResource(R.string.ui_export_mp4_video)) }
-                TextButton(onClick = {
-                    startExport(ExportFormat.GIF, -1)
-                    showExportDialog = false
-                }) { Text(stringResource(R.string.ui_export_animated_gif)) }
-                TextButton(onClick = {
-                    startExport(ExportFormat.PNG_SEQUENCE, -1)
-                    showExportDialog = false
-                }) { Text(stringResource(R.string.ui_export_png_sequence_zip)) }
-                TextButton(onClick = {
-                    startExport(ExportFormat.PNG_CURRENT_FRAME, vm.currentIndex)
-                    showExportDialog = false
-                }) { Text(stringResource(R.string.ui_export_current_frame_png)) }
+                WishySlider(
+                    value = pickedFps.toFloat(),
+                    onValueChange = { pickedFps = it.roundToInt() },
+                    valueRange = 1f..60f,
+                    label = stringResource(R.string.ui_target_fps),
+                    unit = " fps"
+                )
                 Text(
-                    stringResource(R.string.ui_video_is_exported_without_audio_for_no),
+                    text = "Common frame rates: 12 fps (classic animation), 24 fps (film), 30 / 60 fps (smooth video).",
                     style = MaterialTheme.typography.labelSmall,
                     color = tokens.onSurfaceVariant
                 )
+            }
+        }
+    }
+
+    if (showOnionSkinDialog) {
+        val current = vm.onionSkinSettings
+        var before by remember { mutableStateOf(current.framesBefore) }
+        var after by remember { mutableStateOf(current.framesAfter) }
+        var opacity by remember { mutableStateOf(current.opacity) }
+        WishyDialog(
+            title = stringResource(R.string.ui_onion_skin_2),
+            onDismissRequest = { showOnionSkinDialog = false },
+            confirmText = stringResource(R.string.action_save),
+            onConfirm = {
+                vm.updateOnionSkinSettings(
+                    current.copy(
+                        enabled = before > 0 || after > 0,
+                        framesBefore = before,
+                        framesAfter = after,
+                        opacity = opacity
+                    )
+                )
+                showOnionSkinDialog = false
+            },
+            dismissText = stringResource(R.string.ui_cancel),
+            onDismiss = { showOnionSkinDialog = false }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
+                WishySlider(
+                    value = before.toFloat(),
+                    onValueChange = { before = it.roundToInt() },
+                    valueRange = 0f..5f,
+                    label = stringResource(R.string.ui_frames_before),
+                    unit = ""
+                )
+                WishySlider(
+                    value = after.toFloat(),
+                    onValueChange = { after = it.roundToInt() },
+                    valueRange = 0f..5f,
+                    label = stringResource(R.string.ui_frames_after),
+                    unit = ""
+                )
+                WishySlider(
+                    value = opacity * 100f,
+                    onValueChange = { opacity = it / 100f },
+                    valueRange = 10f..90f,
+                    label = stringResource(R.string.ui_opacity),
+                    unit = "%"
+                )
+            }
+        }
+    }
+
+    if (vm.textEditorOpen) {
+        var text by remember(vm.textEditorInitial) { mutableStateOf(vm.textEditorInitial) }
+        WishyDialog(
+            title = stringResource(R.string.ui_text_editor),
+            onDismissRequest = { vm.dismissTextEditor() },
+            confirmText = stringResource(R.string.ui_done),
+            onConfirm = { vm.confirmText(text) },
+            dismissText = stringResource(R.string.ui_cancel),
+            onDismiss = { vm.dismissTextEditor() }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Text") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = stringResource(R.string.ui_font),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = tokens.onSurface
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 160.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    for (opt in vm.availableFonts) {
+                        TextButton(
+                            onClick = { vm.activeFontName = opt.key },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = opt.label,
+                                style = TextStyle(
+                                    fontFamily = vm.fontTypeface(opt.key)?.let { FontFamily(it) }
+                                ),
+                                color = if (vm.activeFontName == opt.key) tokens.primary else tokens.onSurface
+                            )
+                        }
+                    }
+                    TextButton(onClick = { fontPicker.launch("*/*") }) {
+                        Text(stringResource(R.string.ui_import_fonts_ttf_otf))
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAudioDialog) {
+        val tracks = vm.audioTracks
+        WishyDialog(
+            title = stringResource(R.string.ui_audio_track_manager),
+            onDismissRequest = { showAudioDialog = false },
+            confirmText = stringResource(R.string.ui_close),
+            onConfirm = { showAudioDialog = false },
+            dismissText = null,
+            onDismiss = null
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
+                if (tracks.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.ui_no_audio_yet_a_track_you_add_starts_at),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = tokens.onSurfaceVariant
+                    )
+                } else {
+                    for (track in tracks) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = track.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = tokens.onSurface
+                                )
+                                Text(
+                                    text = "Starts at frame ${track.startFrame + 1} • ${(track.durationMs / 1000f).roundToInt()}s",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = tokens.onSurfaceVariant
+                                )
+                            }
+                            TextButton(onClick = { vm.deleteAudioTrack(track.id) }) {
+                                Text(stringResource(R.string.ui_delete), color = tokens.danger)
+                            }
+                        }
+                    }
+                }
+                TextButton(
+                    onClick = { audioPicker.launch("audio/*") },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.ui_add_audio_file))
+                }
             }
         }
     }
@@ -974,196 +1099,160 @@ fun EditorScreen(
         WishyDialog(
             title = stringResource(R.string.ui_import_media_2),
             onDismissRequest = { showImportDialog = false },
-            confirmText = stringResource(R.string.action_close),
-            onConfirm = { showImportDialog = false }
+            confirmText = stringResource(R.string.ui_close),
+            onConfirm = { showImportDialog = false },
+            dismissText = null,
+            onDismiss = null
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
-                Text(stringResource(R.string.ui_into_the_animation), style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
-                TextButton(onClick = {
-                    imageSequencePicker.launch("image/*")
-                    showImportDialog = false
-                }) { Text(stringResource(R.string.ui_images_as_new_frames)) }
-                TextButton(onClick = {
-                    videoPicker.launch("video/*")
-                    showImportDialog = false
-                }) { Text(stringResource(R.string.ui_video_as_frames)) }
-                TextButton(onClick = {
-                    imageLayerPicker.launch("image/*")
-                    showImportDialog = false
-                }) { Text(stringResource(R.string.ui_image_as_a_new_layer_on_this_frame)) }
-                TextButton(onClick = {
-                    audioPicker.launch("audio/*")
-                    showImportDialog = false
-                }) { Text(stringResource(R.string.ui_audio_track)) }
-                Text(stringResource(R.string.ui_customize), style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
-                TextButton(onClick = {
-                    brushPicker.launch("*/*")
-                    showImportDialog = false
-                }) { Text(stringResource(R.string.ui_brushes_png_abr_gbr_kpp_procreate)) }
-                TextButton(onClick = {
-                    fontPicker.launch("*/*")
-                    showImportDialog = false
-                }) { Text(stringResource(R.string.ui_fonts_ttf_otf)) }
-            }
-        }
-    }
-
-    if (showOnionSkinDialog) {
-        val s = vm.onionSkinSettings
-        var onionOpacity by remember(s.opacity) { mutableStateOf(s.opacity * 100f) }
-        WishyDialog(
-            title = stringResource(R.string.ui_onion_skin_2),
-            onDismissRequest = { showOnionSkinDialog = false },
-            confirmText = stringResource(R.string.action_close),
-            onConfirm = { showOnionSkinDialog = false }
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
-                WishySlider(
-                    value = s.framesBefore.toFloat(),
-                    onValueChange = {
-                        val v = it.roundToInt()
-                        if (v != s.framesBefore) vm.updateOnionSkinSettings(s.copy(framesBefore = v))
+                Text(
+                    text = stringResource(R.string.ui_into_the_animation),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.onSurfaceVariant
+                )
+                TextButton(
+                    onClick = {
+                        showImportDialog = false
+                        imageSequencePicker.launch("image/*")
                     },
-                    valueRange = 0f..3f,
-                    label = stringResource(R.string.ui_frames_before)
-                )
-                WishySlider(
-                    value = s.framesAfter.toFloat(),
-                    onValueChange = {
-                        val v = it.roundToInt()
-                        if (v != s.framesAfter) vm.updateOnionSkinSettings(s.copy(framesAfter = v))
-                    },
-                    valueRange = 0f..3f,
-                    label = stringResource(R.string.ui_frames_after)
-                )
-                WishySlider(
-                    value = onionOpacity,
-                    onValueChange = { onionOpacity = it },
-                    valueRange = 5f..80f,
-                    label = stringResource(R.string.ui_opacity),
-                    unit = "%",
-                    onValueChangeFinished = {
-                        vm.updateOnionSkinSettings(vm.onionSkinSettings.copy(opacity = onionOpacity / 100f))
-                    }
-                )
-            }
-        }
-    }
-
-    if (showAudioDialog) {
-        WishyDialog(
-            title = stringResource(R.string.ui_audio),
-            onDismissRequest = { showAudioDialog = false },
-            confirmText = stringResource(R.string.action_close),
-            onConfirm = { showAudioDialog = false }
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)) {
-                if (vm.audioTracks.isEmpty()) {
-                    Text(
-                        stringResource(R.string.ui_no_audio_yet_a_track_you_add_starts_at),
-                        color = tokens.onSurfaceVariant
-                    )
-                }
-                vm.audioTracks.forEach { track ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "${track.name} - frame ${track.startFrame + 1}",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        ActionIconButton(
-                            iconRes = WishyIcons.Delete,
-                            contentDescription = stringResource(R.string.ui_remove_audio),
-                            onClick = { vm.deleteAudioTrack(track.id) }
-                        )
-                    }
-                }
-                TextButton(onClick = {
-                    audioPicker.launch("audio/*")
-                    showAudioDialog = false
-                }) { Text(stringResource(R.string.ui_add_audio_file)) }
-            }
-        }
-    }
-
-    if (vm.textEditorOpen) {
-        var textValue by remember { mutableStateOf(vm.textEditorInitial) }
-        val activeFamily = remember(vm.activeFontName, vm.availableFonts) {
-            vm.fontTypeface(vm.activeFontName)?.let { FontFamily(it) }
-        }
-        WishyDialog(
-            title = stringResource(R.string.ui_text_editor),
-            onDismissRequest = { vm.dismissTextEditor() },
-            confirmText = stringResource(R.string.action_ok),
-            onConfirm = { vm.confirmText(textValue) },
-            dismissText = stringResource(R.string.action_cancel),
-            onDismiss = { vm.dismissTextEditor() }
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
-                OutlinedTextField(
-                    value = textValue,
-                    onValueChange = { textValue = it },
-                    label = { Text(stringResource(R.string.ui_type_here)) },
-                    // Shows the text in the chosen font, so the preview matches what gets drawn.
-                    textStyle = TextStyle(
-                        fontFamily = activeFamily,
-                        fontSize = MaterialTheme.typography.bodyLarge.fontSize
-                    ),
                     modifier = Modifier.fillMaxWidth()
-                )
-                Text(stringResource(R.string.ui_font), style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 220.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)
                 ) {
-                    for (font in vm.availableFonts) {
-                        val selected = font.key == vm.activeFontName
-                        val family = remember(font.key) { vm.fontTypeface(font.key)?.let { FontFamily(it) } }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(tokens.smallRadius))
-                                .background(if (selected) tokens.primaryContainer else tokens.surfaceVariant)
-                                .clickable { vm.activeFontName = font.key }
-                                .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = font.label,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontFamily = family,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                color = if (selected) tokens.onPrimaryContainer else tokens.onSurface,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (!font.builtIn) {
-                                ActionIconButton(
-                                    iconRes = WishyIcons.Delete,
-                                    contentDescription = "Remove font ${font.label}",
-                                    onClick = { vm.deleteFont(font.key) }
-                                )
-                            }
-                        }
-                    }
+                    Text(stringResource(R.string.ui_images_as_new_frames))
                 }
-                TextButton(onClick = { fontPicker.launch("*/*") }) {
-                    Text(stringResource(R.string.ui_import_fonts_ttf_otf))
+                TextButton(
+                    onClick = {
+                        showImportDialog = false
+                        videoPicker.launch("video/*")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.ui_video_as_frames))
+                }
+                Text(
+                    text = stringResource(R.string.ui_image_as_a_new_layer_on_this_frame),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.onSurfaceVariant,
+                    modifier = Modifier.padding(top = tokens.spaceSmall)
+                )
+                TextButton(
+                    onClick = {
+                        showImportDialog = false
+                        imageLayerPicker.launch("image/*")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Image as a new layer")
+                }
+                Text(
+                    text = stringResource(R.string.ui_audio_track),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.onSurfaceVariant,
+                    modifier = Modifier.padding(top = tokens.spaceSmall)
+                )
+                TextButton(
+                    onClick = {
+                        showImportDialog = false
+                        audioPicker.launch("audio/*")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.ui_add_audio_file))
+                }
+                Text(
+                    text = stringResource(R.string.ui_customize),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.onSurfaceVariant,
+                    modifier = Modifier.padding(top = tokens.spaceSmall)
+                )
+                TextButton(
+                    onClick = {
+                        showImportDialog = false
+                        brushPicker.launch("*/*")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.ui_brushes_png_abr_gbr_kpp_procreate))
+                }
+                TextButton(
+                    onClick = {
+                        showImportDialog = false
+                        fontPicker.launch("*/*")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.ui_fonts_ttf_otf))
                 }
             }
         }
+    }
+
+    if (showExportDialog) {
+        WishyDialog(
+            title = stringResource(R.string.ui_export_animation),
+            onDismissRequest = { showExportDialog = false },
+            confirmText = stringResource(R.string.ui_close),
+            onConfirm = { showExportDialog = false },
+            dismissText = null,
+            onDismiss = null
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
+                TextButton(
+                    onClick = {
+                        showExportDialog = false
+                        startExport(ExportFormat.MP4, vm.currentIndex)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.ui_export_mp4_video))
+                }
+                TextButton(
+                    onClick = {
+                        showExportDialog = false
+                        startExport(ExportFormat.GIF, vm.currentIndex)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.ui_export_animated_gif))
+                }
+                TextButton(
+                    onClick = {
+                        showExportDialog = false
+                        startExport(ExportFormat.PNG_SEQUENCE, vm.currentIndex)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.ui_export_png_sequence_zip))
+                }
+                TextButton(
+                    onClick = {
+                        showExportDialog = false
+                        startExport(ExportFormat.PNG_CURRENT_FRAME, vm.currentIndex)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.ui_export_current_frame_png))
+                }
+            }
+        }
+    }
+
+    if (showColorPicker) {
+        ColorPickerSheet(
+            initialColor = vm.color,
+            onPick = { vm.updateColor(it) },
+            onDismiss = { showColorPicker = false }
+        )
     }
 
     if (showShortcutDialog) {
-        ShortcutDialog(
-            onDismissRequest = { showShortcutDialog = false }
-        )
+        ShortcutDialog(onDismissRequest = { showShortcutDialog = false })
     }
+}
+
+/** A small preview (longest side ~128px) of a layer's pixels for the layer list. */
+private fun scaledLayerThumb(source: Bitmap): ImageBitmap {
+    val scale = 128f / maxOf(source.width, source.height).coerceAtLeast(1)
+    val w = (source.width * scale).toInt().coerceAtLeast(1)
+    val h = (source.height * scale).toInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(source, w, h, true).asImageBitmap()
 }

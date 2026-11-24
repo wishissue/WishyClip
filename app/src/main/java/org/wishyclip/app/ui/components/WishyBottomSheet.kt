@@ -1,26 +1,23 @@
 package org.wishyclip.app.ui.components
 
-import org.wishyclip.app.R
-import androidx.compose.ui.res.stringResource
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import org.wishyclip.app.R
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 
+/** Standard Material 3 modal bottom sheet (default container, drag handle and window insets). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WishyBottomSheet(
@@ -28,18 +25,14 @@ fun WishyBottomSheet(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val tokens = WishyTheme.tokens
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
-        modifier = modifier,
-        containerColor = tokens.surface,
-        contentColor = tokens.onSurface,
-        shape = RoundedCornerShape(topStart = tokens.largeRadius, topEnd = tokens.largeRadius)
+        modifier = modifier
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(tokens.spaceMedium)
+                .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
         ) {
             content()
         }
@@ -50,15 +43,8 @@ fun WishyBottomSheet(
 @Composable
 private fun WishyBottomSheetLightPreview() {
     WishyTheme(tokens = LightTokens) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(LightTokens.surface)
-                .padding(16.dp)
-        ) {
-            Column {
-                Text(stringResource(R.string.ui_bottom_sheet_content))
-            }
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(stringResource(R.string.ui_bottom_sheet_content))
         }
     }
 }
@@ -67,15 +53,8 @@ private fun WishyBottomSheetLightPreview() {
 @Composable
 private fun WishyBottomSheetDarkPreview() {
     WishyTheme(tokens = DarkTokens) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(DarkTokens.surface)
-                .padding(16.dp)
-        ) {
-            Column {
-                Text(stringResource(R.string.ui_bottom_sheet_dark_content))
-            }
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(stringResource(R.string.ui_bottom_sheet_dark_content))
         }
     }
 }

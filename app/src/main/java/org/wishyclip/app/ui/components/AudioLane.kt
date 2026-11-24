@@ -135,7 +135,7 @@ fun AudioLane(
                     horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)
                 ) {
                     ActionIconButton(
-                        iconRes = WishyIcons.Audio,
+                        iconRes = if (track.volume > 0f) WishyIcons.VolumeOn else WishyIcons.VolumeOff,
                         contentDescription = if (track.volume > 0f) "Mute" else "Unmute",
                         selected = track.volume <= 0f,
                         onClick = { onUpdate(track.copy(volume = if (track.volume > 0f) 0f else 1f)) }

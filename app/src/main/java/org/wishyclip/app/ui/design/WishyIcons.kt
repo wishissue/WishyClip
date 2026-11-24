@@ -67,4 +67,11 @@ object WishyIcons {
     @get:DrawableRes val ArrowDown: Int get() = R.drawable.ic_arrow_down
     @get:DrawableRes val RestoreUi: Int get() = R.drawable.ic_restore
     @get:DrawableRes val Logo: Int get() = R.drawable.ic_logo
+    @get:DrawableRes val Grip: Int get() = R.drawable.ic_grip
+    @get:DrawableRes val Reorder: Int get() = R.drawable.ic_reorder
+    @get:DrawableRes val Paste: Int get() = R.drawable.ic_paste
+    @get:DrawableRes val FitScreen: Int get() = R.drawable.ic_fit_screen
+    @get:DrawableRes val VolumeOff: Int get() = R.drawable.ic_volume_off
+    @get:DrawableRes val VolumeOn: Int get() = R.drawable.ic_volume_on
+    @get:DrawableRes val Close: Int get() = R.drawable.ic_close
 }

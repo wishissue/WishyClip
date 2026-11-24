@@ -149,6 +149,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     val canPasteFrame get() = copiedFrameData != null
 
     /** Bumped whenever pixels or layer metadata change so the canvas redraws. */
+    /** Bumped whenever a frame preview file was (re)written, so the timeline reloads the images. */
+    var frameThumbVersion by mutableIntStateOf(0)
+        private set
+
     var revision by mutableIntStateOf(0)
         private set
 
@@ -409,6 +413,37 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             revision++
             trimCache()
             prefetch(to)
+        }
+    }
+
+    /** Moves the frame at [from] to position [to] (drag-reorder in the timeline) and selects it there. */
+    fun moveFrameTo(from: Int, to: Int) {
+        if (strokeLayer != null) return
+        if (from !in frames.indices || to !in frames.indices || from == to) return
+        stopPlay()
+        viewModelScope.launch {
+            repo.moveFrame(projectId, from, to)
+            frames = repo.frames(projectId)
+            currentIndex = to
+            revision++
+            trimCache()
+            prefetch(to)
+        }
+    }
+
+    /**
+     * For every frame id, the layer indices (bottom = 0) that have saved pixels. The Studio timeline
+     * uses it to draw one track per layer, filled where that layer has a drawing.
+     */
+    suspend fun layerContentMap(): Map<Long, Set<Int>> {
+        val snapshot = frames
+        val pid = projectId
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            snapshot.associate { f ->
+                f.id to repo.layers(f.id)
+                    .mapIndexedNotNull { i, l -> if (store.hasLayer(pid, l.id)) i else null }
+                    .toSet()
+            }
         }
     }
 
@@ -2082,7 +2117,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             )
         }
         val isFirst = frames.firstOrNull()?.id == fd.frameId
-        val thumb = if (isFirst && dirtyLayers.isNotEmpty()) composeThumb(fd) else null
+        val thumb = if (dirtyLayers.isNotEmpty()) composeThumb(fd) else null
         saveMutex.withLock {
             withContext(Dispatchers.IO) {
                 for ((layer, _, bmp) in copies) {
@@ -2091,16 +2126,60 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                 }
                 repo.saveLayers(metas)
                 if (thumb != null) {
-                    store.saveThumb(pid, thumb)
+                    if (isFirst) store.saveThumb(pid, thumb)
+                    store.saveFrameThumb(pid, fd.frameId, thumb)
                     thumb.recycle()
                 }
             }
         }
+        if (thumb != null) frameThumbVersion++
         for ((layer, version, _) in copies) layer.savedVersion = version
         // Empty layers have nothing to write (and no file): they are simply up to date.
         dirtyLayers.filter { !it.allocated }.forEach { it.savedVersion = it.version }
         fd.metaSavedVersion = metaVersion
         return true
+    }
+
+    /** The preview image of a frame for the timeline (may not exist yet for blank frames). */
+    fun frameThumbFile(frameId: Long): JavaFile = store.frameThumbFile(projectId, frameId)
+
+    /**
+     * Writes preview images for frames that have drawing but no preview yet (projects made before
+     * previews existed, duplicated / pasted / imported frames). Blank frames get none, which the
+     * timeline draws as an empty dashed cell.
+     */
+    fun backfillFrameThumbs() {
+        val p = project ?: return
+        val ids = frames.map { it.id }
+        viewModelScope.launch(Dispatchers.IO) {
+            val tw = 320
+            val th = (tw.toLong() * p.height / p.width).toInt().coerceAtLeast(1)
+            var wrote = false
+            for (fid in ids) {
+                if (store.frameThumbFile(projectId, fid).exists()) continue
+                val bmp = Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bmp)
+                canvas.drawColor(android.graphics.Color.WHITE)
+                val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+                val dst = Rect(0, 0, tw, th)
+                var hasContent = false
+                for (e in repo.layers(fid)) {
+                    if (!e.visible) continue
+                    val src = store.decodeOrNull(projectId, e.id) ?: continue
+                    paint.alpha = (e.opacity * 255f).toInt().coerceIn(0, 255)
+                    LayerBlending.apply(paint, LayerBlend.from(e.blendMode))
+                    canvas.drawBitmap(src, null, dst, paint)
+                    src.recycle()
+                    hasContent = true
+                }
+                if (hasContent) {
+                    store.saveFrameThumb(projectId, fid, bmp)
+                    wrote = true
+                }
+                bmp.recycle()
+            }
+            if (wrote) withContext(Dispatchers.Main) { frameThumbVersion++ }
+        }
     }
 
     private fun composeThumb(fd: FrameData): Bitmap? {

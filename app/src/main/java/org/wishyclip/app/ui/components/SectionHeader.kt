@@ -1,30 +1,29 @@
 package org.wishyclip.app.ui.components
 
-import org.wishyclip.app.R
-import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import org.wishyclip.app.R
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 
+/** Material 3 list sub-header: `titleSmall` in the primary color. */
 @Composable
 fun SectionHeader(
     title: String,
     modifier: Modifier = Modifier
 ) {
-    val tokens = WishyTheme.tokens
     Text(
         text = title,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        color = tokens.onSurface,
-        modifier = modifier.padding(vertical = tokens.spaceSmall)
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = modifier.padding(vertical = 8.dp)
     )
 }
 

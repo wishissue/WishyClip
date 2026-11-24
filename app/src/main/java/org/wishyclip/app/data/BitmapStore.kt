@@ -48,6 +48,14 @@ class BitmapStore(private val context: Context) {
         writePng(layerFile(projectId, layerId), bitmap)
     }
 
+    /** Small preview of one frame (all visible layers), shown in the timeline. Missing = empty frame. */
+    fun frameThumbFile(projectId: Long, frameId: Long): File =
+        File(projectDir(projectId), "frame-thumbs/$frameId.png")
+
+    fun saveFrameThumb(projectId: Long, frameId: Long, bitmap: Bitmap) {
+        writePng(frameThumbFile(projectId, frameId), bitmap)
+    }
+
     fun saveThumb(projectId: Long, bitmap: Bitmap) {
         writePng(thumbFile(projectId), bitmap)
     }

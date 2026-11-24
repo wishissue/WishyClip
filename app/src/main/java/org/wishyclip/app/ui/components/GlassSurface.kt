@@ -1,33 +1,32 @@
 package org.wishyclip.app.ui.components
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
-import org.wishyclip.app.ui.design.WishyTheme
 
 /**
- * The app's one working surface: a solid, softly rounded panel with a hairline outline and a very
- * light shadow. Used for the top bar, tool dock, timeline and pop-over panels so they separate from
- * the canvas backdrop without stacking borders, blur and heavy elevation. (The name is kept for
- * source compatibility; it no longer renders translucent "glass".)
+ * The floating tonal surface of the editor (tool rail, property bar, timeline dock, popovers):
+ * a Material 3 `surfaceContainer` container with the large (16dp) corner and level-2 elevation.
+ * The name is kept for source compatibility; it is a plain M3 [Surface], not translucent "glass".
  */
 @Composable
 fun GlassSurface(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(WishyTheme.tokens.mediumRadius),
+    shape: Shape = MaterialTheme.shapes.large,
+    color: Color = MaterialTheme.colorScheme.surfaceContainer,
     content: @Composable () -> Unit
 ) {
-    val tokens = WishyTheme.tokens
     Surface(
         modifier = modifier,
         shape = shape,
-        color = tokens.toolRail,
-        shadowElevation = tokens.elevationSmall,
-        border = BorderStroke(1.dp, tokens.glassBorder),
+        color = color,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 0.dp,
+        shadowElevation = 3.dp,
         content = content
     )
 }

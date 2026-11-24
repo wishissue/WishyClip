@@ -1,23 +1,19 @@
 package org.wishyclip.app.ui.components
 
-import org.wishyclip.app.R
-import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,20 +22,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
+import org.wishyclip.app.R
 import org.wishyclip.app.canvas.LassoSelection
 import org.wishyclip.app.model.Tool
 import org.wishyclip.app.model.displayName
 import org.wishyclip.app.model.isBrush
 import org.wishyclip.app.ui.design.WishyIcons
-import org.wishyclip.app.ui.design.WishyTheme
 
 /**
- * Contextual Control Bar displayed on canvas for the active tool.
- * Only displays relevant controls for the active tool (Brush, Eraser, Fill, Lasso, Shapes, Text).
+ * Tool properties: a compact floating Material 3 bar that only shows what the ACTIVE tool needs
+ * (brush: brush / size / opacity / color; eraser: size; fill: tolerance / color; selection: transform
+ * actions ...). Chips open the shared options popover ([onOpenToolOptions]) or the brush menu, so
+ * the bar stays one row and never covers the canvas with sliders. It scrolls sideways on narrow
+ * screens instead of clipping.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContextToolPanel(
     tool: Tool,
@@ -59,269 +59,139 @@ fun ContextToolPanel(
     modifier: Modifier = Modifier,
     onSelectShapeTool: ((Tool) -> Unit)? = null,
     /** Re-opens the text editor for the selected text (null hides the button). */
-    onEditText: (() -> Unit)? = null
+    onEditText: (() -> Unit)? = null,
+    /** Opens the size / opacity popover for the active tool. */
+    onOpenToolOptions: () -> Unit = {}
 ) {
-    val tokens = WishyTheme.tokens
+    val scheme = MaterialTheme.colorScheme
 
-    GlassSurface(
-        modifier = modifier.draggablePanel(),
-        shape = RoundedCornerShape(tokens.largeRadius)
-    ) {
+    @Composable
+    fun SizeChip(label: String) {
+        // The leading dot previews the real brush size (clamped so it always fits the chip).
+        val dot = (brushSize / 2f).coerceIn(4f, 18f)
+        AssistChip(
+            onClick = onOpenToolOptions,
+            label = { Text(label) },
+            leadingIcon = {
+                Box(
+                    modifier = Modifier
+                        .size(dot.dp)
+                        .clip(CircleShape)
+                        .background(scheme.onSurface)
+                )
+            }
+        )
+    }
+
+    @Composable
+    fun OpacityChip() {
+        AssistChip(
+            onClick = onOpenToolOptions,
+            label = { Text("${(opacity * 100f).roundToInt()}%") }
+        )
+    }
+
+    GlassSurface(modifier = modifier.draggablePanel()) {
         Row(
             modifier = Modifier
-                .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceSmall),
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             when {
                 activeLasso != null -> {
-                    TextButton(onClick = onCommitLasso) {
-                        Text(stringResource(R.string.ui_done), fontWeight = FontWeight.Bold)
-                    }
+                    Button(onClick = onCommitLasso) { Text(stringResource(R.string.ui_done)) }
                     if (activeLasso.isText) {
-                        // Editing text used to need a hidden tap on the selection; make it a button.
                         if (onEditText != null) {
                             TextButton(onClick = onEditText) { Text(stringResource(R.string.ui_edit_text)) }
                         }
-                        ColorSwatch(
-                            color = Color(color),
-                            onClick = onOpenColorPicker,
-                            size = 32.dp
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.width(120.dp)
-                        ) {
-                            Text(
-                                text = "${(opacity * 100f).roundToInt()}%",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = tokens.onSurfaceVariant,
-                                modifier = Modifier.width(36.dp)
-                            )
-                            WishySlider(
-                                value = opacity * 100f,
-                                onValueChange = { onOpacityChange(it / 100f) },
-                                valueRange = 5f..100f,
-                                label = "",
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
+                        ColorSwatch(color = Color(color), onClick = onOpenColorPicker, size = 36.dp)
+                        OpacityChip()
                     }
-                    TextButton(onClick = onCancelLasso) {
-                        Text(stringResource(R.string.ui_put_back))
-                    }
+                    TextButton(onClick = onCancelLasso) { Text(stringResource(R.string.ui_put_back)) }
                     TextButton(onClick = onDeleteLasso) {
-                        Text(stringResource(R.string.ui_delete), color = tokens.danger)
+                        Text(stringResource(R.string.ui_delete), color = scheme.error)
                     }
                 }
 
                 tool.isBrush -> {
-                    // Brush Selector Chip
-                    Box(
-                        modifier = Modifier
-                            .heightIn(min = tokens.minTouchTarget)
-                            .bouncyClickable(onClick = onOpenBrushMenu)
-                            .clip(RoundedCornerShape(tokens.mediumRadius))
-                            .background(tokens.surfaceVariant)
-                            .padding(horizontal = tokens.spaceMedium, vertical = 4.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    AssistChip(
+                        onClick = onOpenBrushMenu,
+                        label = { Text(tool.displayName) },
+                        leadingIcon = {
                             Icon(
                                 painter = painterResource(brushIcon(tool)),
                                 contentDescription = stringResource(R.string.ui_select_brush),
-                                tint = tokens.onSurface,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = tool.displayName,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = tokens.onSurface,
-                                fontWeight = FontWeight.SemiBold
+                                modifier = Modifier.size(18.dp)
                             )
                         }
-                    }
-
-                    // Size Quick Control
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.width(130.dp)
-                    ) {
-                        Text(
-                            text = "${brushSize.roundToInt()}px",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = tokens.onSurfaceVariant,
-                            modifier = Modifier.width(32.dp)
-                        )
-                        WishySlider(
-                            value = brushSize,
-                            onValueChange = onSizeChange,
-                            valueRange = 1f..(if (tool == Tool.CUSTOM) 200f else 100f),
-                            label = "",
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    // Opacity Quick Control
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.width(120.dp)
-                    ) {
-                        Text(
-                            text = "${(opacity * 100f).roundToInt()}%",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = tokens.onSurfaceVariant,
-                            modifier = Modifier.width(36.dp)
-                        )
-                        WishySlider(
-                            value = opacity * 100f,
-                            onValueChange = { onOpacityChange(it / 100f) },
-                            valueRange = 5f..100f,
-                            label = "",
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    // Color Chip
-                    ColorSwatch(
-                        color = Color(color),
-                        onClick = onOpenColorPicker,
-                        size = 32.dp
                     )
+                    SizeChip("${brushSize.roundToInt()} px")
+                    OpacityChip()
+                    ColorSwatch(color = Color(color), onClick = onOpenColorPicker, size = 36.dp)
                 }
 
                 tool == Tool.ERASER -> {
                     Text(
                         text = stringResource(R.string.ui_eraser),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = tokens.onSurface
+                        style = MaterialTheme.typography.labelLarge,
+                        color = scheme.onSurface,
+                        modifier = Modifier.padding(start = 8.dp)
                     )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.width(140.dp)
-                    ) {
-                        Text(
-                            text = "${brushSize.roundToInt()}px",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = tokens.onSurfaceVariant,
-                            modifier = Modifier.width(36.dp)
-                        )
-                        WishySlider(
-                            value = brushSize,
-                            onValueChange = onSizeChange,
-                            valueRange = 1f..120f,
-                            label = "",
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
+                    SizeChip("${brushSize.roundToInt()} px")
                 }
 
                 tool == Tool.FILL -> {
-                    Text(
-                        text = stringResource(R.string.ui_fill_tolerance),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = tokens.onSurface
+                    AssistChip(
+                        onClick = onOpenToolOptions,
+                        label = { Text("${stringResource(R.string.ui_fill_tolerance)} $fillTolerance") }
                     )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.width(140.dp)
-                    ) {
-                        Text(
-                            text = "$fillTolerance",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = tokens.onSurfaceVariant,
-                            modifier = Modifier.width(28.dp)
-                        )
-                        WishySlider(
-                            value = fillTolerance.toFloat(),
-                            onValueChange = { onToleranceChange(it.roundToInt()) },
-                            valueRange = 0f..255f,
-                            label = "",
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    ColorSwatch(
-                        color = Color(color),
-                        onClick = onOpenColorPicker,
-                        size = 32.dp
-                    )
+                    ColorSwatch(color = Color(color), onClick = onOpenColorPicker, size = 36.dp)
                 }
 
                 tool == Tool.TEXT -> {
                     Text(
                         text = stringResource(R.string.ui_tap_the_canvas_to_add_text),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = tokens.onSurface,
-                        fontWeight = FontWeight.SemiBold
+                        style = MaterialTheme.typography.labelLarge,
+                        color = scheme.onSurface,
+                        modifier = Modifier.padding(start = 8.dp)
                     )
-                    ColorSwatch(
-                        color = Color(color),
-                        onClick = onOpenColorPicker,
-                        size = 32.dp
-                    )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.width(120.dp)
-                    ) {
-                        Text(
-                            text = "${(opacity * 100f).roundToInt()}%",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = tokens.onSurfaceVariant,
-                            modifier = Modifier.width(36.dp)
-                        )
-                        WishySlider(
-                            value = opacity * 100f,
-                            onValueChange = { onOpacityChange(it / 100f) },
-                            valueRange = 5f..100f,
-                            label = "",
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
+                    ColorSwatch(color = Color(color), onClick = onOpenColorPicker, size = 36.dp)
+                    OpacityChip()
                 }
 
                 tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        ActionIconButton(
-                            iconRes = WishyIcons.ShapeLine,
-                            contentDescription = stringResource(R.string.ui_line),
-                            selected = tool == Tool.LINE,
-                            onClick = { onSelectShapeTool?.invoke(Tool.LINE) }
-                        )
-                        ActionIconButton(
-                            iconRes = WishyIcons.ShapeRect,
-                            contentDescription = stringResource(R.string.ui_rectangle),
-                            selected = tool == Tool.RECT,
-                            onClick = { onSelectShapeTool?.invoke(Tool.RECT) }
-                        )
-                        ActionIconButton(
-                            iconRes = WishyIcons.ShapeEllipse,
-                            contentDescription = stringResource(R.string.ui_ellipse),
-                            selected = tool == Tool.ELLIPSE,
-                            onClick = { onSelectShapeTool?.invoke(Tool.ELLIPSE) }
-                        )
-                    }
-                    ColorSwatch(
-                        color = Color(color),
-                        onClick = onOpenColorPicker,
-                        size = 32.dp
+                    ActionIconButton(
+                        iconRes = WishyIcons.ShapeLine,
+                        contentDescription = stringResource(R.string.ui_line),
+                        selected = tool == Tool.LINE,
+                        onClick = { onSelectShapeTool?.invoke(Tool.LINE) }
                     )
+                    ActionIconButton(
+                        iconRes = WishyIcons.ShapeRect,
+                        contentDescription = stringResource(R.string.ui_rectangle),
+                        selected = tool == Tool.RECT,
+                        onClick = { onSelectShapeTool?.invoke(Tool.RECT) }
+                    )
+                    ActionIconButton(
+                        iconRes = WishyIcons.ShapeEllipse,
+                        contentDescription = stringResource(R.string.ui_ellipse),
+                        selected = tool == Tool.ELLIPSE,
+                        onClick = { onSelectShapeTool?.invoke(Tool.ELLIPSE) }
+                    )
+                    SizeChip("${brushSize.roundToInt()} px")
+                    ColorSwatch(color = Color(color), onClick = onOpenColorPicker, size = 36.dp)
                 }
 
                 else -> {
                     Text(
                         text = tool.displayName,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = tokens.onSurface,
-                        fontWeight = FontWeight.SemiBold
+                        style = MaterialTheme.typography.labelLarge,
+                        color = scheme.onSurface,
+                        modifier = Modifier.padding(start = 8.dp)
                     )
-                    ColorSwatch(
-                        color = Color(color),
-                        onClick = onOpenColorPicker,
-                        size = 32.dp
-                    )
+                    ColorSwatch(color = Color(color), onClick = onOpenColorPicker, size = 36.dp)
                 }
             }
         }

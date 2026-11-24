@@ -16,6 +16,9 @@ import org.wishyclip.app.ui.design.WishyTokens
 import org.wishyclip.app.ui.design.themes.AmoledTokens
 import org.wishyclip.app.ui.design.themes.CandyTokens
 import org.wishyclip.app.ui.design.themes.CloudTokens
+import org.wishyclip.app.ui.design.themes.CoralDarkTokens
+import org.wishyclip.app.ui.design.themes.CoralLightTokens
+import org.wishyclip.app.ui.design.themes.MaterialYouTokens
 import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.FlipDarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
@@ -175,6 +178,9 @@ class SettingsStore(private val context: Context) {
         val BuiltInThemes = listOf(
             WishyLightTokens,
             WishyDarkTokens,
+            CoralLightTokens,
+            CoralDarkTokens,
+            MaterialYouTokens,
             CloudTokens,
             MidnightTokens,
             FlipDarkTokens,
@@ -194,7 +200,10 @@ class SettingsStore(private val context: Context) {
             custom: List<WishyTokens> = emptyList(),
             systemDark: Boolean = false
         ): WishyTokens {
-            return BuiltInThemes.find { it.name.equals(name, ignoreCase = true) }
+            val builtIn = BuiltInThemes.find { it.name.equals(name, ignoreCase = true) }
+            // Material You has no light/dark of its own: it follows the system setting.
+            if (builtIn != null && builtIn.dynamic) return builtIn.copy(isDark = systemDark)
+            return builtIn
                 ?: custom.find { it.name.equals(name, ignoreCase = true) }
                 ?: if (systemDark) WishyDarkTokens else WishyLightTokens
         }

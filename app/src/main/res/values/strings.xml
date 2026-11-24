@@ -232,4 +232,15 @@
     <string name="ui_debug_developer_tools">Debug &amp; Developer Tools</string>
     <string name="ui_legal_attributions">Legal &amp; Attributions</string>
     <string name="ui_attributions_open_source_licenses">Attributions &amp; Open Source Licenses</string>
+    <string name="ui_pause">Pause</string>
+    <string name="ui_expand_tools">Expand tools</string>
+    <string name="ui_collapse_tools">Collapse tools</string>
+    <string name="ui_drag_to_reorder">Drag to reorder</string>
+    <string name="ui_locked">Locked</string>
+    <string name="ui_layer_actions">Layer actions</string>
+    <string name="ui_layout_classic">Classic</string>
+    <string name="ui_layout_studio">Studio</string>
+    <string name="ui_fit_view">Fit to screen</string>
+    <string name="ui_move_frame_left">Move frame earlier</string>
+    <string name="ui_move_frame_right">Move frame later</string>
 </resources>

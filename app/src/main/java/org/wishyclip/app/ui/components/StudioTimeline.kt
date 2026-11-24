@@ -1,33 +1,41 @@
 package org.wishyclip.app.ui.components
 
-import org.wishyclip.app.R
-import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -40,22 +48,31 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import coil.request.ImageRequest
+import java.io.File
+import java.util.Locale
+import org.wishyclip.app.R
 import org.wishyclip.app.canvas.LayerUi
 import org.wishyclip.app.data.AudioTrackEntity
 import org.wishyclip.app.data.FrameEntity
 import org.wishyclip.app.ui.design.WishyIcons
 import org.wishyclip.app.ui.design.WishyTheme
-import java.util.Locale
 
 /**
- * Full Studio Animation Timeline component.
- * Integrates playback controls, playhead indicator, multi-layer tracks, audio waveforms,
- * frame exposure duration indicators, and onion skin toggles.
+ * The Material 3 animation timeline, in FlipaClip's two layouts.
+ *
+ * Classic (collapsed): one row of transport + counter + actions, and the frame strip with real
+ * thumbnails. Studio ([isStudioExpanded]): adds the layer list and the audio lane above the strip.
+ * Tap a frame to select it, long-press for its menu, drag the right edge of the selected frame to
+ * hold it longer.
+ *
+ * [frameThumb] maps a frame id to its thumbnail file; [thumbVersion] busts the image cache when a
+ * frame is redrawn.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StudioTimeline(
     frames: List<FrameEntity>,
@@ -88,11 +105,42 @@ fun StudioTimeline(
     onUpdateAudioTrack: (AudioTrackEntity) -> Unit = {},
     onDeleteAudioTrack: (Long) -> Unit = {},
     onUpdateFrameExposure: (Int, Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    frameThumb: ((Long) -> File)? = null,
+    thumbVersion: Int = 0,
+    onOpenLayers: (() -> Unit)? = null,
+    /** Moves the selected frame one place earlier (-1) or later (+1). */
+    onMoveFrame: (Int) -> Unit = {},
+    /** Drag-reorder: move the frame at the first index to the second. */
+    onMoveFrameTo: (Int, Int) -> Unit = { _, _ -> },
+    /** Frame id -> indices of layers that have a drawing on that frame (Studio tracks). */
+    layerContent: Map<Long, Set<Int>> = emptyMap()
 ) {
+    val scheme = MaterialTheme.colorScheme
     val tokens = WishyTheme.tokens
+    val context = androidx.compose.ui.platform.LocalContext.current
     val listState = rememberLazyListState()
     var showMenu by remember { mutableStateOf(false) }
+    var menuFrame by remember { mutableStateOf(-1) }
+    var dragIdx by remember { mutableIntStateOf(-1) }
+    var dragDx by remember { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    val gapPx = with(density) { 8.dp.toPx() }
+    fun cellPx(i: Int): Float {
+        val hold = (frames.getOrNull(i)?.exposureDuration ?: 1).coerceAtLeast(1)
+        return with(density) { (tokens.frameCellWidth + 24.dp * (hold - 1).coerceIn(0, 6)).toPx() } + gapPx
+    }
+    // Where a dragged frame lands: it passes a neighbour once it is over half of that neighbour.
+    fun dropIndex(from: Int, dx: Float): Int {
+        var t = from
+        var used = 0f
+        if (dx > 0) {
+            while (t < frames.lastIndex && dx - used > cellPx(t + 1) / 2f) { used += cellPx(t + 1); t++ }
+        } else {
+            while (t > 0 && -dx - used > cellPx(t - 1) / 2f) { used += cellPx(t - 1); t-- }
+        }
+        return t
+    }
 
     LaunchedEffect(currentIndex, frames.size) {
         if (frames.isNotEmpty()) {
@@ -103,220 +151,173 @@ fun StudioTimeline(
     // Time counts held frames (exposure), so the timecode matches what playback and export produce.
     val slotsBefore = frames.take(currentIndex.coerceAtLeast(0)).sumOf { it.exposureDuration.coerceAtLeast(1) }
     val currentSec = if (fps > 0) slotsBefore.toFloat() / fps else 0f
-    val timecode = String.format(Locale.US, "%02d:%02d.%01d", (currentSec / 60).toInt(), (currentSec % 60).toInt(), ((currentSec * 10) % 10).toInt())
+    val timecode = String.format(
+        Locale.US, "%02d:%02d.%01d",
+        (currentSec / 60).toInt(), (currentSec % 60).toInt(), ((currentSec * 10) % 10).toInt()
+    )
 
-    // The pieces of the header, shared by the compact (phone) and wide (tablet / landscape) layouts.
-    val transport: @Composable () -> Unit = {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            ActionIconButton(
-                iconRes = WishyIcons.SkipBack,
-                contentDescription = stringResource(R.string.ui_previous_frame),
-                onClick = onPreviousFrame
-            )
-            PrimaryRoundButton(
-                iconRes = if (isPlaying) WishyIcons.Pause else WishyIcons.Play,
-                contentDescription = if (isPlaying) "Pause" else "Play",
-                onClick = onTogglePlay
-            )
-            ActionIconButton(
-                iconRes = WishyIcons.SkipForward,
-                contentDescription = stringResource(R.string.ui_next_frame),
-                onClick = onNextFrame
-            )
-        }
-    }
-    // One tappable pill: frame counter on top, fps (and time) underneath. Tap to change the fps.
-    val counterPill: @Composable (Boolean) -> Unit = { showTime ->
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .heightIn(min = tokens.minTouchTarget)
-                .bouncyClickable(haptic = false, pressedScale = 0.95f, onClick = onFpsRequested)
-                .clip(RoundedCornerShape(tokens.mediumRadius))
-                .background(tokens.surfaceVariant)
-                .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs),
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = "${currentIndex + 1} / ${frames.size}",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = tokens.primary
-            )
-            Text(
-                text = if (showTime) "$fps fps · $timecode" else "$fps fps",
-                style = MaterialTheme.typography.labelSmall,
-                color = tokens.onSurfaceVariant
-            )
-        }
-    }
-    val actions: @Composable () -> Unit = {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            ActionIconButton(
-                iconRes = WishyIcons.Onion,
-                contentDescription = stringResource(R.string.ui_toggle_onion_skin),
-                selected = onionEnabled,
-                onClick = onToggleOnion
-            )
-            ActionIconButton(
-                iconRes = WishyIcons.Layers,
-                contentDescription = stringResource(R.string.ui_studio_multi_track_view),
-                selected = isStudioExpanded,
-                onClick = onToggleStudioExpanded
-            )
-            ActionIconButton(
-                iconRes = WishyIcons.Duplicate,
-                contentDescription = stringResource(R.string.ui_duplicate_frame),
-                onClick = onDuplicateFrame
-            )
-            ActionIconButton(
-                iconRes = WishyIcons.Delete,
-                contentDescription = stringResource(R.string.ui_delete_frame),
-                tint = tokens.danger,
-                onClick = onDeleteFrame
-            )
-            Box {
-                ActionIconButton(
-                    iconRes = WishyIcons.More,
-                    contentDescription = stringResource(R.string.ui_more_frame_options),
-                    onClick = { showMenu = true }
-                )
-                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.ui_copy_frame)) },
-                        onClick = { showMenu = false; onCopyFrame() }
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = scheme.surfaceContainerLow,
+        shape = MaterialTheme.shapes.large.copy(
+            bottomStart = androidx.compose.foundation.shape.CornerSize(0.dp),
+            bottomEnd = androidx.compose.foundation.shape.CornerSize(0.dp)
+        ),
+        shadowElevation = 3.dp
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+            // ---- Header: transport, counter, actions ----
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    IconButton(onClick = onPreviousFrame) {
+                        Icon(painterResource(WishyIcons.SkipBack), stringResource(R.string.ui_previous_frame))
+                    }
+                    PrimaryRoundButton(
+                        iconRes = if (isPlaying) WishyIcons.Pause else WishyIcons.Play,
+                        contentDescription = stringResource(if (isPlaying) R.string.ui_pause else R.string.ui_play),
+                        onClick = onTogglePlay
                     )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.ui_paste_frame)) },
-                        enabled = canPaste,
-                        onClick = { showMenu = false; onPasteFrame() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.ui_audio_track_manager)) },
-                        onClick = { showMenu = false; onAudioRequested() }
+                    IconButton(onClick = onNextFrame) {
+                        Icon(painterResource(WishyIcons.SkipForward), stringResource(R.string.ui_next_frame))
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    AssistChip(
+                        onClick = onFpsRequested,
+                        label = { Text("${currentIndex + 1}/${frames.size} · $fps fps · $timecode") }
                     )
                 }
-            }
-        }
-    }
-
-    // Floating glass card that hovers above the bottom edge.
-    Box(
-        modifier = modifier
-            .draggablePanel()
-            .fillMaxWidth()
-            .padding(horizontal = tokens.floatMargin, vertical = tokens.floatMargin / 2)
-    ) {
-        GlassSurface(modifier = Modifier.fillMaxWidth()) {
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val wide = maxWidth >= 640.dp
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = tokens.spaceXs)
+                Spacer(Modifier.weight(1f))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    // ---- Header: transport + counter + actions ----
-                    if (wide) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = tokens.spaceMedium),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            transport()
-                            Spacer(Modifier.width(tokens.spaceMedium))
-                            counterPill(true)
-                            Spacer(Modifier.weight(1f))
-                            actions()
-                        }
-                    } else {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = tokens.spaceMedium),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            transport()
-                            Spacer(Modifier.width(tokens.spaceMedium))
-                            counterPill(false)
-                        }
-                        // Centered when it fits, scrolls sideways on very narrow screens.
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = tokens.spaceMedium),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                                actions()
-                            }
+                    if (onOpenLayers != null) {
+                        ActionIconButton(
+                            iconRes = WishyIcons.Layers,
+                            contentDescription = stringResource(R.string.ui_layers),
+                            onClick = onOpenLayers
+                        )
+                    }
+                    ActionIconButton(
+                        iconRes = WishyIcons.Onion,
+                        contentDescription = stringResource(R.string.ui_toggle_onion_skin),
+                        selected = onionEnabled,
+                        onClick = onToggleOnion
+                    )
+                    ActionIconButton(
+                        iconRes = WishyIcons.Reorder,
+                        contentDescription = stringResource(R.string.ui_studio_multi_track_view),
+                        selected = isStudioExpanded,
+                        onClick = onToggleStudioExpanded
+                    )
+                    Box {
+                        ActionIconButton(
+                            iconRes = WishyIcons.More,
+                            contentDescription = stringResource(R.string.ui_more_frame_options),
+                            onClick = { menuFrame = currentIndex; showMenu = true }
+                        )
+                        FrameMenu(
+                            expanded = showMenu,
+                            canPaste = canPaste,
+                            onDismiss = { showMenu = false },
+                            onDuplicate = onDuplicateFrame,
+                            onCopy = onCopyFrame,
+                            onPaste = onPasteFrame,
+                            onDelete = onDeleteFrame,
+                            onAudio = onAudioRequested,
+                            canMoveLeft = currentIndex > 0,
+                            canMoveRight = currentIndex < frames.lastIndex,
+                            onMove = onMoveFrame
+                        )
+                    }
+                }
+            }
+
+            // ---- Studio: layer list and audio lane ----
+            AnimatedVisibility(visible = isStudioExpanded) {
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = stringResource(R.string.ui_layers_tracks),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = scheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = onAddLayer) {
+                            Icon(painterResource(WishyIcons.Add), stringResource(R.string.ui_add_layer))
                         }
                     }
-
-                    // ---- Studio Multi-Track View ----
-                    AnimatedVisibility(visible = isStudioExpanded) {
-                        Column(
+                    layers.indices.reversed().forEach { idx ->
+                        val layer = layers[idx]
+                        val isSelected = idx == activeLayerIndex
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs)
+                                .padding(vertical = 2.dp)
+                                .clip(MaterialTheme.shapes.medium)
+                                .background(if (isSelected) scheme.secondaryContainer else scheme.surfaceContainerHigh)
+                                .clickable { onSelectLayer(idx) }
+                                .padding(horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
+                            IconButton(onClick = { onToggleLayerVisibility(idx, !layer.visible) }) {
+                                Icon(
+                                    painterResource(if (layer.visible) WishyIcons.VisibilityOn else WishyIcons.VisibilityOff),
+                                    stringResource(R.string.ui_toggle_visibility)
+                                )
+                            }
+                            IconButton(onClick = { onToggleLayerLock(idx, !layer.locked) }) {
+                                Icon(
+                                    painterResource(WishyIcons.Lock),
+                                    stringResource(R.string.ui_toggle_lock),
+                                    tint = if (layer.locked) scheme.primary else scheme.onSurfaceVariant
+                                )
+                            }
                             Text(
-                                text = stringResource(R.string.ui_layers_tracks),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = tokens.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 4.dp)
+                                text = layer.name,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (isSelected) scheme.onSecondaryContainer else scheme.onSurface,
+                                maxLines = 1,
+                                modifier = Modifier.width(72.dp)
                             )
-                            layers.indices.reversed().forEach { idx ->
-                                val layer = layers[idx]
-                                val isSelected = idx == activeLayerIndex
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 3.dp)
-                                        .clip(RoundedCornerShape(tokens.mediumRadius))
-                                        .background(if (isSelected) tokens.primaryContainer.copy(alpha = 0.6f) else tokens.surfaceVariant.copy(alpha = 0.6f))
-                                        .clickable { onSelectLayer(idx) }
-                                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    ActionIconButton(
-                                        iconRes = if (layer.visible) WishyIcons.VisibilityOn else WishyIcons.VisibilityOff,
-                                        contentDescription = stringResource(R.string.ui_toggle_visibility),
-                                        onClick = { onToggleLayerVisibility(idx, !layer.visible) }
-                                    )
-                                    ActionIconButton(
-                                        iconRes = WishyIcons.Lock,
-                                        contentDescription = stringResource(R.string.ui_toggle_lock),
-                                        selected = layer.locked,
-                                        onClick = { onToggleLayerLock(idx, !layer.locked) }
-                                    )
-                                    Text(
-                                        text = layer.name,
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) tokens.primary else tokens.onSurface,
-                                        maxLines = 1,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Text(
-                                        text = "${(layer.opacity * 100).toInt()}%",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = tokens.onSurfaceVariant,
-                                        modifier = Modifier.padding(end = tokens.spaceSmall)
+                            // One track per layer: a block per frame (as wide as its hold), filled
+                            // where this layer has a drawing; the playhead frame is outlined.
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(28.dp)
+                                    .padding(end = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                frames.forEachIndexed { fi, f ->
+                                    val filled = layerContent[f.id]?.contains(idx) == true
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(f.exposureDuration.coerceAtLeast(1).toFloat())
+                                            .fillMaxHeight()
+                                            .padding(vertical = 4.dp)
+                                            .clip(MaterialTheme.shapes.extraSmall)
+                                            .background(
+                                                if (filled) scheme.primary.copy(alpha = if (fi == currentIndex) 1f else 0.55f)
+                                                else scheme.surfaceContainerHighest
+                                            )
+                                            .then(
+                                                if (fi == currentIndex) Modifier.border(1.dp, scheme.primary, MaterialTheme.shapes.extraSmall)
+                                                else Modifier
+                                            )
+                                            .clickable { onSelectFrame(fi) }
                                     )
                                 }
                             }
                         }
                     }
-
-                    // ---- Audio lane: drag a clip to move it, adjust volume, mute or remove ----
                     AudioLane(
                         tracks = audioTracks,
                         totalFrames = frames.sumOf { it.exposureDuration.coerceAtLeast(1) },
@@ -324,54 +325,135 @@ fun StudioTimeline(
                         currentFrame = slotsBefore,
                         onUpdate = onUpdateAudioTrack,
                         onDelete = onDeleteAudioTrack,
-                        onAdd = onAudioRequested,
-                        modifier = Modifier.padding(horizontal = tokens.spaceMedium)
+                        onAdd = onAudioRequested
                     )
+                }
+            }
 
-                    // ---- Horizontally scrolling frame track ----
-                    LazyRow(
-                        state = listState,
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(
-                            start = tokens.spaceMedium,
-                            end = tokens.spaceMedium,
-                            bottom = tokens.spaceSmall,
-                            top = tokens.spaceXs
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
-                    ) {
-                        itemsIndexed(frames, key = { _, f -> f.id }) { index, frame ->
-                            TimelineFrameCell(
-                                frameIndex = index,
-                                selected = index == currentIndex,
-                                onClick = { onSelectFrame(index) },
-                                exposureDuration = frame.exposureDuration,
-                                onIncreaseExposure = { onUpdateFrameExposure(index, frame.exposureDuration + 1) },
-                                onDecreaseExposure = if (frame.exposureDuration > 1) {
-                                    { onUpdateFrameExposure(index, frame.exposureDuration - 1) }
-                                } else null
-                            )
-                        }
-                        item(key = "add-frame") {
-                            Box(
-                                modifier = Modifier
-                                    .size(width = tokens.frameCellWidth, height = tokens.frameCellHeight)
-                                    .bouncyClickable(onClick = onAddFrame)
-                                    .clip(RoundedCornerShape(tokens.smallRadius + 2.dp))
-                                    .background(tokens.primaryContainer),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    painter = painterResource(WishyIcons.Add),
-                                    contentDescription = stringResource(R.string.ui_add_frame),
-                                    tint = tokens.primary,
-                                    modifier = Modifier.size(32.dp)
+            // ---- Frame strip ----
+            LazyRow(
+                state = listState,
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                itemsIndexed(frames, key = { _, f -> f.id }) { index, frame ->
+                    val file = frameThumb?.invoke(frame.id)
+                    val model: Any? = if (file != null && file.exists()) {
+                        ImageRequest.Builder(context)
+                            .data(file)
+                            .memoryCacheKey("frame-${frame.id}-$thumbVersion")
+                            .build()
+                    } else null
+                    val dragging = dragIdx == index
+                    Box(
+                        modifier = Modifier
+                            .zIndex(if (dragging) 1f else 0f)
+                            .graphicsLayer {
+                                translationX = if (dragging) dragDx else 0f
+                                alpha = if (dragging) 0.85f else 1f
+                            }
+                            .pointerInput(frame.id, index, frames.size) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = {
+                                        dragIdx = index
+                                        dragDx = 0f
+                                        onSelectFrame(index)
+                                    },
+                                    onDragEnd = {
+                                        val to = dropIndex(index, dragDx)
+                                        dragIdx = -1
+                                        dragDx = 0f
+                                        if (to != index) onMoveFrameTo(index, to)
+                                    },
+                                    onDragCancel = {
+                                        dragIdx = -1
+                                        dragDx = 0f
+                                    },
+                                    onDrag = { change, amount ->
+                                        change.consume()
+                                        dragDx += amount.x
+                                    }
                                 )
                             }
-                        }
+                    ) {
+                        TimelineFrameCell(
+                            frameIndex = index,
+                            selected = index == currentIndex,
+                            onClick = { onSelectFrame(index) },
+                            exposureDuration = frame.exposureDuration,
+                            thumbnail = model,
+                            onExposureChange = { onUpdateFrameExposure(index, it) }
+                        )
+                    }
+                }
+                item(key = "add-frame") {
+                    Box(
+                        modifier = Modifier
+                            .size(width = tokens.frameCellWidth, height = tokens.frameCellHeight)
+                            .clip(MaterialTheme.shapes.small)
+                            .background(scheme.primaryContainer)
+                            .clickable(onClick = onAddFrame),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(WishyIcons.Add),
+                            contentDescription = stringResource(R.string.ui_add_frame),
+                            tint = scheme.onPrimaryContainer,
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun FrameMenu(
+    expanded: Boolean,
+    canPaste: Boolean,
+    onDismiss: () -> Unit,
+    onDuplicate: () -> Unit,
+    onCopy: () -> Unit,
+    onPaste: () -> Unit,
+    onDelete: () -> Unit,
+    onAudio: () -> Unit,
+    canMoveLeft: Boolean,
+    canMoveRight: Boolean,
+    onMove: (Int) -> Unit
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.ui_duplicate_frame)) },
+            onClick = { onDismiss(); onDuplicate() }
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.ui_copy_frame)) },
+            onClick = { onDismiss(); onCopy() }
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.ui_paste_frame)) },
+            enabled = canPaste,
+            onClick = { onDismiss(); onPaste() }
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.ui_move_frame_left)) },
+            enabled = canMoveLeft,
+            onClick = { onDismiss(); onMove(-1) }
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.ui_move_frame_right)) },
+            enabled = canMoveRight,
+            onClick = { onDismiss(); onMove(1) }
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.ui_audio_track_manager)) },
+            onClick = { onDismiss(); onAudio() }
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.ui_delete_frame), color = MaterialTheme.colorScheme.error) },
+            onClick = { onDismiss(); onDelete() }
+        )
     }
 }

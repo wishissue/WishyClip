@@ -1,32 +1,32 @@
 package org.wishyclip.app.ui.components
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.layout.offset
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.IntOffset
-import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import org.wishyclip.app.R
 import org.wishyclip.app.model.MirrorMode
 import org.wishyclip.app.model.Tool
 import org.wishyclip.app.model.isBrush
@@ -36,16 +36,17 @@ import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 
 /**
- * The tool selector. With [horizontal] = false it is a vertical rail (landscape / tablets); with
- * [horizontal] = true it is a bar that sits above the timeline (portrait phones).
- * [trailing] is pinned at the end of the bar (the editor puts the color swatch there).
+ * The floating tool palette: a compact vertical Material 3 surface that sits over the stage
+ * (it never takes space away from the canvas). The grip at the top collapses the rail to just the
+ * active tool; long-press the rail to move it. [trailing] is pinned at the bottom (the editor puts
+ * the color swatch there). [maxHeight] caps the rail so it scrolls instead of overflowing.
  */
 @Composable
 fun ToolRail(
     selectedTool: Tool,
     onSelectTool: (Tool) -> Unit,
     modifier: Modifier = Modifier,
-    horizontal: Boolean = false,
+    maxHeight: Dp = Dp.Unspecified,
     activeBrush: Tool = Tool.PEN,
     onBrushClick: () -> Unit = { onSelectTool(activeBrush) },
     onToolDoubleTap: (Tool) -> Unit = {},
@@ -56,69 +57,45 @@ fun ToolRail(
     onRulerClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null
 ) {
-    val tokens = WishyTheme.tokens
-    val dockShape = RoundedCornerShape(tokens.largeRadius)
-    val dragMod = Modifier.draggablePanel()
+    var collapsed by rememberSaveable { mutableStateOf(false) }
+    val capped = if (maxHeight == Dp.Unspecified) Modifier else Modifier.heightIn(max = maxHeight)
 
-    if (horizontal) {
-        // Floating capsule that hovers above the timeline.
-        Box(
-            modifier = modifier
-                .then(dragMod)
-                .fillMaxWidth()
-                .padding(horizontal = tokens.floatMargin, vertical = tokens.floatMargin / 2)
+    GlassSurface(
+        modifier = modifier
+            .draggablePanel()
+            .width(56.dp)
+            .then(capped)
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            GlassSurface(modifier = Modifier.fillMaxWidth(), shape = dockShape) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .horizontalScroll(rememberScrollState()),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)
-                    ) {
-                        ToolItems(selectedTool, onSelectTool, onToolDoubleTap, activeShape, activeBrush, onBrushClick, mirrorMode, onMirrorClick, rulerOn, onRulerClick)
-                    }
-                    if (trailing != null) {
-                        Row(modifier = Modifier.padding(start = tokens.spaceSmall)) { trailing() }
-                    }
-                }
+            // Grip: tap to collapse / expand the palette.
+            IconButton(
+                onClick = { collapsed = !collapsed },
+                modifier = Modifier.size(width = 48.dp, height = 32.dp)
+            ) {
+                Icon(
+                    painter = painterResource(WishyIcons.Grip),
+                    contentDescription = stringResource(if (collapsed) R.string.ui_expand_tools else R.string.ui_collapse_tools),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
             }
-        }
-    } else {
-        // Floating vertical dock beside the canvas (landscape / tablets).
-        Box(
-            modifier = modifier
-                .then(dragMod)
-                .width(tokens.toolRailWidth + tokens.floatMargin * 2)
-                .fillMaxHeight()
-                .padding(tokens.floatMargin)
-        ) {
-            GlassSurface(modifier = Modifier.fillMaxSize(), shape = dockShape) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(vertical = tokens.spaceSmall),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState()),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)
-                    ) {
-                        ToolItems(selectedTool, onSelectTool, onToolDoubleTap, activeShape, activeBrush, onBrushClick, mirrorMode, onMirrorClick, rulerOn, onRulerClick)
-                    }
-                    if (trailing != null) {
-                        Column(modifier = Modifier.padding(top = tokens.spaceSmall)) { trailing() }
-                    }
-                }
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                ToolItems(
+                    collapsed, selectedTool, onSelectTool, onToolDoubleTap, activeShape, activeBrush,
+                    onBrushClick, mirrorMode, onMirrorClick, rulerOn, onRulerClick
+                )
+            }
+            if (trailing != null) {
+                Box(modifier = Modifier.padding(top = 4.dp)) { trailing() }
             }
         }
     }
@@ -126,10 +103,11 @@ fun ToolRail(
 
 /**
  * Emits the tool buttons. All brushes live behind ONE Brush button (it shows the icon of the
- * active brush and opens the separate Brush menu), like FlipaClip.
+ * active brush and opens the brush menu). When [collapsed] only the active tool stays visible.
  */
 @Composable
 private fun ToolItems(
+    collapsed: Boolean,
     selectedTool: Tool,
     onSelectTool: (Tool) -> Unit,
     onToolDoubleTap: (Tool) -> Unit,
@@ -141,24 +119,49 @@ private fun ToolItems(
     rulerOn: Boolean,
     onRulerClick: (() -> Unit)?
 ) {
-    ToolButton(iconRes = brushIcon(activeBrush), description = "Brush", selected = selectedTool.isBrush, onClick = onBrushClick)
-    ToolButton(iconRes = WishyIcons.Eraser, description = "Eraser", selected = selectedTool == Tool.ERASER, onClick = { onSelectTool(Tool.ERASER) }, onDoubleClick = { onToolDoubleTap(Tool.ERASER) })
-    ToolButton(iconRes = WishyIcons.Lasso, description = "Lasso", selected = selectedTool == Tool.LASSO, onClick = { onSelectTool(Tool.LASSO) }, onDoubleClick = { onToolDoubleTap(Tool.LASSO) })
-    ToolButton(iconRes = WishyIcons.Fill, description = "Fill", selected = selectedTool == Tool.FILL, onClick = { onSelectTool(Tool.FILL) }, onDoubleClick = { onToolDoubleTap(Tool.FILL) })
-    ToolButton(
-        iconRes = when (activeShape) { Tool.RECT -> WishyIcons.ShapeRect; Tool.ELLIPSE -> WishyIcons.ShapeEllipse; else -> WishyIcons.ShapeLine },
-        description = "Shapes",
-        selected = selectedTool == Tool.LINE || selectedTool == Tool.RECT || selectedTool == Tool.ELLIPSE,
-        onClick = { onSelectTool(activeShape) },
-        onDoubleClick = { onToolDoubleTap(activeShape) }
-    )
-    ToolButton(iconRes = WishyIcons.Text, description = "Text", selected = selectedTool == Tool.TEXT, onClick = { onSelectTool(Tool.TEXT) }, onDoubleClick = { onToolDoubleTap(Tool.TEXT) })
-    ToolButton(iconRes = WishyIcons.Eyedropper, description = "Eyedropper", selected = selectedTool == Tool.EYEDROPPER, onClick = { onSelectTool(Tool.EYEDROPPER) })
+    val isShape = selectedTool == Tool.LINE || selectedTool == Tool.RECT || selectedTool == Tool.ELLIPSE
+    val shapeIcon = when (activeShape) {
+        Tool.RECT -> WishyIcons.ShapeRect
+        Tool.ELLIPSE -> WishyIcons.ShapeEllipse
+        else -> WishyIcons.ShapeLine
+    }
+    @Composable
+    fun Entry(visibleWhenCollapsed: Boolean, content: @Composable () -> Unit) {
+        if (!collapsed || visibleWhenCollapsed) content()
+    }
+
+    Entry(selectedTool.isBrush) {
+        ToolButton(iconRes = brushIcon(activeBrush), description = "Brush", selected = selectedTool.isBrush, onClick = onBrushClick)
+    }
+    Entry(selectedTool == Tool.ERASER) {
+        ToolButton(iconRes = WishyIcons.Eraser, description = "Eraser", selected = selectedTool == Tool.ERASER, onClick = { onSelectTool(Tool.ERASER) }, onDoubleClick = { onToolDoubleTap(Tool.ERASER) })
+    }
+    Entry(selectedTool == Tool.LASSO) {
+        ToolButton(iconRes = WishyIcons.Lasso, description = "Lasso", selected = selectedTool == Tool.LASSO, onClick = { onSelectTool(Tool.LASSO) }, onDoubleClick = { onToolDoubleTap(Tool.LASSO) })
+    }
+    Entry(selectedTool == Tool.FILL) {
+        ToolButton(iconRes = WishyIcons.Fill, description = "Fill", selected = selectedTool == Tool.FILL, onClick = { onSelectTool(Tool.FILL) }, onDoubleClick = { onToolDoubleTap(Tool.FILL) })
+    }
+    Entry(isShape) {
+        ToolButton(iconRes = shapeIcon, description = "Shapes", selected = isShape, onClick = { onSelectTool(activeShape) }, onDoubleClick = { onToolDoubleTap(activeShape) })
+    }
+    Entry(selectedTool == Tool.TEXT) {
+        ToolButton(iconRes = WishyIcons.Text, description = "Text", selected = selectedTool == Tool.TEXT, onClick = { onSelectTool(Tool.TEXT) }, onDoubleClick = { onToolDoubleTap(Tool.TEXT) })
+    }
+    Entry(selectedTool == Tool.EYEDROPPER) {
+        ToolButton(iconRes = WishyIcons.Eyedropper, description = "Eyedropper", selected = selectedTool == Tool.EYEDROPPER, onClick = { onSelectTool(Tool.EYEDROPPER) })
+    }
     // Modifiers (not exclusive tools): they stay on while you switch between drawing tools.
-    if (onMirrorClick != null) {
+    if (!collapsed && (onMirrorClick != null || onRulerClick != null)) {
+        HorizontalDivider(
+            modifier = Modifier.width(32.dp).padding(vertical = 2.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+    }
+    if (!collapsed && onMirrorClick != null) {
         ToolButton(iconRes = WishyIcons.Mirror, description = mirrorMode.label, selected = mirrorMode != MirrorMode.OFF, onClick = onMirrorClick)
     }
-    if (onRulerClick != null) {
+    if (!collapsed && onRulerClick != null) {
         ToolButton(iconRes = WishyIcons.Ruler, description = if (rulerOn) "Ruler on" else "Ruler off", selected = rulerOn, onClick = onRulerClick)
     }
 }
@@ -171,10 +174,10 @@ private fun ToolRailLightPreview() {
     }
 }
 
-@Preview(name = "ToolBar Dark (horizontal)")
+@Preview(name = "ToolRail Dark")
 @Composable
-private fun ToolBarDarkPreview() {
+private fun ToolRailDarkPreview() {
     WishyTheme(tokens = DarkTokens) {
-        ToolRail(selectedTool = Tool.ERASER, onSelectTool = {}, horizontal = true)
+        ToolRail(selectedTool = Tool.ERASER, onSelectTool = {})
     }
 }

@@ -24,29 +24,22 @@ val JakartaFamily = FontFamily(
  */
 val BagelFamily = FontFamily(Font(R.font.bagel_fat_one, FontWeight.Normal))
 
-/** Kept so older call sites keep compiling; the UI font is now Plus Jakarta Sans. */
+/** Kept so older call sites keep compiling. */
 val InterFamily = JakartaFamily
 
 private val base = Typography()
 
-/** Material text styles re-cut in Plus Jakarta Sans, with slightly larger, friendlier small sizes. */
+/**
+ * The standard Material 3 type scale (system font, so it follows the device's Material You font
+ * settings), tightened slightly for an editor: compact labels, readable minimum of 11sp.
+ * [JakartaFamily] and [BagelFamily] stay available for the wordmark and brand moments only.
+ */
 val WishyTypography = Typography(
-    displayLarge = base.displayLarge.copy(fontFamily = JakartaFamily),
-    displayMedium = base.displayMedium.copy(fontFamily = JakartaFamily),
-    displaySmall = base.displaySmall.copy(fontFamily = JakartaFamily),
-    headlineLarge = base.headlineLarge.copy(fontFamily = JakartaFamily, fontWeight = FontWeight.Bold),
-    // Large title used on the Projects screen.
-    headlineMedium = base.headlineMedium.copy(
-        fontFamily = JakartaFamily, fontWeight = FontWeight.Bold, fontSize = 34.sp, lineHeight = 40.sp
-    ),
-    headlineSmall = base.headlineSmall.copy(fontFamily = JakartaFamily, fontWeight = FontWeight.SemiBold),
-    titleLarge = base.titleLarge.copy(fontFamily = JakartaFamily, fontWeight = FontWeight.SemiBold),
-    titleMedium = base.titleMedium.copy(fontFamily = JakartaFamily, fontWeight = FontWeight.SemiBold),
-    titleSmall = base.titleSmall.copy(fontFamily = JakartaFamily, fontWeight = FontWeight.SemiBold),
-    bodyLarge = base.bodyLarge.copy(fontFamily = JakartaFamily),
-    bodyMedium = base.bodyMedium.copy(fontFamily = JakartaFamily),
-    bodySmall = base.bodySmall.copy(fontFamily = JakartaFamily),
-    labelLarge = base.labelLarge.copy(fontFamily = JakartaFamily, fontWeight = FontWeight.SemiBold),
-    labelMedium = base.labelMedium.copy(fontFamily = JakartaFamily, fontWeight = FontWeight.Medium, fontSize = 13.sp),
-    labelSmall = base.labelSmall.copy(fontFamily = JakartaFamily, fontWeight = FontWeight.Medium, fontSize = 12.sp)
+    headlineMedium = base.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
+    titleLarge = base.titleLarge.copy(fontWeight = FontWeight.Medium),
+    titleMedium = base.titleMedium.copy(fontWeight = FontWeight.Medium),
+    titleSmall = base.titleSmall.copy(fontWeight = FontWeight.Medium),
+    labelLarge = base.labelLarge.copy(fontWeight = FontWeight.Medium),
+    labelMedium = base.labelMedium.copy(fontWeight = FontWeight.Medium),
+    labelSmall = base.labelSmall.copy(fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 16.sp)
 )
