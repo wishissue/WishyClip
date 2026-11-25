@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AssistChip
@@ -17,6 +18,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,16 +66,23 @@ fun ContextToolPanel(
     /** Re-opens the text editor for the selected text (null hides the button). */
     onEditText: (() -> Unit)? = null,
     /** Opens the size / opacity popover for the active tool. */
-    onOpenToolOptions: () -> Unit = {}
+    onOpenToolOptions: () -> Unit = {},
+    /** Placement actions for an imported picture (only shown while one is being placed). */
+    onFitLasso: () -> Unit = {},
+    onFillLasso: () -> Unit = {},
+    onRotateLasso: () -> Unit = {},
+    onResetProportions: () -> Unit = {}
 ) {
     val scheme = MaterialTheme.colorScheme
+    // Eraser and shapes adjust size right in the bar: the chip expands into a slider (no popover).
+    var quickSize by remember(tool) { mutableStateOf(false) }
 
     @Composable
-    fun SizeChip(label: String) {
+    fun SizeChip(label: String, inline: Boolean = false) {
         // The leading dot previews the real brush size (clamped so it always fits the chip).
         val dot = (brushSize / 2f).coerceIn(4f, 18f)
         AssistChip(
-            onClick = onOpenToolOptions,
+            onClick = if (inline) ({ quickSize = !quickSize }) else onOpenToolOptions,
             label = { Text(label) },
             leadingIcon = {
                 Box(
@@ -81,6 +93,19 @@ fun ContextToolPanel(
                 )
             }
         )
+    }
+
+    @Composable
+    fun QuickSizeSlider() {
+        if (quickSize) {
+            WishySlider(
+                value = brushSize,
+                onValueChange = onSizeChange,
+                valueRange = 1f..100f,
+                label = "",
+                modifier = Modifier.width(168.dp)
+            )
+        }
     }
 
     @Composable
@@ -100,6 +125,23 @@ fun ContextToolPanel(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             when {
+                activeLasso != null && activeLasso.isImported -> {
+                    Button(onClick = onCommitLasso) { Text(stringResource(R.string.ui_place)) }
+                    ActionIconButton(
+                        iconRes = WishyIcons.FitScreen,
+                        contentDescription = stringResource(R.string.ui_fit_canvas),
+                        onClick = onFitLasso
+                    )
+                    TextButton(onClick = onFillLasso) { Text(stringResource(R.string.ui_fill_canvas)) }
+                    ActionIconButton(
+                        iconRes = WishyIcons.RotateRight,
+                        contentDescription = stringResource(R.string.ui_rotate_90),
+                        onClick = onRotateLasso
+                    )
+                    TextButton(onClick = onResetProportions) { Text(stringResource(R.string.ui_reset_proportions)) }
+                    TextButton(onClick = onCancelLasso) { Text(stringResource(R.string.ui_cancel)) }
+                }
+
                 activeLasso != null -> {
                     Button(onClick = onCommitLasso) { Text(stringResource(R.string.ui_done)) }
                     if (activeLasso.isText) {
@@ -139,7 +181,8 @@ fun ContextToolPanel(
                         color = scheme.onSurface,
                         modifier = Modifier.padding(start = 8.dp)
                     )
-                    SizeChip("${brushSize.roundToInt()} px")
+                    SizeChip("${brushSize.roundToInt()} px", inline = true)
+                    QuickSizeSlider()
                 }
 
                 tool == Tool.FILL -> {
@@ -180,7 +223,35 @@ fun ContextToolPanel(
                         selected = tool == Tool.ELLIPSE,
                         onClick = { onSelectShapeTool?.invoke(Tool.ELLIPSE) }
                     )
-                    SizeChip("${brushSize.roundToInt()} px")
+                    SizeChip("${brushSize.roundToInt()} px", inline = true)
+                    QuickSizeSlider()
+                    ColorSwatch(color = Color(color), onClick = onOpenColorPicker, size = 36.dp)
+                }
+
+                // Selection: it has no colour or size, so the bar just says what to do.
+                tool == Tool.LASSO -> {
+                    Icon(
+                        painter = painterResource(WishyIcons.selected(WishyIcons.Lasso)),
+                        contentDescription = null,
+                        tint = scheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp).size(20.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.ui_lasso_hint),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = scheme.onSurface,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                }
+
+                // Eyedropper: show the colour currently held, and how to change it.
+                tool == Tool.EYEDROPPER -> {
+                    Text(
+                        text = stringResource(R.string.ui_eyedropper_hint),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = scheme.onSurface,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
                     ColorSwatch(color = Color(color), onClick = onOpenColorPicker, size = 36.dp)
                 }
 
@@ -189,9 +260,8 @@ fun ContextToolPanel(
                         text = tool.displayName,
                         style = MaterialTheme.typography.labelLarge,
                         color = scheme.onSurface,
-                        modifier = Modifier.padding(start = 8.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp)
                     )
-                    ColorSwatch(color = Color(color), onClick = onOpenColorPicker, size = 36.dp)
                 }
             }
         }

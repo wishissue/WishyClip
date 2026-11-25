@@ -47,6 +47,9 @@ class LassoSelection(
 
     val isText: Boolean get() = text != null
 
+    /** True for a picture placed from the image picker (shows the placement controls). */
+    var isImported: Boolean = false
+
     fun getMatrix(): Matrix {
         val m = Matrix()
         val centerX = bounds.width() / 2f

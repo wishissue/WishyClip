@@ -877,7 +877,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             val cx = p.width / 2f
             val cy = p.height / 2f
             val bounds = RectF(cx - bmp.width / 2f, cy - bmp.height / 2f, cx + bmp.width / 2f, cy + bmp.height / 2f)
-            activeLassoSelection = LassoSelection(bmp, bounds, Path())
+            activeLassoSelection = LassoSelection(bmp, bounds, Path()).also { it.isImported = true }
             revision++
         }
     }
@@ -1117,6 +1117,39 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun rotateLassoSelection(degrees: Float) {
         val sel = activeLassoSelection ?: return
         sel.rotation += degrees
+        revision++
+    }
+
+    /**
+     * Scales the floating picture uniformly (aspect kept) so its rotated outline fits inside the
+     * canvas ([cover] = false) or covers it completely ([cover] = true), and centres it.
+     */
+    fun fitLassoSelectionToCanvas(cover: Boolean) {
+        val sel = activeLassoSelection ?: return
+        val p = project ?: return
+        val w = sel.pixels.width.toFloat()
+        val h = sel.pixels.height.toFloat()
+        val t = Math.toRadians(sel.rotation.toDouble())
+        val c = Math.abs(Math.cos(t)).toFloat()
+        val s = Math.abs(Math.sin(t)).toFloat()
+        val boxW = (w * c + h * s).coerceAtLeast(1f)
+        val boxH = (w * s + h * c).coerceAtLeast(1f)
+        val kx = p.width / boxW
+        val ky = p.height / boxH
+        val k = (if (cover) maxOf(kx, ky) else minOf(kx, ky)).coerceIn(0.1f, 10f)
+        sel.scaleX = k
+        sel.scaleY = k
+        sel.translateX = p.width / 2f - w / 2f - sel.bounds.left
+        sel.translateY = p.height / 2f - h / 2f - sel.bounds.top
+        revision++
+    }
+
+    /** Restores the picture's original proportions, keeping its overall size. */
+    fun resetLassoProportions() {
+        val sel = activeLassoSelection ?: return
+        val k = Math.sqrt((sel.scaleX * sel.scaleY).toDouble()).toFloat().coerceIn(0.1f, 10f)
+        sel.scaleX = k
+        sel.scaleY = k
         revision++
     }
 

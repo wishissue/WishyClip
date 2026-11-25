@@ -74,9 +74,9 @@ fun ToolButton(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            painter = painterResource(iconRes),
+            painter = painterResource(if (selected) WishyIcons.selected(iconRes) else iconRes),
             contentDescription = description,
-            modifier = Modifier.size(24.dp),
+            modifier = Modifier.size(22.dp),
             tint = content
         )
     }

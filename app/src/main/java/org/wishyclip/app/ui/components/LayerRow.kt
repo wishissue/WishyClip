@@ -63,7 +63,6 @@ fun LayerRow(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
     onToggleLock: (Boolean) -> Unit = {},
-    onCycleBlend: () -> Unit = {},
     onDuplicate: (() -> Unit)? = null,
     /** Null for the bottom layer (nothing below to merge into). */
     onMergeDown: (() -> Unit)? = null,
@@ -97,7 +96,7 @@ fun LayerRow(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        painter = painterResource(WishyIcons.Reorder),
+                        painter = painterResource(WishyIcons.Grip),
                         contentDescription = stringResource(R.string.ui_drag_to_reorder),
                         tint = scheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
@@ -120,14 +119,24 @@ fun LayerRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    val locked = if (layer.locked) " · " + stringResource(R.string.ui_locked) else ""
-                    Text(
-                        text = "${(layer.opacity * 100f).roundToInt()}% · ${layer.blendMode.label}$locked",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = scheme.onSurfaceVariant.copy(alpha = contentAlpha),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Lock state is visible on the row itself; toggle it from the overflow menu.
+                        if (layer.locked) {
+                            Icon(
+                                painter = painterResource(WishyIcons.selected(WishyIcons.Lock)),
+                                contentDescription = stringResource(R.string.ui_locked),
+                                tint = scheme.primary,
+                                modifier = Modifier.padding(end = 4.dp).size(14.dp)
+                            )
+                        }
+                        Text(
+                            text = "${(layer.opacity * 100f).roundToInt()}% · ${layer.blendMode.label}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurfaceVariant.copy(alpha = contentAlpha),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
                 ActionIconButton(
                     iconRes = if (layer.visible) WishyIcons.VisibilityOn else WishyIcons.VisibilityOff,
@@ -156,10 +165,6 @@ fun LayerRow(
                         DropdownMenuItem(
                             text = { Text(if (layer.locked) "Unlock layer" else "Lock layer") },
                             onClick = { menuOpen = false; onToggleLock(!layer.locked) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Blend: ${layer.blendMode.label}") },
-                            onClick = { onCycleBlend() }
                         )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.ui_move_up)) },

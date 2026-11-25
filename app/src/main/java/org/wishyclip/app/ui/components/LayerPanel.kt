@@ -5,6 +5,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -26,6 +33,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -35,6 +43,8 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.wishyclip.app.R
 import org.wishyclip.app.canvas.LayerUi
+import org.wishyclip.app.model.LayerBlend
+import org.wishyclip.app.ui.design.WishyIcons
 import org.wishyclip.app.ui.design.WishyTheme
 import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
@@ -58,7 +68,7 @@ fun LayerPanel(
     onDeleteLayer: (Int) -> Unit,
     modifier: Modifier = Modifier,
     onToggleLock: (Int, Boolean) -> Unit = { _, _ -> },
-    onCycleBlend: (Int) -> Unit = {},
+    onSetBlend: (Int, LayerBlend) -> Unit = { _, _ -> },
     onDuplicateLayer: (Int) -> Unit = {},
     onMergeDown: (Int) -> Unit = {},
     onRenameLayer: (Int) -> Unit = {},
@@ -71,7 +81,7 @@ fun LayerPanel(
     val body: @Composable () -> Unit = {
         LayerPanelBody(
             layers, activeLayerIndex, onSelectLayer, onAddLayer, onImportImageLayer, onToggleVisibility,
-            onOpacityChange, onMoveLayer, onDeleteLayer, onToggleLock, onCycleBlend, onDuplicateLayer,
+            onOpacityChange, onMoveLayer, onDeleteLayer, onToggleLock, onSetBlend, onDuplicateLayer,
             onMergeDown, onRenameLayer, maxListHeight, thumbnails
         )
     }
@@ -94,7 +104,7 @@ private fun LayerPanelBody(
     onMoveLayer: (Int, Int) -> Unit,
     onDeleteLayer: (Int) -> Unit,
     onToggleLock: (Int, Boolean) -> Unit,
-    onCycleBlend: (Int) -> Unit,
+    onSetBlend: (Int, LayerBlend) -> Unit,
     onDuplicateLayer: (Int) -> Unit,
     onMergeDown: (Int) -> Unit,
     onRenameLayer: (Int) -> Unit,
@@ -177,7 +187,6 @@ private fun LayerPanelBody(
                     onMoveDown = { onMoveLayer(idx, -1) },
                     onDelete = { onDeleteLayer(idx) },
                     onToggleLock = { onToggleLock(idx, it) },
-                    onCycleBlend = { onCycleBlend(idx) },
                     onDuplicate = { onDuplicateLayer(idx) },
                     onMergeDown = if (idx > 0) ({ onMergeDown(idx) }) else null,
                     onRename = { onRenameLayer(idx) },
@@ -207,6 +216,22 @@ private fun LayerPanelBody(
                 unit = "%",
                 modifier = Modifier.padding(horizontal = 4.dp)
             )
+            // Blend mode of the selected layer: pick directly instead of cycling through them.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(top = 4.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                LayerBlend.values().forEach { blend ->
+                    FilterChip(
+                        selected = active.blendMode == blend,
+                        onClick = { onSetBlend(activeLayerIndex, blend) },
+                        label = { Text(blend.label, maxLines = 1) }
+                    )
+                }
+            }
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -214,9 +239,13 @@ private fun LayerPanelBody(
             verticalAlignment = Alignment.CenterVertically
         ) {
             FilledTonalButton(onClick = onAddLayer) {
+                Icon(painterResource(WishyIcons.Add), contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
                 Text(stringResource(R.string.ui_add_layer))
             }
             TextButton(onClick = onImportImageLayer) {
+                Icon(painterResource(WishyIcons.Import), contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
                 Text(stringResource(R.string.ui_import_image))
             }
         }

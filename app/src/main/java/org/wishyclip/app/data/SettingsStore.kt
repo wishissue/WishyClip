@@ -11,7 +11,6 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import org.wishyclip.app.canvas.OnionSkinSettings
-import org.wishyclip.app.ui.design.IconPack
 import org.wishyclip.app.ui.design.WishyTokens
 import org.wishyclip.app.ui.design.themes.AmoledTokens
 import org.wishyclip.app.ui.design.themes.CandyTokens
@@ -23,6 +22,10 @@ import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.FlipDarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 import org.wishyclip.app.ui.design.themes.MidnightTokens
+import org.wishyclip.app.ui.design.themes.IndigoDarkTokens
+import org.wishyclip.app.ui.design.themes.IndigoDuskTokens
+import org.wishyclip.app.ui.design.themes.IndigoLightTokens
+import org.wishyclip.app.ui.design.themes.IndigoOledTokens
 import org.wishyclip.app.ui.design.themes.WishyDarkTokens
 import org.wishyclip.app.ui.design.themes.WishyLightTokens
 import org.wishyclip.app.ui.design.themes.ThemeImporter
@@ -45,7 +48,7 @@ class SettingsStore(private val context: Context) {
 
     private val keyThemeName = stringPreferencesKey("theme_name")
     private val keyIsLeftHanded = booleanPreferencesKey("is_left_handed")
-    private val keyIconPack = stringPreferencesKey("icon_pack")
+    private val keyTimelineMode = stringPreferencesKey("timeline_mode")
     private val keyDefaultFps = intPreferencesKey("default_fps")
     private val keyHaptics = booleanPreferencesKey("haptics_enabled")
     private val keyStarterBrushes = androidx.datastore.preferences.core.intPreferencesKey("starter_brush_version")
@@ -59,7 +62,8 @@ class SettingsStore(private val context: Context) {
 
     val themeName: Flow<String> = context.settingsDataStore.data.map { it[keyThemeName] ?: "" }
     val isLeftHanded: Flow<Boolean> = context.settingsDataStore.data.map { it[keyIsLeftHanded] ?: false }
-    val iconPack: Flow<String> = context.settingsDataStore.data.map { it[keyIconPack] ?: IconPack.CUTE.name }
+    /** Size the timeline opens at: MINIMIZED, COMPACT or EXPANDED (see TimelineMode). */
+    val timelineMode: Flow<String> = context.settingsDataStore.data.map { it[keyTimelineMode] ?: "COMPACT" }
     val defaultFps: Flow<Int> = context.settingsDataStore.data.map { it[keyDefaultFps] ?: 12 }
     val hapticsEnabled: Flow<Boolean> = context.settingsDataStore.data.map { it[keyHaptics] ?: true }
     val palmRejection: Flow<Boolean> = context.settingsDataStore.data.map { it[keyPalmRejection] ?: false }
@@ -147,9 +151,9 @@ class SettingsStore(private val context: Context) {
         }
     }
 
-    suspend fun saveIconPack(pack: String) {
+    suspend fun saveTimelineMode(mode: String) {
         context.settingsDataStore.edit {
-            it[keyIconPack] = pack
+            it[keyTimelineMode] = mode
         }
     }
 
@@ -176,6 +180,10 @@ class SettingsStore(private val context: Context) {
         const val DEFAULT_COLOR: Int = -16777216 // 0xFF000000 (opaque black) as signed Int
 
         val BuiltInThemes = listOf(
+            IndigoLightTokens,
+            IndigoDarkTokens,
+            IndigoDuskTokens,
+            IndigoOledTokens,
             WishyLightTokens,
             WishyDarkTokens,
             CoralLightTokens,
@@ -205,7 +213,7 @@ class SettingsStore(private val context: Context) {
             if (builtIn != null && builtIn.dynamic) return builtIn.copy(isDark = systemDark)
             return builtIn
                 ?: custom.find { it.name.equals(name, ignoreCase = true) }
-                ?: if (systemDark) WishyDarkTokens else WishyLightTokens
+                ?: if (systemDark) IndigoDarkTokens else IndigoLightTokens
         }
     }
 }

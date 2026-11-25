@@ -47,8 +47,6 @@ import org.wishyclip.app.ui.HomeViewModel
 import org.wishyclip.app.ui.components.ActionIconButton
 import org.wishyclip.app.ui.components.ProjectCard
 import org.wishyclip.app.ui.components.WishyDialog
-import androidx.compose.ui.unit.sp
-import org.wishyclip.app.ui.design.BagelFamily
 import org.wishyclip.app.ui.design.WishyIcons
 import org.wishyclip.app.ui.design.WishyTheme
 
@@ -79,21 +77,13 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Bagel Fat One wordmark (brand moment), with the page title in the interface font.
-                Column {
-                    Text(
-                        text = stringResource(R.string.app_name),
-                        fontFamily = BagelFamily,
-                        fontSize = 30.sp,
-                        lineHeight = 36.sp,
-                        color = tokens.primary
-                    )
-                    Text(
-                        text = stringResource(R.string.ui_my_animations),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = tokens.onSurfaceVariant
-                    )
-                }
+                // Plain page title: no logo or wordmark anywhere in the interface.
+                Text(
+                    text = stringResource(R.string.ui_my_animations),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = tokens.onSurface
+                )
                 ActionIconButton(
                     iconRes = WishyIcons.Settings,
                     contentDescription = stringResource(R.string.action_settings),

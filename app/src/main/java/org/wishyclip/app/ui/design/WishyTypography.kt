@@ -18,12 +18,6 @@ val JakartaFamily = FontFamily(
     Font(R.font.plus_jakarta_sans_bold, FontWeight.Bold)
 )
 
-/**
- * Bagel Fat One (SIL OFL 1.1, docs/licenses/BagelFatOne-OFL.txt): expressive brand face. Basic Latin
- * only, so use it for the logo and short display moments, never for settings or dense text.
- */
-val BagelFamily = FontFamily(Font(R.font.bagel_fat_one, FontWeight.Normal))
-
 /** Kept so older call sites keep compiling. */
 val InterFamily = JakartaFamily
 
@@ -32,7 +26,7 @@ private val base = Typography()
 /**
  * The standard Material 3 type scale (system font, so it follows the device's Material You font
  * settings), tightened slightly for an editor: compact labels, readable minimum of 11sp.
- * [JakartaFamily] and [BagelFamily] stay available for the wordmark and brand moments only.
+ * [JakartaFamily] is the interface font for the few places that set one explicitly.
  */
 val WishyTypography = Typography(
     headlineMedium = base.headlineMedium.copy(fontWeight = FontWeight.SemiBold),

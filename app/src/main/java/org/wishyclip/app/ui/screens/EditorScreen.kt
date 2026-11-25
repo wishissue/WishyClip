@@ -96,7 +96,7 @@ import org.wishyclip.app.ui.components.GlassSurface
 import org.wishyclip.app.ui.components.LayerPanel
 import org.wishyclip.app.ui.components.ShortcutDialog
 import org.wishyclip.app.ui.components.StudioTimeline
-import org.wishyclip.app.ui.components.TimelineStrip
+import org.wishyclip.app.ui.components.TimelineMode
 import org.wishyclip.app.ui.components.ToolRail
 import org.wishyclip.app.ui.components.WishyDialog
 import org.wishyclip.app.ui.components.WishySlider
@@ -121,6 +121,7 @@ fun EditorScreen(
     onExit: () -> Unit,
     isLeftHanded: Boolean = false,
     palmRejection: Boolean = false,
+    defaultTimelineMode: TimelineMode = TimelineMode.COMPACT,
     onOpenDesignGallery: (() -> Unit)? = null
 ) {
     val tokens = WishyTheme.tokens
@@ -156,7 +157,9 @@ fun EditorScreen(
     var showFpsDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var showShortcutDialog by remember { mutableStateOf(false) }
-    var isStudioExpanded by rememberSaveable { mutableStateOf(false) }
+    // Timeline size: the drag handle on its top edge steps through these.
+    var timelineMode by rememberSaveable { mutableStateOf(defaultTimelineMode) }
+    val isStudioExpanded = timelineMode == TimelineMode.EXPANDED
 
     // Layer previews for the layers panel / Studio view; rebuilt (debounced) only while one is visible.
     var layerThumbs by remember { mutableStateOf<Map<Long, ImageBitmap>>(emptyMap()) }
@@ -188,7 +191,7 @@ fun EditorScreen(
 
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     // Five big top-bar buttons leave no room for the title on narrow phones.
-    val showTitle = LocalConfiguration.current.screenWidthDp >= 420
+    val showTitle = LocalConfiguration.current.screenWidthDp >= 600
     val brushPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         vm.importBrushFiles(uris)
     }
@@ -332,13 +335,9 @@ fun EditorScreen(
                     enter = fadeIn(),
                     exit = fadeOut()
                 ) {
-                  // Floating glass capsule: big Back, Undo, Redo, Layers and More buttons.
-                  Box(
-                      modifier = Modifier
-                          .fillMaxWidth()
-                          .padding(horizontal = tokens.floatMargin, vertical = tokens.floatMargin / 2)
-                  ) {
-                    GlassSurface(modifier = Modifier.fillMaxWidth()) {
+                  // Flat 48dp bar on the stage colour (no capsule, no margins): Back, title, Undo, Redo, Layers, More.
+                  Box(modifier = Modifier.fillMaxWidth()) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -377,12 +376,6 @@ fun EditorScreen(
                             contentDescription = stringResource(R.string.action_redo),
                             enabled = vm.canRedo,
                             onClick = { vm.redo() }
-                        )
-                        ActionIconButton(
-                            iconRes = WishyIcons.Reorder,
-                            contentDescription = stringResource(if (isStudioExpanded) R.string.ui_layout_studio else R.string.ui_layout_classic),
-                            selected = isStudioExpanded,
-                            onClick = { isStudioExpanded = !isStudioExpanded }
                         )
                         ActionIconButton(
                             iconRes = WishyIcons.Layers,
@@ -603,6 +596,10 @@ fun EditorScreen(
                                 onDeleteLasso = { vm.deleteLassoSelection() },
                                 onSelectShapeTool = { vm.selectTool(it) },
                                 onEditText = { vm.editActiveText() },
+                                onFitLasso = { vm.fitLassoSelectionToCanvas(cover = false) },
+                                onFillLasso = { vm.fitLassoSelectionToCanvas(cover = true) },
+                                onRotateLasso = { vm.rotateLassoSelection(90f) },
+                                onResetProportions = { vm.resetLassoProportions() },
                                 onOpenToolOptions = {
                                     if (vm.tool.isBrush) showBrushMenu = true else showToolOptions = true
                                 },
@@ -744,14 +741,11 @@ fun EditorScreen(
                                 onMoveLayer = { idx, dir -> vm.moveLayer(idx, dir) },
                                 onDeleteLayer = { idx -> layerConfirm = Pair(false, idx) },
                                 onToggleLock = { idx, locked -> vm.setLayerLocked(idx, locked) },
-                                onCycleBlend = { idx ->
-                                    val cur = vm.layerUi.getOrNull(idx)?.blendMode
-                                    if (cur != null) vm.setLayerBlend(idx, cur.next())
-                                },
+                                onSetBlend = { idx, blend -> vm.setLayerBlend(idx, blend) },
                                 onDuplicateLayer = { idx -> vm.duplicateLayer(idx) },
                                 onMergeDown = { idx -> layerConfirm = Pair(true, idx) },
                                 onRenameLayer = { idx -> renameLayerIndex = idx },
-                                maxListHeight = (maxHeight - 140.dp).coerceIn(80.dp, 280.dp),
+                                maxListHeight = (maxHeight - 200.dp).coerceIn(80.dp, 280.dp),
                                 thumbnails = layerThumbs,
                                 modifier = Modifier
                                     .align(if (isLeftHanded) Alignment.TopStart else Alignment.TopEnd)
@@ -804,8 +798,11 @@ fun EditorScreen(
                             audioTracks = vm.audioTracks,
                             isPlaying = vm.isPlaying,
                             onionEnabled = vm.onionSkinSettings.enabled,
-                            isStudioExpanded = isStudioExpanded,
-                            onToggleStudioExpanded = { isStudioExpanded = !isStudioExpanded },
+                            mode = timelineMode,
+                            onModeChange = { timelineMode = it },
+                            landscape = isLandscape,
+                            // the layer tracks scroll inside a cap so EXPANDED can never swallow the canvas
+                            maxExpandedHeight = (LocalConfiguration.current.screenHeightDp * (if (isLandscape) 0.30f else 0.28f)).dp,
                             onSelectFrame = { vm.selectFrame(it) },
                             onTogglePlay = { vm.togglePlay() },
                             onPreviousFrame = {
@@ -832,7 +829,6 @@ fun EditorScreen(
                             onUpdateFrameExposure = { index, duration -> vm.updateFrameExposure(index, duration) },
                             frameThumb = { id -> vm.frameThumbFile(id) },
                             thumbVersion = vm.frameThumbVersion,
-                            onOpenLayers = { showLayersPanel = !showLayersPanel },
                             onMoveFrame = { vm.moveFrame(it) },
                             onMoveFrameTo = { from, to -> vm.moveFrameTo(from, to) },
                             layerContent = layerContent

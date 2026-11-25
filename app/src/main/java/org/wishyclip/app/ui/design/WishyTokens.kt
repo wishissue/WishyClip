@@ -80,7 +80,7 @@ data class WishyTokens(
     val spaceLarge: Dp = 16.dp,
     val spaceXl: Dp = 24.dp,
     /** Gap between a floating panel and the screen edge / neighbouring panels. */
-    val floatMargin: Dp = 8.dp,
+    val floatMargin: Dp = 6.dp,
 
     // Dimensions
     val toolIconSize: Dp = 24.dp,
@@ -90,11 +90,11 @@ data class WishyTokens(
     val minTouchTarget: Dp = 48.dp,
     /** Large primary action (play, new project). */
     val primaryButtonSize: Dp = 56.dp,
-    val topBarHeight: Dp = 56.dp,
+    val topBarHeight: Dp = 48.dp,
     val toolRailWidth: Dp = 56.dp,
     val timelineHeight: Dp = 120.dp,
-    val frameCellWidth: Dp = 64.dp,
-    val frameCellHeight: Dp = 56.dp,
+    val frameCellWidth: Dp = 56.dp,
+    val frameCellHeight: Dp = 46.dp,
 
     // Elevation (Material 3 levels 1..3)
     val elevationSmall: Dp = 1.dp,

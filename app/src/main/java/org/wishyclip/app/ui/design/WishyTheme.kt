@@ -22,7 +22,7 @@ import org.wishyclip.app.ui.design.themes.CoralDarkTokens
 import org.wishyclip.app.ui.design.themes.CoralLightTokens
 import org.wishyclip.app.ui.design.themes.ThemeImporter
 
-val LocalWishyTokens = staticCompositionLocalOf { org.wishyclip.app.ui.design.themes.WishyLightTokens }
+val LocalWishyTokens = staticCompositionLocalOf { org.wishyclip.app.ui.design.themes.IndigoLightTokens }
 
 object WishyTheme {
     val tokens: WishyTokens

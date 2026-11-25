@@ -45,9 +45,9 @@ fun ActionIconButton(
     }
     val icon: @Composable () -> Unit = {
         Icon(
-            painter = painterResource(iconRes),
+            painter = painterResource(if (selected) WishyIcons.selected(iconRes) else iconRes),
             contentDescription = contentDescription,
-            modifier = Modifier.size(24.dp)
+            modifier = Modifier.size(22.dp)
         )
     }
     val scheme = MaterialTheme.colorScheme

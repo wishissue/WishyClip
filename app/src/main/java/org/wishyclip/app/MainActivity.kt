@@ -40,8 +40,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import org.wishyclip.app.data.SettingsStore
-import org.wishyclip.app.ui.design.IconPack
-import org.wishyclip.app.ui.design.WishyIcons
+import org.wishyclip.app.ui.components.TimelineMode
 import org.wishyclip.app.ui.screens.HomeScreen
 import org.wishyclip.app.ui.screens.NewProjectScreen
 import org.wishyclip.app.ui.screens.OnboardingScreen
@@ -57,7 +56,7 @@ class MainActivity : ComponentActivity() {
             val scope = rememberCoroutineScope()
             val savedThemeName by settingsStore.themeName.collectAsState(initial = "")
             val savedIsLeftHanded by settingsStore.isLeftHanded.collectAsState(initial = false)
-            val savedIconPack by settingsStore.iconPack.collectAsState(initial = IconPack.CUTE.name)
+            val savedTimelineMode by settingsStore.timelineMode.collectAsState(initial = "COMPACT")
             val savedHaptics by settingsStore.hapticsEnabled.collectAsState(initial = true)
             val savedPalmRejection by settingsStore.palmRejection.collectAsState(initial = false)
 
@@ -70,14 +69,6 @@ class MainActivity : ComponentActivity() {
             val systemDark = isSystemInDarkTheme()
             val currentTokens = remember(savedThemeName, customThemes, systemDark) {
                 SettingsStore.getThemeTokensByName(savedThemeName, customThemes, systemDark)
-            }
-
-            LaunchedEffect(savedIconPack) {
-                WishyIcons.currentPack = try {
-                    IconPack.valueOf(savedIconPack)
-                } catch (_: Exception) {
-                    IconPack.CUTE
-                }
             }
 
             // Keep status/navigation bar icons readable against the active theme.
@@ -120,8 +111,9 @@ class MainActivity : ComponentActivity() {
                             onTogglePalmRejection = { palm ->
                                 scope.launch { settingsStore.savePalmRejection(palm) }
                             },
-                            onSelectIconPack = { pack ->
-                                scope.launch { settingsStore.saveIconPack(pack.name) }
+                            timelineMode = runCatching { TimelineMode.valueOf(savedTimelineMode) }.getOrDefault(TimelineMode.COMPACT),
+                            onSelectTimelineMode = { mode ->
+                                scope.launch { settingsStore.saveTimelineMode(mode.name) }
                             },
                             customThemes = customThemes,
                             onSaveCustomTheme = { theme ->
@@ -165,7 +157,8 @@ fun WishyNavHost(
     onToggleHaptics: (Boolean) -> Unit,
     palmRejection: Boolean,
     onTogglePalmRejection: (Boolean) -> Unit,
-    onSelectIconPack: (IconPack) -> Unit = {},
+    timelineMode: TimelineMode = TimelineMode.COMPACT,
+    onSelectTimelineMode: (TimelineMode) -> Unit = {},
     customThemes: List<WishyTokens> = emptyList(),
     onSaveCustomTheme: (WishyTokens) -> Unit = {},
     onDeleteCustomTheme: (String) -> Unit = {},
@@ -212,7 +205,8 @@ fun WishyNavHost(
                 onToggleHaptics = onToggleHaptics,
                 palmRejection = palmRejection,
                 onTogglePalmRejection = onTogglePalmRejection,
-                onSelectIconPack = onSelectIconPack,
+                timelineMode = timelineMode,
+                onSelectTimelineMode = onSelectTimelineMode,
                 customThemes = customThemes,
                 onSaveCustomTheme = onSaveCustomTheme,
                 onDeleteCustomTheme = onDeleteCustomTheme,
@@ -240,6 +234,7 @@ fun WishyNavHost(
                 onExit = { nav.popBackStack() },
                 isLeftHanded = isLeftHanded,
                 palmRejection = palmRejection,
+                defaultTimelineMode = timelineMode,
                 onOpenDesignGallery = if (showDebugTools) { { nav.navigate("design_gallery") } } else null
             )
         }

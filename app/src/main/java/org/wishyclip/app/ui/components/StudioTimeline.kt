@@ -1,8 +1,13 @@
 package org.wishyclip.app.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalDensity
@@ -50,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.request.ImageRequest
 import java.io.File
@@ -61,13 +67,22 @@ import org.wishyclip.app.data.FrameEntity
 import org.wishyclip.app.ui.design.WishyIcons
 import org.wishyclip.app.ui.design.WishyTheme
 
+/** How much of the screen the timeline takes. The drag handle on its top edge steps through these. */
+enum class TimelineMode {
+    /** One slim row: transport, counter, onion skin. No frame strip. */
+    MINIMIZED,
+    /** Transport + frame strip. In landscape both share ONE row, so the timeline is a single bar. */
+    COMPACT,
+    /** Compact plus the per-layer tracks and the audio lane (scrolls when taller than [maxExpandedHeight]). */
+    EXPANDED
+}
+
 /**
- * The Material 3 animation timeline, in FlipaClip's two layouts.
+ * The Material 3 animation timeline in three sizes ([TimelineMode]).
  *
- * Classic (collapsed): one row of transport + counter + actions, and the frame strip with real
- * thumbnails. Studio ([isStudioExpanded]): adds the layer list and the audio lane above the strip.
  * Tap a frame to select it, long-press for its menu, drag the right edge of the selected frame to
- * hold it longer.
+ * hold it longer. Swipe the handle on the top edge up / down to expand / collapse, or tap it to
+ * toggle between minimized and compact.
  *
  * [frameThumb] maps a frame id to its thumbnail file; [thumbVersion] busts the image cache when a
  * frame is redrawn.
@@ -83,8 +98,8 @@ fun StudioTimeline(
     audioTracks: List<AudioTrackEntity>,
     isPlaying: Boolean,
     onionEnabled: Boolean,
-    isStudioExpanded: Boolean,
-    onToggleStudioExpanded: () -> Unit,
+    mode: TimelineMode,
+    onModeChange: (TimelineMode) -> Unit,
     onSelectFrame: (Int) -> Unit,
     onTogglePlay: () -> Unit,
     onPreviousFrame: () -> Unit,
@@ -108,7 +123,10 @@ fun StudioTimeline(
     modifier: Modifier = Modifier,
     frameThumb: ((Long) -> File)? = null,
     thumbVersion: Int = 0,
-    onOpenLayers: (() -> Unit)? = null,
+    /** True in landscape: COMPACT puts the transport and the frame strip on one row. */
+    landscape: Boolean = false,
+    /** Cap for the EXPANDED panel; the layer tracks scroll inside it. */
+    maxExpandedHeight: Dp = 220.dp,
     /** Moves the selected frame one place earlier (-1) or later (+1). */
     onMoveFrame: (Int) -> Unit = {},
     /** Drag-reorder: move the frame at the first index to the second. */
@@ -156,6 +174,162 @@ fun StudioTimeline(
         (currentSec / 60).toInt(), (currentSec % 60).toInt(), ((currentSec * 10) % 10).toInt()
     )
 
+
+    // ---- Pieces shared by the three modes ----
+    val transport: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(0.dp)) {
+            IconButton(onClick = onPreviousFrame) {
+                Icon(painterResource(WishyIcons.SkipBack), stringResource(R.string.ui_previous_frame), Modifier.size(22.dp))
+            }
+            PrimaryRoundButton(
+                iconRes = if (isPlaying) WishyIcons.Pause else WishyIcons.Play,
+                contentDescription = stringResource(if (isPlaying) R.string.ui_pause else R.string.ui_play),
+                onClick = onTogglePlay,
+                size = 44.dp
+            )
+            IconButton(onClick = onNextFrame) {
+                Icon(painterResource(WishyIcons.SkipForward), stringResource(R.string.ui_next_frame), Modifier.size(22.dp))
+            }
+        }
+    }
+    val counter: @Composable () -> Unit = {
+        // frame / total, fps and timecode; tapping opens the fps dialog
+        Text(
+            text = "${currentIndex + 1}/${frames.size} · $fps fps" + if (mode == TimelineMode.MINIMIZED) "" else " · $timecode",
+            style = MaterialTheme.typography.labelLarge,
+            color = scheme.onSurfaceVariant,
+            maxLines = 1,
+            modifier = Modifier
+                .clip(MaterialTheme.shapes.small)
+                .clickable(onClick = onFpsRequested)
+                .padding(horizontal = 8.dp, vertical = 12.dp)
+        )
+    }
+    val actions: @Composable (Boolean) -> Unit = { withMode ->
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            ActionIconButton(
+                iconRes = WishyIcons.Onion,
+                contentDescription = stringResource(R.string.ui_toggle_onion_skin),
+                selected = onionEnabled,
+                onClick = onToggleOnion
+            )
+            if (withMode) {
+                ActionIconButton(
+                    iconRes = WishyIcons.Reorder,
+                    contentDescription = stringResource(R.string.ui_studio_multi_track_view),
+                    selected = mode == TimelineMode.EXPANDED,
+                    onClick = {
+                        onModeChange(if (mode == TimelineMode.EXPANDED) TimelineMode.COMPACT else TimelineMode.EXPANDED)
+                    }
+                )
+            }
+            if (mode != TimelineMode.MINIMIZED) {
+                Box {
+                    ActionIconButton(
+                        iconRes = WishyIcons.More,
+                        contentDescription = stringResource(R.string.ui_more_frame_options),
+                        onClick = { menuFrame = currentIndex; showMenu = true }
+                    )
+                    FrameMenu(
+                        expanded = showMenu,
+                        canPaste = canPaste,
+                        onDismiss = { showMenu = false },
+                        onDuplicate = onDuplicateFrame,
+                        onCopy = onCopyFrame,
+                        onPaste = onPasteFrame,
+                        onDelete = onDeleteFrame,
+                        onAudio = onAudioRequested,
+                        canMoveLeft = currentIndex > 0,
+                        canMoveRight = currentIndex < frames.lastIndex,
+                        onMove = onMoveFrame
+                    )
+                }
+            }
+        }
+    }
+    val frameStrip: @Composable (Modifier, PaddingValues) -> Unit = { stripModifier, stripPadding ->
+                LazyRow(
+                    state = listState,
+                    modifier = stripModifier,
+                    contentPadding = stripPadding,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(frames, key = { _, f -> f.id }) { index, frame ->
+                        val file = frameThumb?.invoke(frame.id)
+                        val model: Any? = if (file != null && file.exists()) {
+                            ImageRequest.Builder(context)
+                                .data(file)
+                                .memoryCacheKey("frame-${frame.id}-$thumbVersion")
+                                .build()
+                        } else null
+                        val dragging = dragIdx == index
+                        Box(
+                            modifier = Modifier
+                                .zIndex(if (dragging) 1f else 0f)
+                                .graphicsLayer {
+                                    translationX = if (dragging) dragDx else 0f
+                                    alpha = if (dragging) 0.85f else 1f
+                                }
+                                .pointerInput(frame.id, index, frames.size) {
+                                    detectDragGesturesAfterLongPress(
+                                        onDragStart = {
+                                            dragIdx = index
+                                            dragDx = 0f
+                                            onSelectFrame(index)
+                                        },
+                                        onDragEnd = {
+                                            val to = dropIndex(index, dragDx)
+                                            dragIdx = -1
+                                            dragDx = 0f
+                                            if (to != index) onMoveFrameTo(index, to)
+                                        },
+                                        onDragCancel = {
+                                            dragIdx = -1
+                                            dragDx = 0f
+                                        },
+                                        onDrag = { change, amount ->
+                                            change.consume()
+                                            dragDx += amount.x
+                                        }
+                                    )
+                                }
+                        ) {
+                            TimelineFrameCell(
+                                frameIndex = index,
+                                selected = index == currentIndex,
+                                onClick = { onSelectFrame(index) },
+                                exposureDuration = frame.exposureDuration,
+                                thumbnail = model,
+                                onExposureChange = { onUpdateFrameExposure(index, it) }
+                            )
+                        }
+                    }
+                    item(key = "add-frame") {
+                        Box(
+                            modifier = Modifier
+                                .size(width = tokens.frameCellWidth, height = tokens.frameCellHeight)
+                                .clip(MaterialTheme.shapes.small)
+                                .background(scheme.primaryContainer)
+                                .clickable(onClick = onAddFrame),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(WishyIcons.Add),
+                                contentDescription = stringResource(R.string.ui_add_frame),
+                                tint = scheme.onPrimaryContainer,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+                }
+    }
+
+    val reducedMotion = org.wishyclip.app.ui.design.rememberReducedMotion()
+    val animSpec = org.wishyclip.app.ui.design.WishyMotion.spatial<androidx.compose.ui.unit.IntSize>(reducedMotion)
+
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = scheme.surfaceContainerLow,
@@ -163,85 +337,83 @@ fun StudioTimeline(
             bottomStart = androidx.compose.foundation.shape.CornerSize(0.dp),
             bottomEnd = androidx.compose.foundation.shape.CornerSize(0.dp)
         ),
-        shadowElevation = 3.dp
+        shadowElevation = 2.dp
     ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-            // ---- Header: transport, counter, actions ----
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+        Column(modifier = Modifier.fillMaxWidth().animateContentSize(animSpec)) {
+            // ---- Handle: swipe up / down to change size, tap to minimize / restore ----
+            var dragSum by remember { mutableFloatStateOf(0f) }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(20.dp)
+                    .pointerInput(mode) {
+                        detectVerticalDragGestures(
+                            onDragStart = { dragSum = 0f },
+                            onDragEnd = {
+                                val up = dragSum < -24f
+                                val down = dragSum > 24f
+                                when {
+                                    up && mode == TimelineMode.MINIMIZED -> onModeChange(TimelineMode.COMPACT)
+                                    up && mode == TimelineMode.COMPACT -> onModeChange(TimelineMode.EXPANDED)
+                                    down && mode == TimelineMode.EXPANDED -> onModeChange(TimelineMode.COMPACT)
+                                    down && mode == TimelineMode.COMPACT -> onModeChange(TimelineMode.MINIMIZED)
+                                }
+                            },
+                            onVerticalDrag = { change, amount -> change.consume(); dragSum += amount }
+                        )
+                    }
+                    .clickable {
+                        onModeChange(if (mode == TimelineMode.MINIMIZED) TimelineMode.COMPACT else TimelineMode.MINIMIZED)
+                    },
+                contentAlignment = Alignment.Center
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    IconButton(onClick = onPreviousFrame) {
-                        Icon(painterResource(WishyIcons.SkipBack), stringResource(R.string.ui_previous_frame))
-                    }
-                    PrimaryRoundButton(
-                        iconRes = if (isPlaying) WishyIcons.Pause else WishyIcons.Play,
-                        contentDescription = stringResource(if (isPlaying) R.string.ui_pause else R.string.ui_play),
-                        onClick = onTogglePlay
-                    )
-                    IconButton(onClick = onNextFrame) {
-                        Icon(painterResource(WishyIcons.SkipForward), stringResource(R.string.ui_next_frame))
-                    }
-                    Spacer(Modifier.width(4.dp))
-                    AssistChip(
-                        onClick = onFpsRequested,
-                        label = { Text("${currentIndex + 1}/${frames.size} · $fps fps · $timecode") }
-                    )
-                }
-                Spacer(Modifier.weight(1f))
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    if (onOpenLayers != null) {
-                        ActionIconButton(
-                            iconRes = WishyIcons.Layers,
-                            contentDescription = stringResource(R.string.ui_layers),
-                            onClick = onOpenLayers
-                        )
-                    }
-                    ActionIconButton(
-                        iconRes = WishyIcons.Onion,
-                        contentDescription = stringResource(R.string.ui_toggle_onion_skin),
-                        selected = onionEnabled,
-                        onClick = onToggleOnion
-                    )
-                    ActionIconButton(
-                        iconRes = WishyIcons.Reorder,
-                        contentDescription = stringResource(R.string.ui_studio_multi_track_view),
-                        selected = isStudioExpanded,
-                        onClick = onToggleStudioExpanded
-                    )
-                    Box {
-                        ActionIconButton(
-                            iconRes = WishyIcons.More,
-                            contentDescription = stringResource(R.string.ui_more_frame_options),
-                            onClick = { menuFrame = currentIndex; showMenu = true }
-                        )
-                        FrameMenu(
-                            expanded = showMenu,
-                            canPaste = canPaste,
-                            onDismiss = { showMenu = false },
-                            onDuplicate = onDuplicateFrame,
-                            onCopy = onCopyFrame,
-                            onPaste = onPasteFrame,
-                            onDelete = onDeleteFrame,
-                            onAudio = onAudioRequested,
-                            canMoveLeft = currentIndex > 0,
-                            canMoveRight = currentIndex < frames.lastIndex,
-                            onMove = onMoveFrame
-                        )
-                    }
-                }
+                Box(
+                    Modifier
+                        .size(width = 32.dp, height = 4.dp)
+                        .clip(CircleShape)
+                        .background(scheme.outlineVariant)
+                )
             }
 
-            // ---- Studio: layer list and audio lane ----
-            AnimatedVisibility(visible = isStudioExpanded) {
+            when {
+                mode == TimelineMode.MINIMIZED -> Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    transport()
+                    counter()
+                    Spacer(Modifier.weight(1f))
+                    actions(false)
+                }
+
+                // Landscape: ONE row. Transport left, frames in the middle (all the spare width), actions right.
+                landscape && mode == TimelineMode.COMPACT -> Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    transport()
+                    counter()
+                    frameStrip(Modifier.weight(1f), PaddingValues(horizontal = 8.dp, vertical = 2.dp))
+                    actions(true)
+                }
+
+                else -> Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        transport()
+                        counter()
+                        Spacer(Modifier.weight(1f))
+                        actions(true)
+                    }
+                    AnimatedVisibility(visible = mode == TimelineMode.EXPANDED) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = maxExpandedHeight)
+                                .verticalScroll(rememberScrollState())
+                        ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -328,81 +500,9 @@ fun StudioTimeline(
                         onAdd = onAudioRequested
                     )
                 }
-            }
-
-            // ---- Frame strip ----
-            LazyRow(
-                state = listState,
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                itemsIndexed(frames, key = { _, f -> f.id }) { index, frame ->
-                    val file = frameThumb?.invoke(frame.id)
-                    val model: Any? = if (file != null && file.exists()) {
-                        ImageRequest.Builder(context)
-                            .data(file)
-                            .memoryCacheKey("frame-${frame.id}-$thumbVersion")
-                            .build()
-                    } else null
-                    val dragging = dragIdx == index
-                    Box(
-                        modifier = Modifier
-                            .zIndex(if (dragging) 1f else 0f)
-                            .graphicsLayer {
-                                translationX = if (dragging) dragDx else 0f
-                                alpha = if (dragging) 0.85f else 1f
-                            }
-                            .pointerInput(frame.id, index, frames.size) {
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = {
-                                        dragIdx = index
-                                        dragDx = 0f
-                                        onSelectFrame(index)
-                                    },
-                                    onDragEnd = {
-                                        val to = dropIndex(index, dragDx)
-                                        dragIdx = -1
-                                        dragDx = 0f
-                                        if (to != index) onMoveFrameTo(index, to)
-                                    },
-                                    onDragCancel = {
-                                        dragIdx = -1
-                                        dragDx = 0f
-                                    },
-                                    onDrag = { change, amount ->
-                                        change.consume()
-                                        dragDx += amount.x
-                                    }
-                                )
-                            }
-                    ) {
-                        TimelineFrameCell(
-                            frameIndex = index,
-                            selected = index == currentIndex,
-                            onClick = { onSelectFrame(index) },
-                            exposureDuration = frame.exposureDuration,
-                            thumbnail = model,
-                            onExposureChange = { onUpdateFrameExposure(index, it) }
-                        )
+                        }
                     }
-                }
-                item(key = "add-frame") {
-                    Box(
-                        modifier = Modifier
-                            .size(width = tokens.frameCellWidth, height = tokens.frameCellHeight)
-                            .clip(MaterialTheme.shapes.small)
-                            .background(scheme.primaryContainer)
-                            .clickable(onClick = onAddFrame),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(WishyIcons.Add),
-                            contentDescription = stringResource(R.string.ui_add_frame),
-                            tint = scheme.onPrimaryContainer,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
+                    frameStrip(Modifier.fillMaxWidth(), PaddingValues(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 8.dp))
                 }
             }
         }

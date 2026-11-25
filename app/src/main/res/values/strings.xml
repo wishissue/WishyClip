@@ -74,6 +74,11 @@
     <string name="ui_brush_shape">Brush shape</string>
     <string name="ui_follow_stroke_direction">Follow stroke direction</string>
     <string name="ui_cancel">Cancel</string>
+    <string name="ui_place">Place</string>
+    <string name="ui_fit_canvas">Fit to canvas</string>
+    <string name="ui_fill_canvas">Fill</string>
+    <string name="ui_rotate_90">Rotate 90°</string>
+    <string name="ui_reset_proportions">Reset shape</string>
     <string name="ui_color">Color</string>
     <string name="ui_select">Select</string>
     <string name="ui_done">Done</string>
@@ -81,6 +86,8 @@
     <string name="ui_put_back">Put back</string>
     <string name="ui_delete">Delete</string>
     <string name="ui_eraser">Eraser</string>
+    <string name="ui_lasso_hint">Draw around an area to select it</string>
+    <string name="ui_eyedropper_hint">Tap the canvas to pick a colour</string>
     <string name="ui_fill_tolerance">Fill Tolerance</string>
     <string name="ui_tap_the_canvas_to_add_text">Tap the canvas to add text</string>
     <string name="ui_add_layer">+ Add Layer</string>

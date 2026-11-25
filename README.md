@@ -294,7 +294,7 @@ Ideas, brush packs, themes and pull requests are welcome too. Read [`CONTRIBUTIN
 
 - Code: [Apache License 2.0](LICENSE)
 - Libraries: AndroidX, Jetpack Compose, Room, Media3 ExoPlayer, Coil and Kotlin Coroutines (Apache-2.0)
-- Icons: Phosphor, Tabler and Lucide (MIT / ISC)
+- Icons: Material Symbols Rounded (Apache 2.0)
 - Font: Inter (SIL OFL 1.1)
 
 See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md) for the full accounting.

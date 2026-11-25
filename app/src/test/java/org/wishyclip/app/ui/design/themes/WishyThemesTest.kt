@@ -17,12 +17,12 @@ class WishyThemesTest {
     }
 
     @Test fun blankNameFollowsSystemSetting() {
-        assertEquals(WishyLightTokens, SettingsStore.getThemeTokensByName("", systemDark = false))
-        assertEquals(WishyDarkTokens, SettingsStore.getThemeTokensByName("", systemDark = true))
+        assertEquals(IndigoLightTokens, SettingsStore.getThemeTokensByName("", systemDark = false))
+        assertEquals(IndigoDarkTokens, SettingsStore.getThemeTokensByName("", systemDark = true))
     }
 
     @Test fun unknownNameFallsBackToSystemSetting() {
-        assertEquals(WishyDarkTokens, SettingsStore.getThemeTokensByName("Deleted theme", systemDark = true))
+        assertEquals(IndigoDarkTokens, SettingsStore.getThemeTokensByName("Deleted theme", systemDark = true))
     }
 
     @Test fun savedBuiltInChoiceIsKeptRegardlessOfSystem() {
@@ -33,6 +33,8 @@ class WishyThemesTest {
     @Test fun darkFlagsMatchPalettes() {
         assertFalse(WishyLightTokens.isDark)
         assertTrue(WishyDarkTokens.isDark)
+        assertFalse(IndigoLightTokens.isDark)
+        assertTrue(listOf(IndigoDarkTokens, IndigoDuskTokens, IndigoOledTokens).all { it.isDark })
     }
 
     @Test fun themeNamesAreUnique() {
@@ -41,13 +43,19 @@ class WishyThemesTest {
     }
 
     @Test fun textAndPrimaryMeetWcagAa() {
-        for (t in listOf(WishyLightTokens, WishyDarkTokens)) {
+        for (t in listOf(WishyLightTokens, WishyDarkTokens, IndigoLightTokens, IndigoDarkTokens, IndigoDuskTokens, IndigoOledTokens)) {
             assertTrue("${t.name} body", contrast(t.onSurface, t.surface) >= 4.5f)
             assertTrue("${t.name} body on panel", contrast(t.onSurface, t.toolRail) >= 4.5f)
             assertTrue("${t.name} secondary", contrast(t.onSurfaceVariant, t.toolRail) >= 4.5f)
             assertTrue("${t.name} on-primary", contrast(t.onPrimary, t.primary) >= 4.5f)
             assertTrue("${t.name} primary on panel", contrast(t.primary, t.toolRail) >= 3f)
             assertTrue("${t.name} on-primaryContainer", contrast(t.onPrimaryContainer, t.primaryContainer) >= 4.5f)
+        }
+    }
+
+    @Test fun paperAlwaysContrastsWithBackdrop() {
+        for (t in listOf(IndigoLightTokens, IndigoDarkTokens, IndigoDuskTokens, IndigoOledTokens)) {
+            assertTrue("${t.name} paper vs stage", contrast(t.paper, t.canvasBackdrop) >= 1.1f)
         }
     }
 }
