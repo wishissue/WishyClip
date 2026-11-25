@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.wishyclip.app.R
 import org.wishyclip.app.ui.design.WishyIcons
@@ -35,6 +36,7 @@ fun ActionIconButton(
     selected: Boolean = false,
     enabled: Boolean = true,
     tint: Color? = null,
+    iconSize: Dp = 25.dp,
     onClick: () -> Unit
 ) {
     val haptics = LocalHapticFeedback.current
@@ -47,7 +49,7 @@ fun ActionIconButton(
         Icon(
             painter = painterResource(if (selected) WishyIcons.selected(iconRes) else iconRes),
             contentDescription = contentDescription,
-            modifier = Modifier.size(22.dp)
+            modifier = Modifier.size(iconSize)
         )
     }
     val scheme = MaterialTheme.colorScheme
@@ -57,6 +59,7 @@ fun ActionIconButton(
             modifier = modifier,
             enabled = enabled,
             colors = IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = scheme.secondaryContainer,
                 contentColor = tint ?: scheme.onSecondaryContainer
             ),
             content = icon

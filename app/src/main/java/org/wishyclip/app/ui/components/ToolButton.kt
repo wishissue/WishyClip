@@ -76,7 +76,7 @@ fun ToolButton(
         Icon(
             painter = painterResource(if (selected) WishyIcons.selected(iconRes) else iconRes),
             contentDescription = description,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(26.dp),
             tint = content
         )
     }
