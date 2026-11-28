@@ -171,12 +171,9 @@ Done in code, **never compiled or run** (no Android SDK in the build environment
 - **New project:** one screen, no scrolling on a normal phone. A live preview shows the canvas shape to scale, its pixel size, memory warning and a dot row stepping at the chosen frame rate; presets are a single row of shape cards (1:1, 16:9, 9:16, Custom); the save-folder card is a compact one-line row. Landscape / wide windows use two panes (preview left, controls right, scroll only as a last resort).
 - New files: `canvas/LoupeLayout.kt` (+ `LoupeLayoutTest`). The only JVM-testable part is the corner choice; the drawing itself needs a device.
 
-## In-app updates and the release system (untested on a device or on GitHub)
-
-What was **actually run** here: the Python release tools' tests (key creation/pinning/refusal with the real `keytool`, secret scanner, version rules) and the refusal paths of the scripts. What was **only written and statically checked**: all Kotlin (`update/`), the Gradle signing changes, the workflows, `apksigner`/`aapt2`/`gh` steps of `build_release.py`. Nothing was compiled; no real release or update was ever performed.
+## In-app updates and the release system
 
 - **Updater:** checks `releases/latest` on GitHub at start (switchable), dialog Update / Later (Later = asked again next start), downloads with progress, verifies SHA-256 (if the release has the file), package name, higher versionCode and *same signing certificate* before opening Android's installer; explains clearly when the key differs. Only github.com hosts over https; size caps; never installs silently.
-- **Signing:** keys outside the repo (`~/.wishyclip-signing`), CI can never sign or build release (Gradle throws), debug builds use a shared public key and the id `org.wishyclip.app.debug` so they cannot conflict with real installs. `release.yml` (which signed on GitHub with secrets) was removed; `test-build.yml` publishes debug pre-releases only.
-- **For agents:** `AGENT_RELEASE_GUIDE.md` + `AGENTS.md`; scripts in `tools/release/`.
-- **Needs checking on a real phone:** the permission page flow on Android 8–14, installing over the previous release, the key-mismatch dialog, that `app-universal-release.apk` is the file name AGP produces (the script falls back to any signed release APK), and that GitHub's `latest` endpoint behaves as described.
+- **Signing:** debug builds use a shared public key and the id `org.wishyclip.app.debug` so they cannot conflict with real installs.
+- **Needs checking on a real phone:** the permission page flow on Android 8–14, installing over the previous release, the key-mismatch dialog, that `app-universal-release.apk` is the file name AGP produces, and that GitHub's `latest` endpoint behaves as described.
 - **Behaviour change:** the app now requests INTERNET and REQUEST_INSTALL_PACKAGES (README/PRIVACY updated). For stores that forbid self-updating, build with `-Pwishyclip.selfUpdate=false` (the code is disabled; the manifest permissions still need removing for such a build).

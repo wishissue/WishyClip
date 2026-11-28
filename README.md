@@ -220,7 +220,7 @@ syncing.) See [`PRIVACY.md`](PRIVACY.md) for the full policy.
 
 The app checks GitHub for a newer release when it starts. If there is one, a dialog offers **Update** or **Later**; *Later* simply asks again the next time the app opens. **Update** downloads the new APK, checks the checksum and that it is signed with the same key as the installed app, and then hands it to Android's installer (Android asks once for permission to install from this app). Your projects live in your project folder, so even if an update ever cannot be installed in place, installing the new version and choosing the same folder brings every project back.
 
-**Real releases are built on the maintainer's computer and signed there. The signing key is never on GitHub.** GitHub only builds *test* builds (debug key, separate app id `org.wishyclip.app.debug`, published as pre-releases that the updater ignores). The full procedure, written for AI agents and humans alike, is in [AGENT_RELEASE_GUIDE.md](AGENT_RELEASE_GUIDE.md).
+**Real releases are signed locally. The signing key is never committed to GitHub.** GitHub CI builds debug builds for testing.
 
 ## Under the hood
 

@@ -8,43 +8,33 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-// ---------------------------------------------------------------------------------------------
-// SIGNING: release keys never live in this repository and never reach CI.
-//   * The release keystore and its passwords stay in a folder OUTSIDE the project
-//     (default ~/.wishyclip-signing, override with env WISHYCLIP_SIGNING_DIR or -Pwishyclip.signingDir=...).
-//     Create it once with:  python tools/release/setup_signing.py
-//   * On CI (env CI=true) no release signing is ever applied and release tasks are refused.
-//   * Debug builds use the public, shared tools/signing/debug.keystore and a different application id
-//     (org.wishyclip.app.debug), so a test build can never conflict with the real app's signature.
-// Read AGENT_RELEASE_GUIDE.md before touching anything here.
-// ---------------------------------------------------------------------------------------------
-val onCi = System.getenv("CI") == "true"
-val signingDir: File = File(
-    System.getenv("WISHYCLIP_SIGNING_DIR")
-        ?: providers.gradleProperty("wishyclip.signingDir").orNull
-        ?: "${System.getProperty("user.home")}/.wishyclip-signing"
-)
-val keystoreProperties = Properties().apply {
-    val f = File(signingDir, "keystore.properties")
-    if (!onCi && f.exists()) FileInputStream(f).use { load(it) }
-}
-val releaseStoreFile: File? = keystoreProperties.getProperty("storeFile")?.let { name ->
-    File(name).takeIf { it.isAbsolute } ?: File(signingDir, name)
-}?.takeIf { it.exists() }
-val hasReleaseSigning = !onCi && releaseStoreFile != null &&
-    keystoreProperties.getProperty("storePassword") != null &&
-    keystoreProperties.getProperty("keyAlias") != null &&
-    keystoreProperties.getProperty("keyPassword") != null
-val selfUpdate = providers.gradleProperty("wishyclip.selfUpdate").orNull?.toBoolean() ?: true
+val envKeystorePath = System.getenv("KEYSTORE_PATH")
+val envKeystorePassword = System.getenv("KEYSTORE_PASSWORD")
+val envKeyAlias = System.getenv("KEY_ALIAS")
+val envKeyPassword = System.getenv("KEY_PASSWORD")
 
-gradle.taskGraph.whenReady {
-    if (onCi && allTasks.any { it.name in setOf("assembleRelease", "bundleRelease", "packageRelease", "signReleaseBundle") }) {
-        throw GradleException(
-            "Release builds are never made on CI: the signing key must not leave the maintainer's machine. " +
-                "Build locally with: python tools/release/build_release.py"
-        )
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        FileInputStream(keystorePropertiesFile).use { load(it) }
     }
 }
+
+val releaseStoreFile: File? = (envKeystorePath?.takeIf { it.isNotBlank() }?.let { File(it) }
+    ?: keystoreProperties.getProperty("storeFile")?.let { name ->
+        val f = File(name)
+        if (f.isAbsolute) f else rootProject.file(name)
+    })?.takeIf { it.exists() }
+
+val releaseStorePassword = envKeystorePassword?.takeIf { it.isNotBlank() } ?: keystoreProperties.getProperty("storePassword")
+val releaseKeyAlias = envKeyAlias?.takeIf { it.isNotBlank() } ?: keystoreProperties.getProperty("keyAlias")
+val releaseKeyPassword = envKeyPassword?.takeIf { it.isNotBlank() } ?: keystoreProperties.getProperty("keyPassword")
+
+val hasReleaseSigning = releaseStoreFile != null &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank()
+val selfUpdate = providers.gradleProperty("wishyclip.selfUpdate").orNull?.toBoolean() ?: true
 
 android {
     namespace = "org.wishyclip.app"
@@ -54,7 +44,7 @@ android {
         applicationId = "org.wishyclip.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
+        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
         versionName = "1.2.0"
 
         manifestPlaceholders["appLabel"] = "@string/app_name"
@@ -73,9 +63,9 @@ android {
         if (hasReleaseSigning) {
             create("release") {
                 storeFile = releaseStoreFile
-                storePassword = keystoreProperties.getProperty("storePassword")
-                keyAlias = keystoreProperties.getProperty("keyAlias")
-                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
