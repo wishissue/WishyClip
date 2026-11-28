@@ -14,6 +14,21 @@ interface ProjectDao {
     @Query("SELECT * FROM projects WHERE id = :id")
     suspend fun get(id: Long): ProjectEntity?
 
+    @Query("SELECT id FROM projects")
+    suspend fun allIds(): List<Long>
+
+    @Query("SELECT * FROM projects")
+    suspend fun all(): List<ProjectEntity>
+
+    @Query("SELECT * FROM projects WHERE uuid = :uuid LIMIT 1")
+    suspend fun byUuid(uuid: String): ProjectEntity?
+
+    @Query("UPDATE projects SET folderName = :folderName WHERE id = :id")
+    suspend fun setFolderName(id: Long, folderName: String?)
+
+    @Query("UPDATE projects SET uuid = :uuid WHERE id = :id")
+    suspend fun setUuid(id: Long, uuid: String)
+
     @Insert
     suspend fun insert(project: ProjectEntity): Long
 

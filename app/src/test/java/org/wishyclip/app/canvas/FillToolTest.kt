@@ -61,4 +61,30 @@ class FillToolTest {
         // Boundary should still be BLACK
         assertEquals(Color.BLACK, bmp.getPixel(10, 10))
     }
+
+    /** A comb of 1-px walls makes the fill push well over the initial stack size (1024) in one pass. */
+    @Test
+    fun fillSurvivesStackGrowthOnAComb() {
+        val w = 4200
+        val h = 12
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        bmp.eraseColor(Color.WHITE)
+        for (x in 1 until w step 2) for (y in 1 until h) bmp.setPixel(x, y, Color.BLACK) // walls, open at y = 0
+
+        assertTrue(ScanlineFillTool().fill(bmp, 0, 5, Color.RED, tolerance = 0))
+
+        for (x in 0 until w step 2) for (y in 0 until h) {
+            assertEquals("white cell ($x,$y) must be filled", Color.RED, bmp.getPixel(x, y))
+        }
+        for (x in 1 until w step 2) for (y in 1 until h) {
+            assertEquals("wall ($x,$y) must stay black", Color.BLACK, bmp.getPixel(x, y))
+        }
+    }
+
+    @Test
+    fun fillOutsideTheBitmapDoesNothing() {
+        val bmp = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888)
+        assertFalse(ScanlineFillTool().fill(bmp, -1, 3, Color.RED, 0))
+        assertFalse(ScanlineFillTool().fill(bmp, 3, 10, Color.RED, 0))
+    }
 }

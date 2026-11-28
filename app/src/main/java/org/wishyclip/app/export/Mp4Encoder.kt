@@ -65,10 +65,10 @@ object Mp4Encoder {
             muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
 
             val info = MediaCodec.BufferInfo()
-            val frameDurationUs = 1_000_000L / safeFps
             var track = -1
             var audioTrackIndex = -1
             var written = 0L // samples written so far
+            var sawEnd = false // true only when the encoder really signalled end-of-stream
             var audioPos = 0
             val audioInfo = MediaCodec.BufferInfo()
 
@@ -91,7 +91,7 @@ object Mp4Encoder {
                     when {
                         status == MediaCodec.INFO_TRY_AGAIN_LATER -> {
                             if (!untilEnd) return
-                            if (++idle > 500) return // ~5 s without output: give up rather than hang
+                            if (++idle > 500) return // ~5 s without output: give up rather than hang (sawEnd stays false)
                         }
                         status == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                             track = muxer!!.addTrack(codec.outputFormat)
@@ -106,13 +106,13 @@ object Mp4Encoder {
                             if (data != null && info.size > 0 && muxerStarted) {
                                 data.position(info.offset)
                                 data.limit(info.offset + info.size)
-                                info.presentationTimeUs = written * frameDurationUs
+                                info.presentationTimeUs = written * 1_000_000L / safeFps
                                 flushAudio(info.presentationTimeUs)
                                 muxer!!.writeSampleData(track, data, info)
                                 written++
                             }
                             codec.releaseOutputBuffer(status, false)
-                            if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
+                            if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) { sawEnd = true; return }
                         }
                     }
                 }
@@ -136,7 +136,8 @@ object Mp4Encoder {
             codec.signalEndOfInputStream()
             drain(untilEnd = true) // the encoder still holds the last few frames: flush them
             flushAudio(Long.MAX_VALUE)
-            ok = muxerStarted && written > 0
+            // A drain that timed out leaves a truncated file; never present that as a successful export.
+            ok = muxerStarted && written > 0 && sawEnd
         } catch (e: Exception) {
             e.printStackTrace()
             ok = false

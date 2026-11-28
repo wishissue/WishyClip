@@ -14,6 +14,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -63,9 +68,15 @@ fun TimelineFrameCell(
     var dragPx by remember { mutableFloatStateOf(0f) }
     val liveHold = (hold + (dragPx / stepPx).roundToInt()).coerceIn(1, 12)
 
+    val cellLabel = if (hold > 1) stringResource(R.string.ui_frame_cell_hold, frameIndex + 1, hold)
+    else stringResource(R.string.ui_frame_cell, frameIndex + 1)
     Box(
         modifier = modifier
             .size(width = cellWidth, height = tokens.frameCellHeight)
+            .semantics(mergeDescendants = true) {
+                contentDescription = cellLabel
+                this.selected = selected
+            }
             .clip(shape)
             .background(tokens.paper)
             .border(

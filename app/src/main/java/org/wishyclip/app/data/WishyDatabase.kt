@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [ProjectEntity::class, FrameEntity::class, LayerEntity::class, AudioTrackEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class WishyDatabase : RoomDatabase() {
@@ -56,12 +56,25 @@ abstract class WishyDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v5: project folders. Every project gets a uuid (random, unique) and an optional folderName.
+         * Existing projects keep all their data; they are written to the project folder the first time
+         * the user chooses one.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE projects ADD COLUMN uuid TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE projects ADD COLUMN folderName TEXT")
+                db.execSQL("UPDATE projects SET uuid = lower(hex(randomblob(16))) WHERE uuid = ''")
+            }
+        }
+
         fun build(context: Context): WishyDatabase =
             Room.databaseBuilder(context.applicationContext, WishyDatabase::class.java, "wishyclip.db")
                 // No destructive fallback: with it, ANY future schema change without a migration silently
                 // deleted every project's frames/layers (the PNG files stayed behind, orphaned). A missing
                 // migration now fails loudly in development instead. Add a Migration for every version bump.
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
     }
 }

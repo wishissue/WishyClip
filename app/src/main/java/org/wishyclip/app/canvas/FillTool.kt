@@ -28,20 +28,19 @@ class ScanlineFillTool : FillTool {
         if (colorMatches(targetColor, argb, 0)) return false
 
         val visited = BooleanArray(width * height)
-        val stackX = IntArray(width * height)
-        val stackY = IntArray(width * height)
+        // One packed (y * width + x) stack that grows on demand. It used to be two full-canvas IntArrays
+        // (70 MB on a 4096x2160 canvas) that were almost never needed, and a full stack silently dropped spans.
+        var stack = IntArray(1024)
         var stackSize = 0
 
-        stackX[stackSize] = startX
-        stackY[stackSize] = startY
-        stackSize++
+        stack[stackSize++] = startY * width + startX
 
         var changed = false
 
         while (stackSize > 0) {
-            stackSize--
-            val currX = stackX[stackSize]
-            val currY = stackY[stackSize]
+            val packed = stack[--stackSize]
+            val currX = packed % width
+            val currY = packed / width
 
             var left = currX
             while (left >= 0) {
@@ -73,11 +72,8 @@ class ScanlineFillTool : FillTool {
                         val idx = nextY * width + i
                         val matches = !visited[idx] && colorMatches(pixels[idx], targetColor, tolerance)
                         if (!inSpan && matches) {
-                            if (stackSize < stackX.size) {
-                                stackX[stackSize] = i
-                                stackY[stackSize] = nextY
-                                stackSize++
-                            }
+                            if (stackSize == stack.size) stack = stack.copyOf(stack.size * 2)
+                            stack[stackSize++] = nextY * width + i
                             inSpan = true
                         } else if (inSpan && !matches) {
                             inSpan = false

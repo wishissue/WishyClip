@@ -47,6 +47,11 @@ class UndoManager(private val limit: Int, private val maxBytes: Long = Long.MAX_
     /** Used when redoing: goes back on the undo stack without clearing redo. */
     fun pushUndoKeepRedo(entry: UndoEntry) {
         undo.addLast(entry)
+        // Redoing used to grow the undo stack past its limit / memory budget without ever trimming it.
+        while (undo.size > limit || (undo.size > 1 && undoBytes() > maxBytes)) {
+            val removed = undo.removeFirst()
+            if (!removed.bitmap.isRecycled) removed.bitmap.recycle()
+        }
     }
 
     fun dropFrame(frameId: Long) = drop { it.frameId == frameId }

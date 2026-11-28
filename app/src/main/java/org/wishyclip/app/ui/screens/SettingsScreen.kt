@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -52,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -101,6 +103,7 @@ private enum class SettingsCategory(val title: String, val blurb: String, val ic
     APPEARANCE("Appearance", "Theme and colours of the whole app", WishyIcons.Palette),
     WORKSPACE("Workspace", "Where the tools sit and how much room the timeline takes", WishyIcons.Dashboard),
     INPUT("Pen and touch", "Stylus, palm rejection and haptics", WishyIcons.Stylus),
+    PROJECTS("Project folder", "Where your projects are saved, outside the app", WishyIcons.Dashboard),
     ABOUT("About", "Licenses and credits", WishyIcons.Info)
 }
 
@@ -116,6 +119,8 @@ fun SettingsScreen(
     onToggleHaptics: (Boolean) -> Unit,
     palmRejection: Boolean,
     onTogglePalmRejection: (Boolean) -> Unit,
+    magnifier: Boolean = true,
+    onToggleMagnifier: (Boolean) -> Unit = {},
     onOpenDesignGallery: () -> Unit,
     onBack: () -> Unit,
     timelineMode: TimelineMode = TimelineMode.COMPACT,
@@ -176,8 +181,8 @@ fun SettingsScreen(
                 }
                 SettingSwitchRow(
                     icon = WishyIcons.DarkMode,
-                    title = "Follow system light / dark",
-                    subtitle = "Switches between Indigo and Indigo Dark with the phone",
+                    title = stringResource(R.string.setting_follow_system),
+                    subtitle = stringResource(R.string.setting_follow_system_sub),
                     checked = followsSystemTheme,
                     // Turning it off keeps the theme that is showing now as the explicit choice.
                     onCheckedChange = { on -> if (on) onUseSystemTheme() else onSelectTokens(currentTokens) }
@@ -200,7 +205,7 @@ fun SettingsScreen(
                             themeMessage = null
                             studioEditsCurrent = true
                             showThemeStudio = true
-                        }) { Text("Edit \"${currentTokens.name}\"") }
+                        }) { Text(stringResource(R.string.setting_edit_theme, currentTokens.name)) }
                         TextButton(onClick = {
                             onDeleteCustomTheme(currentTokens.name)
                             themeMessage = "Deleted \"${currentTokens.name}\""
@@ -252,7 +257,7 @@ fun SettingsScreen(
                 SettingSwitchRow(
                     icon = WishyIcons.LeftHand,
                     title = stringResource(R.string.setting_left_handed),
-                    subtitle = "Moves the tool rail to the right edge",
+                    subtitle = stringResource(R.string.setting_left_handed_sub),
                     checked = isLeftHanded,
                     onCheckedChange = onToggleLeftHanded
                 )
@@ -268,15 +273,41 @@ fun SettingsScreen(
                     onCheckedChange = onTogglePalmRejection
                 )
                 SettingSwitchRow(
+                    icon = WishyIcons.Eyedropper,
+                    title = stringResource(R.string.setting_magnifier),
+                    subtitle = stringResource(R.string.setting_magnifier_sub),
+                    checked = magnifier,
+                    onCheckedChange = onToggleMagnifier
+                )
+                SettingSwitchRow(
                     icon = WishyIcons.Haptics,
                     title = stringResource(R.string.setting_haptics),
-                    subtitle = "A small tick when you press tools and buttons",
+                    subtitle = stringResource(R.string.setting_haptics_sub),
                     checked = hapticsEnabled,
                     onCheckedChange = onToggleHaptics
                 )
             }
 
+            SettingsCategory.PROJECTS -> {
+                val homeVm: org.wishyclip.app.ui.HomeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                val rootUri by homeVm.rootUri.collectAsState()
+                val pick = org.wishyclip.app.ui.components.rememberFolderPicker { homeVm.chooseFolder(it) }
+                org.wishyclip.app.ui.components.ProjectFolderCard(
+                    status = homeVm.folderStatus, rootUri = rootUri, onPick = pick
+                )
+            }
             SettingsCategory.ABOUT -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val updateVm = org.wishyclip.app.update.activityUpdateViewModel()
+                if (updateVm.supported) {
+                    SettingSwitchRow(
+                        icon = WishyIcons.Import,
+                        title = stringResource(R.string.setting_update_checks),
+                        subtitle = stringResource(R.string.setting_update_checks_sub),
+                        checked = updateVm.autoCheck,
+                        onCheckedChange = updateVm::updateAutoCheck
+                    )
+                }
+                org.wishyclip.app.update.UpdateStatusRow(updateVm)
                 TextButton(onClick = { showLicensesDialog = true }, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.setting_licenses), modifier = Modifier.fillMaxWidth())
                 }
@@ -388,7 +419,7 @@ fun SettingsScreen(
                 Text(stringResource(R.string.ui_animated_gif_lzw_encoder_mit_apache_2))
                 Text(stringResource(R.string.ui_lz4_lz4_java_apache_2_0))
                 Text(stringResource(R.string.ui_inter_typeface_sil_open_font_license_1))
-                Text("Icons: Material Symbols Rounded, Apache License 2.0 (Google).")
+                Text(stringResource(R.string.about_icons_license))
             }
         }
     }
@@ -500,7 +531,7 @@ private fun SettingSwitchRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .clickable(role = Role.Switch) { onCheckedChange(!checked) }
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
             .padding(vertical = 6.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -509,7 +540,7 @@ private fun SettingSwitchRow(
             Text(title, style = MaterialTheme.typography.bodyLarge, color = scheme.onSurface)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = null) // the whole row toggles, so TalkBack announces one switch
     }
 }
 
@@ -716,7 +747,7 @@ private fun InputPad() {
             TextButton(onClick = {
                 segments.clear()
                 report = idle
-            }) { Text("Clear") }
+            }) { Text(stringResource(R.string.ui_clear)) }
         }
     }
 }

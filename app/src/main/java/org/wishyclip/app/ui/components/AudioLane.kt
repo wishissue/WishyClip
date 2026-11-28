@@ -75,7 +75,9 @@ fun AudioLane(
         }
         tracks.forEach { track ->
             val selected = selectedId == track.id
-            val clipFrames = ((track.durationMs - track.trimStartMs).coerceAtLeast(0L) * fps / 1000f)
+            // durationMs is the length that actually plays (player, mixer and split all use it that way);
+            // subtracting trimStartMs drew the second half of a split clip far too short.
+            val clipFrames = (track.durationMs.coerceAtLeast(0L) * fps / 1000f)
                 .roundToInt().coerceIn(1, total)
             BoxWithConstraints(
                 modifier = Modifier
@@ -155,6 +157,45 @@ fun AudioLane(
                         contentDescription = stringResource(R.string.ui_remove_audio),
                         onClick = { selectedId = null; onDelete(track.id) }
                     )
+                }
+                // Trim: where in the sound file the clip starts, and how long it plays. The file itself is never cut.
+                var fullMs by remember(track.id, track.filePath) { mutableStateOf(0L) }
+                androidx.compose.runtime.LaunchedEffect(track.id, track.filePath) {
+                    fullMs = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        org.wishyclip.app.audio.WaveformExtractor.getAudioDurationMs(track.filePath)
+                    }
+                }
+                val minMs = 200L
+                if (fullMs > 2 * minMs) {
+                    var trimIn by remember(track.id, track.trimStartMs) { mutableStateOf(track.trimStartMs / 1000f) }
+                    WishySlider(
+                        value = trimIn,
+                        onValueChange = { trimIn = it },
+                        onValueChangeFinished = {
+                            val start = (trimIn * 1000f).toLong().coerceIn(0L, fullMs - minMs)
+                            val length = track.durationMs.coerceAtMost(fullMs - start).coerceAtLeast(minMs)
+                            onUpdate(track.copy(trimStartMs = start, durationMs = length))
+                        },
+                        valueRange = 0f..((fullMs - minMs) / 1000f),
+                        label = stringResource(R.string.ui_trim_start),
+                        unit = "s",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    val maxLen = (fullMs - track.trimStartMs).coerceAtLeast(minMs)
+                    if (maxLen > minMs) {
+                        var len by remember(track.id, track.durationMs, track.trimStartMs) { mutableStateOf(track.durationMs / 1000f) }
+                        WishySlider(
+                            value = len.coerceIn(minMs / 1000f, maxLen / 1000f),
+                            onValueChange = { len = it },
+                            onValueChangeFinished = {
+                                onUpdate(track.copy(durationMs = (len * 1000f).toLong().coerceIn(minMs, maxLen)))
+                            },
+                            valueRange = (minMs / 1000f)..(maxLen / 1000f),
+                            label = stringResource(R.string.ui_clip_length),
+                            unit = "s",
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
         }

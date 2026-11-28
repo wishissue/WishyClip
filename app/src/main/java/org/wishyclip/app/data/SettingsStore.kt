@@ -3,12 +3,14 @@ package org.wishyclip.app.data
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import org.wishyclip.app.canvas.OnionSkinSettings
 import org.wishyclip.app.ui.design.WishyTokens
@@ -31,10 +33,20 @@ import org.wishyclip.app.ui.design.themes.WishyLightTokens
 import org.wishyclip.app.ui.design.themes.ThemeImporter
 import org.wishyclip.app.brush.MiniJson
 
-private val Context.settingsDataStore by preferencesDataStore(name = "wishy_settings")
+// A damaged settings file is replaced by defaults instead of crashing the app at start-up. Projects live
+// elsewhere (database + project folder), so losing preferences never loses work.
+private val Context.settingsDataStore by preferencesDataStore(
+    name = "wishy_settings",
+    corruptionHandler = androidx.datastore.core.handlers.ReplaceFileCorruptionHandler { emptyPreferences() }
+)
 
 /** Remembers the last brush settings, theme, and onion skin settings between sessions. */
 class SettingsStore(private val context: Context) {
+    /** Preferences that never throw while reading: an I/O problem yields defaults. */
+    private val prefsFlow: Flow<androidx.datastore.preferences.core.Preferences> =
+        context.settingsDataStore.data.catch { e ->
+            if (e is java.io.IOException) emit(emptyPreferences()) else throw e
+        }
     private val keyColor = intPreferencesKey("brush_color")
     private val keySize = floatPreferencesKey("brush_size")
     private val keyOpacity = floatPreferencesKey("brush_opacity")
@@ -53,31 +65,47 @@ class SettingsStore(private val context: Context) {
     private val keyHaptics = booleanPreferencesKey("haptics_enabled")
     private val keyStarterBrushes = androidx.datastore.preferences.core.intPreferencesKey("starter_brush_version")
     private val keyPalmRejection = booleanPreferencesKey("palm_rejection")
+    private val keyMagnifier = booleanPreferencesKey("drawing_magnifier")
+    private val keyUpdateChecks = booleanPreferencesKey("update_checks")
     private val keyCustomThemes = stringSetPreferencesKey("custom_themes")
     private val keyOnboardingDone = booleanPreferencesKey("onboarding_done")
+    private val keyProjectsRoot = stringPreferencesKey("projects_root_uri")
 
-    val brushColor: Flow<Int> = context.settingsDataStore.data.map { it[keyColor] ?: DEFAULT_COLOR }
-    val brushSize: Flow<Float> = context.settingsDataStore.data.map { it[keySize] ?: 8f }
-    val brushOpacity: Flow<Float> = context.settingsDataStore.data.map { it[keyOpacity] ?: 1f }
+    val brushColor: Flow<Int> = prefsFlow.map { it[keyColor] ?: DEFAULT_COLOR }
+    val brushSize: Flow<Float> = prefsFlow.map { it[keySize] ?: 8f }
+    val brushOpacity: Flow<Float> = prefsFlow.map { it[keyOpacity] ?: 1f }
 
-    val themeName: Flow<String> = context.settingsDataStore.data.map { it[keyThemeName] ?: "" }
-    val isLeftHanded: Flow<Boolean> = context.settingsDataStore.data.map { it[keyIsLeftHanded] ?: false }
+    val themeName: Flow<String> = prefsFlow.map { it[keyThemeName] ?: "" }
+    val isLeftHanded: Flow<Boolean> = prefsFlow.map { it[keyIsLeftHanded] ?: false }
     /** Size the timeline opens at: MINIMIZED, COMPACT or EXPANDED (see TimelineMode). */
-    val timelineMode: Flow<String> = context.settingsDataStore.data.map { it[keyTimelineMode] ?: "COMPACT" }
-    val defaultFps: Flow<Int> = context.settingsDataStore.data.map { it[keyDefaultFps] ?: 12 }
-    val hapticsEnabled: Flow<Boolean> = context.settingsDataStore.data.map { it[keyHaptics] ?: true }
-    val palmRejection: Flow<Boolean> = context.settingsDataStore.data.map { it[keyPalmRejection] ?: false }
+    val timelineMode: Flow<String> = prefsFlow.map { it[keyTimelineMode] ?: "COMPACT" }
+    val defaultFps: Flow<Int> = prefsFlow.map { it[keyDefaultFps] ?: 12 }
+    val hapticsEnabled: Flow<Boolean> = prefsFlow.map { it[keyHaptics] ?: true }
+    val palmRejection: Flow<Boolean> = prefsFlow.map { it[keyPalmRejection] ?: false }
+    /** Look for a newer release on GitHub when the app starts; on by default. */
+    val updateChecks: Flow<Boolean> = prefsFlow.map { it[keyUpdateChecks] ?: true }
+    /** Magnifier loupe while drawing; on by default. */
+    val magnifier: Flow<Boolean> = prefsFlow.map { it[keyMagnifier] ?: true }
 
-    val onboardingDone: Flow<Boolean> = context.settingsDataStore.data.map { it[keyOnboardingDone] ?: false }
+    /** The folder (document tree URI) the user chose for their projects, or null when none was chosen. */
+    val projectsRootUri: Flow<String?> = prefsFlow.map { it[keyProjectsRoot] }
+
+    suspend fun saveProjectsRootUri(uri: String?) {
+        context.settingsDataStore.edit {
+            if (uri == null) it.remove(keyProjectsRoot) else it[keyProjectsRoot] = uri
+        }
+    }
+
+    val onboardingDone: Flow<Boolean> = prefsFlow.map { it[keyOnboardingDone] ?: false }
 
     /** Themes the user imported or built in the Theme Studio, sorted by name. */
-    val customThemes: Flow<List<WishyTokens>> = context.settingsDataStore.data.map { prefs ->
+    val customThemes: Flow<List<WishyTokens>> = prefsFlow.map { prefs ->
         (prefs[keyCustomThemes] ?: emptySet())
             .mapNotNull { json -> try { ThemeImporter.parseJson(json) } catch (e: Exception) { null } }
             .sortedBy { it.name.lowercase() }
     }
 
-    val onionSettings: Flow<OnionSkinSettings> = context.settingsDataStore.data.map {
+    val onionSettings: Flow<OnionSkinSettings> = prefsFlow.map {
         OnionSkinSettings(
             enabled = it[keyOnionEnabled] ?: false,
             framesBefore = it[keyOnionBefore] ?: 1,
@@ -162,7 +190,7 @@ class SettingsStore(private val context: Context) {
     }
 
     /** Version of the starter brush pack already installed (0 = never). */
-    val starterBrushVersion: Flow<Int> = context.settingsDataStore.data.map { it[keyStarterBrushes] ?: 0 }
+    val starterBrushVersion: Flow<Int> = prefsFlow.map { it[keyStarterBrushes] ?: 0 }
 
     suspend fun saveStarterBrushVersion(version: Int) {
         context.settingsDataStore.edit { it[keyStarterBrushes] = version }
@@ -170,6 +198,14 @@ class SettingsStore(private val context: Context) {
 
     suspend fun saveHaptics(enabled: Boolean) {
         context.settingsDataStore.edit { it[keyHaptics] = enabled }
+    }
+
+    suspend fun saveUpdateChecks(enabled: Boolean) {
+        context.settingsDataStore.edit { it[keyUpdateChecks] = enabled }
+    }
+
+    suspend fun saveMagnifier(enabled: Boolean) {
+        context.settingsDataStore.edit { it[keyMagnifier] = enabled }
     }
 
     suspend fun savePalmRejection(enabled: Boolean) {

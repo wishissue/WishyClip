@@ -8,10 +8,41 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-val keystorePropertiesFile = rootProject.file("keystore.properties")
+// ---------------------------------------------------------------------------------------------
+// SIGNING: release keys never live in this repository and never reach CI.
+//   * The release keystore and its passwords stay in a folder OUTSIDE the project
+//     (default ~/.wishyclip-signing, override with env WISHYCLIP_SIGNING_DIR or -Pwishyclip.signingDir=...).
+//     Create it once with:  python tools/release/setup_signing.py
+//   * On CI (env CI=true) no release signing is ever applied and release tasks are refused.
+//   * Debug builds use the public, shared tools/signing/debug.keystore and a different application id
+//     (org.wishyclip.app.debug), so a test build can never conflict with the real app's signature.
+// Read AGENT_RELEASE_GUIDE.md before touching anything here.
+// ---------------------------------------------------------------------------------------------
+val onCi = System.getenv("CI") == "true"
+val signingDir: File = File(
+    System.getenv("WISHYCLIP_SIGNING_DIR")
+        ?: providers.gradleProperty("wishyclip.signingDir").orNull
+        ?: "${System.getProperty("user.home")}/.wishyclip-signing"
+)
 val keystoreProperties = Properties().apply {
-    if (keystorePropertiesFile.exists()) {
-        load(FileInputStream(keystorePropertiesFile))
+    val f = File(signingDir, "keystore.properties")
+    if (!onCi && f.exists()) FileInputStream(f).use { load(it) }
+}
+val releaseStoreFile: File? = keystoreProperties.getProperty("storeFile")?.let { name ->
+    File(name).takeIf { it.isAbsolute } ?: File(signingDir, name)
+}?.takeIf { it.exists() }
+val hasReleaseSigning = !onCi && releaseStoreFile != null &&
+    keystoreProperties.getProperty("storePassword") != null &&
+    keystoreProperties.getProperty("keyAlias") != null &&
+    keystoreProperties.getProperty("keyPassword") != null
+val selfUpdate = providers.gradleProperty("wishyclip.selfUpdate").orNull?.toBoolean() ?: true
+
+gradle.taskGraph.whenReady {
+    if (onCi && allTasks.any { it.name in setOf("assembleRelease", "bundleRelease", "packageRelease", "signReleaseBundle") }) {
+        throw GradleException(
+            "Release builds are never made on CI: the signing key must not leave the maintainer's machine. " +
+                "Build locally with: python tools/release/build_release.py"
+        )
     }
 }
 
@@ -25,13 +56,23 @@ android {
         targetSdk = 35
         versionCode = 2
         versionName = "1.1.0"
+
+        manifestPlaceholders["appLabel"] = "@string/app_name"
+        buildConfigField("boolean", "SELF_UPDATE", selfUpdate.toString())
+        buildConfigField("String", "UPDATE_REPO", "\"wishissue/WishyClip\"")
     }
 
     signingConfigs {
-        create("release") {
-            if (keystoreProperties.containsKey("storeFile")) {
-                val propPath = keystoreProperties.getProperty("storeFile")
-                storeFile = if (propPath.startsWith("/")) file(propPath) else rootProject.file("keystore/$propPath")
+        // The shared, public debug key (password "android"). Safe to commit: it protects nothing.
+        getByName("debug") {
+            storeFile = rootProject.file("tools/signing/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = releaseStoreFile
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
@@ -40,13 +81,19 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Its own app id: installs next to the real app instead of fighting its signature.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            manifestPlaceholders["appLabel"] = "WishyClip (debug)"
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             isDebuggable = false
-            if (keystoreProperties.containsKey("storeFile")) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            // Without the local key the release APK stays UNSIGNED (never silently debug-signed).
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -74,6 +121,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -98,15 +146,16 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     implementation("androidx.graphics:graphics-core:1.0.4")
-    implementation("androidx.input:input-motionprediction:1.0.0")
     implementation("net.jpountz.lz4:lz4:1.3.0")
     implementation("androidx.metrics:metrics-performance:1.0.0")
 
-    // Declared for the audio TODO (see audio/AudioTracks.kt); not yet used in code.
+    // Audio playback in the editor (see audio/AudioTracks.kt).
     implementation(libs.androidx.media3.exoplayer)
 
     implementation(libs.coil.compose)
     implementation(libs.androidx.datastore.preferences)
+    // Folder access (Storage Access Framework) for projects stored outside the app.
+    implementation("androidx.documentfile:documentfile:1.0.1")
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)

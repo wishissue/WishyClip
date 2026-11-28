@@ -86,9 +86,29 @@ fun DrawingCanvas(
     onStrokeCancel: (() -> Unit)? = null,
     /** When true, finger touches only pan/zoom/rotate the view; drawing needs a stylus or mouse. */
     palmRejection: Boolean = false,
+    /** Shows a magnified view of the area under the pen/finger in a corner while a stroke is down. */
+    loupe: Boolean = false,
+    loupeZoom: Float = 3f,
+    /** Current brush diameter in project pixels; drawn as a ring in the loupe. 0 hides the ring. */
+    brushSize: () -> Float = { 0f },
     modifier: Modifier = Modifier
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
+    // Where the pen/finger is while a stroke is open (view pixels); null when nothing is being drawn.
+    var loupePos by remember { mutableStateOf<Offset?>(null) }
+    val loupeClip = remember { Path() }
+    val loupeRingDark = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = android.graphics.Color.BLACK }
+    }
+    val loupeRingLight = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = android.graphics.Color.WHITE }
+    }
+    val loupeBorder = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = ACCENT }
+    }
+    val loupeBackdrop = remember {
+        Paint().apply { color = android.graphics.Color.rgb(232, 232, 236) }
+    }
 
     val startCb by rememberUpdatedState(onStrokeStart)
     val moveCb by rememberUpdatedState(onStrokeMove)
@@ -208,10 +228,16 @@ fun DrawingCanvas(
                         val p0 = snap(rawP0)
                         // Palm rejection: a finger contact never starts a stroke, it only navigates.
                         val rejectTouch = palmCb && down.type == PointerType.Touch
-                        if (!rejectTouch) startCb(p0.x, p0.y, down.pressure, 0f)
+                        // True while a stroke has been started and not yet ended or cancelled.
+                        var strokeOpen = !rejectTouch
+                        if (strokeOpen) { startCb(p0.x, p0.y, down.pressure, 0f); loupePos = down.position }
                         down.consume()
 
                         var transforming = rejectTouch
+                        // If this handler is restarted or cancelled mid-stroke (rotation, a dialog toggling
+                        // `enabled`, ...) the stroke must still be closed: a stroke left open blocks undo,
+                        // redo and layer/frame deletion for the rest of the session.
+                        try {
                         while (true) {
                             val event = awaitPointerEvent()
 
@@ -229,10 +255,12 @@ fun DrawingCanvas(
                             if (transforming || pressedCount > 1) {
                                 if (!transforming) {
                                     transforming = true
+                                    loupePos = null
                                     // Second finger: this was a pinch, not a stroke. Discard the dot.
-                                    (cancelCb ?: endCb)()
+                                    if (strokeOpen) { strokeOpen = false; (cancelCb ?: endCb)() }
                                 }
-                                if (pressedCount > 1) {
+                                // Palm rejection: one finger pans the canvas (zoom and rotation stay 1 and 0).
+                                if (pressedCount > 1 || rejectTouch) {
                                     val s = event.calculateZoom()
                                     val dRot = event.calculateRotation()
                                     val dPan = event.calculatePan()
@@ -266,9 +294,16 @@ fun DrawingCanvas(
                             }
                             val p = snap(map(change.position))
                             moveCb(p.x, p.y, change.pressure, 0f)
+                            loupePos = change.position
                             event.changes.forEach { it.consume() }
                         }
-                        if (!transforming) endCb()
+                        } finally {
+                            loupePos = null
+                            if (strokeOpen) {
+                                strokeOpen = false
+                                endCb() // keep what was drawn so far
+                            }
+                        }
                     }
                 }
         ) {
@@ -282,7 +317,10 @@ fun DrawingCanvas(
             val viewCenterY = size.height / 2f
 
             drawIntoCanvas { canvas ->
-                val nativeCanvas = canvas.nativeCanvas
+                val screenCanvas = canvas.nativeCanvas
+                // The whole picture (layers, onion skin, live stroke, guides) as one function, so the
+                // loupe can paint exactly the same thing again, magnified.
+                fun drawScene(nativeCanvas: android.graphics.Canvas) {
                 nativeCanvas.save()
                 nativeCanvas.translate(viewCenterX + view.pan.x, viewCenterY + view.pan.y)
                 nativeCanvas.rotate(view.rotation)
@@ -333,7 +371,11 @@ fun DrawingCanvas(
                             ox + d.right * scale, oy + d.bottom * scale
                         )
                         layerPaint.alpha = (layer.opacity * o.alpha * 255f).toInt().coerceIn(0, 255)
+                        // The stroke is previewed with its layer's blend mode (Multiply, Screen, ...), so what you
+                        // see while drawing matches what is committed when you lift the pen.
+                        LayerBlending.apply(layerPaint, layer.blendMode)
                         nativeCanvas.drawBitmap(o.bitmap, srcRect, dst, layerPaint)
+                        layerPaint.xfermode = null
                         dst.set(ox, oy, ox + dw, oy + dh)
                     }
                 }
@@ -417,6 +459,43 @@ fun DrawingCanvas(
                 }
 
                 nativeCanvas.restore()
+                }
+
+                drawScene(screenCanvas)
+
+                val lp = loupePos
+                if (loupe && lp != null) {
+                    try {
+                        val side = 132f * density
+                        val margin = 12f * density
+                        val radius = side / 2f
+                        // Sit in the top corner that is farther from the pen so the hand never covers it.
+                        val leftCx = margin + radius
+                        val cyL = margin + radius
+                        val useLeft = LoupeLayout.useLeftCorner(lp.x, lp.y, side, margin)
+                        val cxL = if (useLeft) leftCx else size.width - margin - radius
+                        screenCanvas.save()
+                        loupeClip.rewind()
+                        loupeClip.addCircle(cxL, cyL, radius, Path.Direction.CW)
+                        screenCanvas.clipPath(loupeClip)
+                        screenCanvas.drawPaint(loupeBackdrop)
+                        screenCanvas.translate(cxL, cyL)
+                        screenCanvas.scale(loupeZoom, loupeZoom)
+                        screenCanvas.translate(-lp.x, -lp.y)
+                        drawScene(screenCanvas)
+                        screenCanvas.restore()
+                        // Frame, and a ring showing where and how big the brush mark will be.
+                        loupeBorder.strokeWidth = 3f * density
+                        screenCanvas.drawCircle(cxL, cyL, radius - 1.5f * density, loupeBorder)
+                        val brushR = (brushSize() * scale * view.zoom * loupeZoom / 2f).coerceIn(3f * density, radius - 6f * density)
+                        loupeRingDark.strokeWidth = 2.5f * density
+                        loupeRingLight.strokeWidth = 1.2f * density
+                        screenCanvas.drawCircle(cxL, cyL, brushR, loupeRingDark)
+                        screenCanvas.drawCircle(cxL, cyL, brushR, loupeRingLight)
+                    } catch (_: Throwable) {
+                        // Safe fallback if hardware path clipping fails on some GPU drivers
+                    }
+                }
             }
         }
 

@@ -32,12 +32,12 @@ class BrushStore(private val root: File) {
         val dir = File(root, id)
         if (!dir.mkdirs()) return null
         return try {
-            File(dir, "tip.a8").writeBytes(brush.tip.alpha)
+            writeAtomically(File(dir, "tip.a8")) { it.write(brush.tip.alpha) }
             val stored = StoredBrush(
                 id, brush.name, brush.tip.width, brush.tip.height, brush.spacing, brush.angle,
                 brush.rotateWithStroke, brush.scatter, brush.sizeJitter, brush.flow
             )
-            File(dir, "brush.json").writeText(encode(stored))
+            writeAtomically(File(dir, "brush.json")) { it.write(encode(stored).toByteArray(Charsets.UTF_8)) }
             stored
         } catch (e: Exception) {
             dir.deleteRecursively()
@@ -47,7 +47,28 @@ class BrushStore(private val root: File) {
 
     fun update(brush: StoredBrush) {
         val dir = File(root, safe(brush.id))
-        if (dir.isDirectory) File(dir, "brush.json").writeText(encode(brush))
+        if (dir.isDirectory) {
+            writeAtomically(File(dir, "brush.json")) { it.write(encode(brush).toByteArray(Charsets.UTF_8)) }
+        }
+    }
+
+    /** Writes to "<name>.tmp", fsyncs, then renames over the target: a crash never leaves a truncated file. */
+    private fun writeAtomically(target: File, write: (java.io.FileOutputStream) -> Unit) {
+        val tmp = File(target.parentFile, target.name + ".tmp")
+        try {
+            java.io.FileOutputStream(tmp).use { out ->
+                write(out)
+                out.flush()
+                out.fd.sync()
+            }
+            java.nio.file.Files.move(
+                tmp.toPath(), target.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING
+            )
+        } catch (e: Exception) {
+            tmp.delete()
+            throw e
+        }
     }
 
     fun delete(id: String) {
@@ -65,13 +86,14 @@ class BrushStore(private val root: File) {
     private fun read(dir: File): StoredBrush? {
         val json = File(dir, "brush.json")
         if (!json.isFile) return null
-        val t = json.readText()
+        val t = try { json.readText() } catch (e: java.io.IOException) { return null }
+        if (t.length > 4096) return null // a real brush.json is a few hundred bytes
         val w = MiniJson.number(t, "tipWidth")?.toInt() ?: return null
         val h = MiniJson.number(t, "tipHeight")?.toInt() ?: return null
         if (w <= 0 || h <= 0) return null
         return StoredBrush(
             id = dir.name,
-            name = MiniJson.string(t, "name") ?: dir.name,
+            name = (MiniJson.string(t, "name") ?: dir.name).take(64),
             tipWidth = w, tipHeight = h,
             spacing = TipMasks.clampSpacing(MiniJson.number(t, "spacing") ?: 0.12f),
             angle = MiniJson.number(t, "angle") ?: 0f,

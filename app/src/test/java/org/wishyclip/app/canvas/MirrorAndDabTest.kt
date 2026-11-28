@@ -115,4 +115,59 @@ class MirrorAndDabTest {
         stroke(layer, Tool.CUSTOM, MirrorMode.OFF, dab = null)
         assertTrue(inked(layer, 75, 50))
     }
+
+    /** A 20x20 tip where only the top-left quarter is ink: it has no symmetry, so a wrong reflection shows. */
+    private fun cornerTip(): DabBrush {
+        val tip = Bitmap.createBitmap(20, 20, Bitmap.Config.ARGB_8888)
+        for (y in 0 until 10) for (x in 0 until 10) tip.setPixel(x, y, Color.BLACK)
+        return DabBrush(tip, 0.5f, 0f, false, 0f, 0f, 1f)
+    }
+
+    private fun dabStroke(layer: Bitmap, mirror: MirrorMode) {
+        val r = StrokeRenderer()
+        r.begin(layer, Tool.CUSTOM, Color.BLACK, 20f, 1f, 40f, 50f, 1f, 0f, mirror, cornerTip())
+        for (x in 50..100 step 10) r.moveTo(x.toFloat(), 50f)
+        assertNotNull(r.finish())
+        r.release()
+    }
+
+    @Test
+    fun mirroredTipIsReflectedNotRotated() {
+        val layer = blank()
+        dabStroke(layer, MirrorMode.LEFT_RIGHT)
+        // Original: ink above the stroke line, none below.
+        assertTrue(inked(layer, 70, 45))
+        assertTrue(!inked(layer, 70, 55))
+        // Left-right mirror keeps "above" above (a 180 degree turn would put the ink below).
+        assertTrue(inked(layer, 300 - 70, 45))
+        assertTrue(!inked(layer, 300 - 70, 55))
+    }
+
+    @Test
+    fun topBottomMirrorPutsTheInkBelowTheMirroredLine() {
+        val layer = blank()
+        dabStroke(layer, MirrorMode.TOP_BOTTOM)
+        assertTrue(inked(layer, 70, 45))
+        assertTrue(inked(layer, 70, 200 - 50 + 5))
+        assertTrue(!inked(layer, 70, 200 - 50 - 5))
+    }
+
+    @Test
+    fun overlayIsCleanForTheNextStrokeAfterFinishAndCancel() {
+        val layer = blank()
+        val r = StrokeRenderer()
+        r.begin(layer, Tool.PEN, Color.BLACK, 12f, 1f, 40f, 50f)
+        for (x in 50..100 step 10) r.moveTo(x.toFloat(), 50f)
+        assertNotNull(r.finish())
+        r.begin(layer, Tool.PEN, Color.BLACK, 12f, 1f, 40f, 150f)
+        r.moveTo(80f, 150f)
+        val o = r.overlay()!!.bitmap
+        assertEquals(0, Color.alpha(o.getPixel(70, 50)))
+        r.cancel()
+        r.begin(layer, Tool.PEN, Color.BLACK, 12f, 1f, 40f, 100f)
+        r.moveTo(80f, 100f)
+        val o2 = r.overlay()!!.bitmap
+        assertEquals(0, Color.alpha(o2.getPixel(60, 150)))
+        r.release()
+    }
 }

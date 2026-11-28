@@ -39,7 +39,8 @@ data class OnboardingPage(val iconRes: Int, val titleRes: Int, val descRes: Int)
 private val Pages = listOf(
     OnboardingPage(WishyIcons.Pen, R.string.onboarding_1_title, R.string.onboarding_1_desc),
     OnboardingPage(WishyIcons.Play, R.string.onboarding_2_title, R.string.onboarding_2_desc),
-    OnboardingPage(WishyIcons.Export, R.string.onboarding_3_title, R.string.onboarding_3_desc)
+    OnboardingPage(WishyIcons.Export, R.string.onboarding_3_title, R.string.onboarding_3_desc),
+    OnboardingPage(WishyIcons.Folder, R.string.onboarding_4_title, R.string.onboarding_4_desc)
 )
 
 @Composable
@@ -106,7 +107,7 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                             }
                         }
                     ) {
-                        Text(text = if (currentPage < Pages.lastIndex) "Next" else "Get Started")
+                        Text(text = if (currentPage < Pages.lastIndex) stringResource(R.string.ui_next) else stringResource(R.string.ui_get_started))
                     }
                 }
             }

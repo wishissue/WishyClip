@@ -44,4 +44,7 @@ object BitmapOps {
 }
 
 /** Immutable copy of this bitmap. */
-fun Bitmap.snapshot(): Bitmap = this.copy(Bitmap.Config.ARGB_8888, false)!!
+fun Bitmap.snapshot(): Bitmap =
+    // copy() answers null when memory is short; surface that as the OutOfMemoryError every caller already
+    // handles instead of a NullPointerException that would crash the app.
+    this.copy(Bitmap.Config.ARGB_8888, false) ?: throw OutOfMemoryError("Bitmap.copy returned null")

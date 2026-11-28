@@ -44,6 +44,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -200,8 +201,9 @@ fun StudioTimeline(
             color = scheme.onSurfaceVariant,
             maxLines = 1,
             modifier = Modifier
+                .minimumInteractiveComponentSize()
                 .clip(MaterialTheme.shapes.small)
-                .clickable(onClick = onFpsRequested)
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onFpsRequested)
                 .padding(horizontal = 8.dp, vertical = 12.dp)
         )
     }

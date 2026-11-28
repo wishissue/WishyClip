@@ -23,6 +23,12 @@ class BitmapPool(private val maxCapacity: Int = 24) {
     @Synchronized
     fun recycle(bmp: Bitmap) {
         if (bmp.isRecycled) return
+        // Pooling the same bitmap twice would hand it to two users at once; immutable ones cannot be erased.
+        if (pool.any { it === bmp }) return
+        if (!bmp.isMutable) {
+            bmp.recycle()
+            return
+        }
         if (pool.size < maxCapacity) {
             pool.add(bmp)
         } else {

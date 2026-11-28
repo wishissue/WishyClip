@@ -2,4 +2,6 @@
 <paths>
     <files-path name="files" path="." />
     <cache-path name="cache" path="." />
+    <!-- Pre-Android-10 exports are copied to the public Movies/Pictures/Download folders. -->
+    <external-path name="external" path="." />
 </paths>

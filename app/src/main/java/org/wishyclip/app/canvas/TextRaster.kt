@@ -12,7 +12,8 @@ import kotlin.math.roundToInt
 
 /** Renders (multi-line) text into a tightly sized transparent bitmap. */
 object TextRaster {
-    private const val MAX_DIM = 4096
+    private const val MAX_DIM = 2048 // 2048 x 2048 x 4 = 16 MB worst case (4096 allowed 64 MB)
+    const val MAX_CHARS = 2000
 
     @Suppress("DEPRECATION")
     fun render(text: String, argb: Int, sizePx: Float, opacity: Float, typeface: Typeface? = null): Bitmap {
@@ -22,7 +23,7 @@ object TextRaster {
         paint.color = argb
         paint.alpha = (opacity.coerceIn(0f, 1f) * 255f).roundToInt()
 
-        val safe = text.ifEmpty { " " }
+        val safe = text.take(MAX_CHARS).ifEmpty { " " }
         val widest = safe.split("\n").maxOf { paint.measureText(it) }
         val textWidth = ceil(widest).toInt().coerceIn(1, MAX_DIM)
         val layout = StaticLayout(

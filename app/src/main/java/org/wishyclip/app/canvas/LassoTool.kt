@@ -168,7 +168,9 @@ class StandardLassoTool : LassoTool {
         floatingCanvas.clipPath(localPath)
         floatingCanvas.drawBitmap(layer, -bounds.left, -bounds.top, null)
 
-        val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        // Not anti-aliased: the copy above is cut with a hard clip, so the pixels removed here must be exactly
+        // the pixels that were copied. An anti-aliased clear would eat a faint fringe that is in neither place.
+        val clearPaint = Paint().apply {
             xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
         }
         Canvas(layer).drawPath(path, clearPaint)

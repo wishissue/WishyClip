@@ -153,7 +153,7 @@ fun BrushMenu(
                         contentDescription = null,
                         modifier = Modifier.size(18.dp)
                     )
-                    Text("  Import brushes", style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(R.string.ui_import_brushes), modifier = Modifier.padding(start = 8.dp), style = MaterialTheme.typography.labelLarge)
                 }
             }
 
@@ -210,12 +210,13 @@ private fun CustomBrushRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .clip(shape)
             .background(if (selected) tokens.primaryContainer else Color.Transparent)
             .then(
                 if (selected) Modifier.border(BorderStroke(1.5.dp, tokens.primary), shape) else Modifier
             )
-            .clickable(onClick = onClick)
+            .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onClick)
             .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
@@ -350,12 +351,13 @@ private fun BrushRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .clip(shape)
             .background(if (selected) tokens.primaryContainer else Color.Transparent)
             .then(
                 if (selected) Modifier.border(BorderStroke(1.5.dp, tokens.primary), shape) else Modifier
             )
-            .clickable(onClick = onClick)
+            .clickable(role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onClick)
             .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)

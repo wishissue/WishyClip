@@ -61,11 +61,6 @@ class ExportService : Service() {
         }
         val frameIndex = intent?.getIntExtra("frameIndex", -1) ?: -1
 
-        if (projectId < 0L) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
-
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Exporting Animation")
@@ -78,7 +73,15 @@ class ExportService : Service() {
         // Must be called for every startForegroundService(), even if we then ignore the request.
         startForeground(NOTIFICATION_ID, notification)
 
-        if (job?.isActive == true) return START_NOT_STICKY // one export at a time
+        if (projectId < 0L) {
+            // Checked AFTER startForeground: stopping first throws ForegroundServiceDidNotStartInTimeException.
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (job?.isActive == true) {
+            BusyTracker.postNotice("An export is already running")
+            return START_NOT_STICKY // one export at a time
+        }
 
         job = scope.launch { runExport(projectId, format, frameIndex) }
         return START_NOT_STICKY
@@ -224,8 +227,10 @@ class ExportService : Service() {
                         for (i in 0 until n) {
                             job.ensureActive()
                             composeFrame(scratch, store, projectId, w, h, layerLists[i])
-                            zos.putNextEntry(ZipEntry("frame_${String.format(Locale.ROOT, "%03d", i + 1)}.png"))
-                            scratch.compress(Bitmap.CompressFormat.PNG, 100, zos)
+                            zos.putNextEntry(ZipEntry("frame_${String.format(Locale.ROOT, "%05d", i + 1)}.png"))
+                            if (!scratch.compress(Bitmap.CompressFormat.PNG, 100, zos)) {
+                                throw java.io.IOException("Could not encode frame ${i + 1}")
+                            }
                             zos.closeEntry()
                             report(i + 1, (i + 1f) / n)
                         }
@@ -301,8 +306,9 @@ class ExportService : Service() {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = contentResolver
+            var uri: android.net.Uri? = null
             try {
-                val resolver = contentResolver
                 val contentValues = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, outputFile.name)
                     put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
@@ -311,7 +317,7 @@ class ExportService : Service() {
                         ExportFormat.GIF, ExportFormat.PNG_CURRENT_FRAME -> Environment.DIRECTORY_PICTURES
                         ExportFormat.PNG_SEQUENCE -> Environment.DIRECTORY_DOWNLOADS
                     }
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, "$subDir/WishaClip")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, "$subDir/$PUBLIC_FOLDER")
                     put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }
 
@@ -321,11 +327,11 @@ class ExportService : Service() {
                     ExportFormat.PNG_SEQUENCE -> MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
                 }
 
-                val uri = resolver.insert(collectionUri, contentValues)
+                uri = resolver.insert(collectionUri, contentValues)
                 if (uri != null) {
-                    resolver.openOutputStream(uri)?.use { os ->
-                        outputFile.inputStream().use { it.copyTo(os) }
-                    }
+                    val out = resolver.openOutputStream(uri)
+                        ?: throw java.io.IOException("MediaStore gave no output stream")
+                    out.use { os -> outputFile.inputStream().use { it.copyTo(os) } }
                     contentValues.clear()
                     contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
                     resolver.update(uri, contentValues, null, null)
@@ -333,6 +339,11 @@ class ExportService : Service() {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                // Remove the half-written, still "pending" gallery entry instead of leaving it hidden forever.
+                uri?.let { try { resolver.delete(it, null, null) } catch (_: Exception) {} }
+                // Fall through to the legacy path only when MediaStore never produced a row at all;
+                // after a failed copy the disk is probably full, and a second copy would just fail again.
+                if (uri != null) return null
             }
         }
 
@@ -342,9 +353,11 @@ class ExportService : Service() {
                 ExportFormat.GIF, ExportFormat.PNG_CURRENT_FRAME -> Environment.DIRECTORY_PICTURES
                 ExportFormat.PNG_SEQUENCE -> Environment.DIRECTORY_DOWNLOADS
             }
-            val targetDir = File(Environment.getExternalStoragePublicDirectory(publicDirType), "WishaClip").apply { mkdirs() }
+            val targetDir = File(Environment.getExternalStoragePublicDirectory(publicDirType), PUBLIC_FOLDER).apply { mkdirs() }
             val destFile = File(targetDir, outputFile.name)
             outputFile.copyTo(destFile, overwrite = true)
+            // Make the file show up in the gallery (pre-Q has no MediaStore insert above).
+            android.media.MediaScannerConnection.scanFile(this, arrayOf(destFile.absolutePath), arrayOf(mimeType), null)
             FileProvider.getUriForFile(this, "$packageName.fileprovider", destFile)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -417,6 +430,9 @@ class ExportService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val OWNER = "export"
 
+        /** Gallery folder name (was misspelled "WishaClip"). */
+        private const val PUBLIC_FOLDER = "WishyClip"
+
         @Volatile private var job: Job? = null
 
         /** Cancels the running export (called from the loading overlay's Cancel button). */
@@ -437,10 +453,15 @@ class ExportService : Service() {
                 putExtra("format", format.name)
                 putExtra("frameIndex", frameIndex)
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                // Android 12+ refuses to start a foreground service when the app was just backgrounded.
+                BusyTracker.postNotice("Could not start the export. Keep the app open and try again.")
             }
         }
     }

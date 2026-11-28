@@ -179,11 +179,41 @@ object Importer {
             val total = minOf(maxFrames.toLong(), (totalUs + intervalUs - 1) / intervalUs)
                 .toInt().coerceAtLeast(1)
 
+            // Size to decode at: the video's own aspect ratio, shrunk to fit the canvas (never stretched, never
+            // enlarged). 0 = unknown, fall back to full-size decoding.
+            var scaledW = 0
+            var scaledH = 0
+            if (android.os.Build.VERSION.SDK_INT >= 27) {
+                val vw = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+                val vh = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+                val rot = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+                val (dw, dh) = if (rot == 90 || rot == 270) vh to vw else vw to vh
+                if (dw > 0 && dh > 0 && targetWidth > 0 && targetHeight > 0) {
+                    val k = minOf(targetWidth.toFloat() / dw, targetHeight.toFloat() / dh)
+                    if (k < 1f) {
+                        scaledW = (dw * k).toInt().coerceAtLeast(1)
+                        scaledH = (dh * k).toInt().coerceAtLeast(1)
+                    }
+                }
+            }
+
             var currentUs = 0L
             var count = 0
             while (currentUs < totalUs && count < maxFrames) {
                 ensureActive()
-                val frameBmp = retriever.getFrameAtTime(currentUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                // API 27+ can hand back an already scaled frame, so a 4K clip never needs a full-size bitmap
+                // in memory (a single 4K frame is 33 MB).
+                val frameBmp = try {
+                    if (scaledW > 0 && scaledH > 0) {
+                        retriever.getScaledFrameAtTime(
+                            currentUs, MediaMetadataRetriever.OPTION_CLOSEST, scaledW, scaledH
+                        )
+                    } else {
+                        retriever.getFrameAtTime(currentUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                    }
+                } catch (e: IllegalArgumentException) {
+                    retriever.getFrameAtTime(currentUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                }
                 if (frameBmp != null) {
                     val scaled = scaleToFit(frameBmp, targetWidth, targetHeight)
                     if (frameBmp !== scaled && !frameBmp.isRecycled) frameBmp.recycle()

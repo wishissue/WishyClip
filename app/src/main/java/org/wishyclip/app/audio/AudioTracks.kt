@@ -68,17 +68,27 @@ class ExoPlayerAudioTrackManager(private val context: Context) : AudioTrackManag
     }
 }
 
+/**
+ * Records the microphone to an AAC .m4a file. One recording at a time.
+ * A recording that fails to start or stop cleanly never leaves a half-written file behind.
+ */
 class VoiceRecorder(private val context: Context) {
     private var recorder: MediaRecorder? = null
     private var outputFile: File? = null
 
+    val isRecording: Boolean get() = recorder != null
+
+    /** Called on the main thread when [MAX_DURATION_MS] is reached and recording stopped by itself. */
+    var onLimitReached: (() -> Unit)? = null
+
+    /** Returns the file being written, or null when recording could not start (no mic, busy, no permission). */
     fun startRecording(outputDir: File): File? {
+        if (recorder != null) return null
+        var mr: MediaRecorder? = null
+        val file = File(outputDir, "track_${System.currentTimeMillis()}_${(0..9999).random()}.m4a")
         try {
             outputDir.mkdirs()
-            val file = File(outputDir, "voice_${System.currentTimeMillis()}.m4a")
-            outputFile = file
-
-            val mr = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            mr = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 MediaRecorder(context)
             } else {
                 @Suppress("DEPRECATION")
@@ -87,37 +97,61 @@ class VoiceRecorder(private val context: Context) {
             mr.setAudioSource(MediaRecorder.AudioSource.MIC)
             mr.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             mr.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            mr.setAudioSamplingRate(44_100)
+            mr.setAudioEncodingBitRate(128_000)
+            mr.setAudioChannels(1)
+            mr.setMaxDuration(MAX_DURATION_MS)
+            mr.setOnInfoListener { _, what, _ ->
+                if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post { onLimitReached?.invoke() }
+                }
+            }
             mr.setOutputFile(file.absolutePath)
             mr.prepare()
             mr.start()
             recorder = mr
+            outputFile = file
             return file
         } catch (e: Exception) {
-            e.printStackTrace()
-            release()
+            try { mr?.release() } catch (_: Exception) {}
+            recorder = null
+            outputFile = null
+            file.delete()
             return null
         }
     }
 
+    /** Stops and returns the finished file, or null when nothing usable was recorded (the file is deleted). */
     fun stopRecording(): File? {
+        val mr = recorder ?: return null
         val file = outputFile
+        recorder = null
+        outputFile = null
+        var ok = true
         try {
-            recorder?.stop()
-        } catch (e: Exception) {
-            e.printStackTrace()
+            mr.stop()
+        } catch (e: RuntimeException) {
+            ok = false // stop() throws when no valid audio data was captured (stopped immediately)
         } finally {
-            release()
+            try { mr.release() } catch (_: Exception) {}
+        }
+        if (file == null) return null
+        if (!ok || !file.isFile || file.length() <= 0L) {
+            file.delete()
+            return null
         }
         return file
     }
 
-    fun release() {
-        try {
-            recorder?.release()
-        } catch (e: Exception) {
-            // ignore
-        }
-        recorder = null
+    /** Stops and throws the recording away (leaving the editor). */
+    fun cancel() {
+        stopRecording()?.delete()
+    }
+
+    fun release() = cancel()
+
+    companion object {
+        const val MAX_DURATION_MS = 10 * 60 * 1000
     }
 }
 

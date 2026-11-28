@@ -47,6 +47,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -121,6 +123,7 @@ fun EditorScreen(
     onExit: () -> Unit,
     isLeftHanded: Boolean = false,
     palmRejection: Boolean = false,
+    magnifier: Boolean = true,
     defaultTimelineMode: TimelineMode = TimelineMode.COMPACT,
     onOpenDesignGallery: (() -> Unit)? = null
 ) {
@@ -168,7 +171,10 @@ fun EditorScreen(
         if (!thumbsWanted) return@LaunchedEffect
         kotlinx.coroutines.delay(150)
         layerThumbs = vm.currentLayers().mapNotNull { layer ->
-            layer.peekBitmap()?.let { layer.id to scaledLayerThumb(it) }
+            val bmp = layer.peekBitmap()
+            if (bmp != null && !bmp.isRecycled) {
+                scaledLayerThumb(bmp)?.let { layer.id to it }
+            } else null
         }.toMap()
     }
     // Which frames have a drawing on which layer (Studio per-layer tracks).
@@ -198,6 +204,25 @@ fun EditorScreen(
     val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) vm.addAudioTrackFromUri(uri, name = "Audio ${vm.audioTracks.size + 1}")
     }
+    // Android silences the microphone for apps in the background, so a recording ends when the app is left.
+    val recordingLifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(recordingLifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) vm.stopVoiceRecording()
+        }
+        recordingLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { recordingLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val canvasDescription = stringResource(R.string.ui_canvas_description)
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) vm.startVoiceRecording() else vm.showMessage("Microphone permission is needed to record")
+    }
+    val startRecording: () -> Unit = {
+        val ctx = context
+        if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) vm.startVoiceRecording() else micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+    }
     val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         vm.importFonts(uris)
     }
@@ -209,6 +234,8 @@ fun EditorScreen(
     var pendingExport by remember { mutableStateOf<Pair<ExportFormat, Int>?>(null) }
     // Back closes the open panel/menu first; only with nothing open does it leave the editor.
     // (Registered after the exit handler above, so it wins while enabled. Dialogs handle Back themselves.)
+    // Back while recording first ends (and keeps) the recording instead of leaving mid-take.
+    BackHandler(enabled = vm.isRecording) { vm.stopVoiceRecording() }
     BackHandler(enabled = showColorPicker || showBrushMenu || showToolOptions || showLayersPanel || showOverflowMenu) {
         when {
             showColorPicker -> showColorPicker = false
@@ -504,6 +531,8 @@ fun EditorScreen(
                                 revision = { vm.revision },
                                 enabled = !vm.isPlaying,
                                 palmRejection = palmRejection,
+                                loupe = magnifier,
+                                brushSize = { vm.brushSize },
                                 view = canvasView,
                                 mirror = { vm.mirrorMode },
                                 ruler = { vm.activeRuler() },
@@ -512,7 +541,7 @@ fun EditorScreen(
                                 onStrokeMove = { x, y, press, tilt -> vm.strokeMove(x, y, press, tilt) },
                                 onStrokeEnd = { vm.strokeEnd() },
                                 onStrokeCancel = { vm.strokeCancel() },
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxSize().semantics { contentDescription = canvasDescription }
                             )
                         } else {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -535,24 +564,43 @@ fun EditorScreen(
                             )
                         }
 
+                        if (vm.isRecording) {
+                            org.wishyclip.app.ui.components.RecordingBadge(
+                                startedAtElapsedMs = vm.recordingStartedAt,
+                                onStop = { vm.stopVoiceRecording() },
+                                modifier = Modifier.align(Alignment.TopCenter).padding(top = tokens.spaceSmall)
+                            )
+                        }
+
                         // Always-available way back from full screen.
                         if (isUiHidden) {
+                            // 48 dp touch target around a 36 dp visual.
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    .padding(tokens.spaceSmall)
-                                    .size(36.dp)
+                                    .padding(tokens.spaceXs)
+                                    .size(48.dp)
                                     .clip(CircleShape)
-                                    .background(tokens.surface.copy(alpha = 0.6f))
-                                    .clickable { isUiHidden = false },
+                                    .clickable(
+                                        role = androidx.compose.ui.semantics.Role.Button,
+                                        onClickLabel = stringResource(R.string.ui_show_interface)
+                                    ) { isUiHidden = false },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    painter = painterResource(WishyIcons.RestoreUi),
-                                    contentDescription = stringResource(R.string.ui_show_interface),
-                                    tint = tokens.onSurface,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(tokens.surface.copy(alpha = 0.6f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(WishyIcons.RestoreUi),
+                                        contentDescription = stringResource(R.string.ui_show_interface),
+                                        tint = tokens.onSurface,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -620,7 +668,7 @@ fun EditorScreen(
                                         end = if (isLandscape && isLeftHanded) 64.dp else 0.dp
                                     )
                                     .then(
-                                        if (isLandscape) Modifier.width(300.dp)
+                                        if (isLandscape) Modifier.width(minOf(300.dp, maxWidth * 0.46f))
                                         else Modifier.fillMaxWidth().widthIn(max = 380.dp)
                                     )
                             ) {
@@ -666,7 +714,7 @@ fun EditorScreen(
                                         end = if (isLandscape && isLeftHanded) 64.dp else 0.dp
                                     )
                                     .then(
-                                        if (isLandscape) Modifier.width(240.dp)
+                                        if (isLandscape) Modifier.width(minOf(240.dp, maxWidth * 0.40f))
                                         else Modifier.fillMaxWidth().widthIn(max = 380.dp)
                                     )
                             ) {
@@ -675,7 +723,7 @@ fun EditorScreen(
                                     verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
                                 ) {
                                     Text(
-                                        text = "${vm.tool.displayName} Options",
+                                        text = stringResource(R.string.ui_tool_options, vm.tool.displayName),
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = tokens.onSurface
@@ -751,7 +799,7 @@ fun EditorScreen(
                                     .align(if (isLeftHanded) Alignment.TopStart else Alignment.TopEnd)
                                     .padding(tokens.spaceSmall)
                                     .then(
-                                        if (isLandscape) Modifier.width(300.dp)
+                                        if (isLandscape) Modifier.width(minOf(300.dp, maxWidth * 0.46f))
                                         else Modifier.fillMaxWidth().widthIn(max = 380.dp)
                                     )
                             )
@@ -845,6 +893,7 @@ fun EditorScreen(
             title = stringResource(R.string.ui_delete_frame_2),
             onDismissRequest = { showDeleteFrameDialog = false },
             confirmText = stringResource(R.string.ui_delete),
+            destructive = true,
             onConfirm = {
                 vm.deleteFrame()
                 showDeleteFrameDialog = false
@@ -869,7 +918,8 @@ fun EditorScreen(
         WishyDialog(
             title = title,
             onDismissRequest = { layerConfirm = null },
-            confirmText = if (isMerge) "Merge" else "Delete",
+            confirmText = if (isMerge) stringResource(R.string.ui_merge) else stringResource(R.string.ui_delete),
+            destructive = true,
             onConfirm = {
                 if (isMerge) vm.mergeLayerDown(idx) else vm.deleteLayer(idx)
                 layerConfirm = null
@@ -899,7 +949,7 @@ fun EditorScreen(
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    label = { Text("Layer Name") },
+                    label = { Text(stringResource(R.string.ui_layer_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -930,7 +980,7 @@ fun EditorScreen(
                     unit = " fps"
                 )
                 Text(
-                    text = "Common frame rates: 12 fps (classic animation), 24 fps (film), 30 / 60 fps (smooth video).",
+                    text = stringResource(R.string.ui_common_frame_rates),
                     style = MaterialTheme.typography.labelSmall,
                     color = tokens.onSurfaceVariant
                 )
@@ -1001,7 +1051,7 @@ fun EditorScreen(
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    label = { Text("Text") },
+                    label = { Text(stringResource(R.string.ui_text_label)) },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(
@@ -1070,7 +1120,7 @@ fun EditorScreen(
                                     color = tokens.onSurface
                                 )
                                 Text(
-                                    text = "Starts at frame ${track.startFrame + 1} • ${(track.durationMs / 1000f).roundToInt()}s",
+                                    text = stringResource(R.string.ui_audio_clip_summary, track.startFrame + 1, (track.durationMs / 1000f).roundToInt()),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = tokens.onSurfaceVariant
                                 )
@@ -1083,9 +1133,19 @@ fun EditorScreen(
                 }
                 TextButton(
                     onClick = { audioPicker.launch("audio/*") },
+                    enabled = !vm.isRecording,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(stringResource(R.string.ui_add_audio_file))
+                }
+                TextButton(
+                    onClick = { if (vm.isRecording) vm.stopVoiceRecording() else startRecording() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        if (vm.isRecording) stringResource(R.string.ui_stop_recording) else stringResource(R.string.ui_record_voice),
+                        color = if (vm.isRecording) tokens.danger else tokens.primary
+                    )
                 }
             }
         }
@@ -1137,7 +1197,7 @@ fun EditorScreen(
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Image as a new layer")
+                    Text(stringResource(R.string.ui_image_as_layer))
                 }
                 Text(
                     text = stringResource(R.string.ui_audio_track),
@@ -1246,9 +1306,14 @@ fun EditorScreen(
 }
 
 /** A small preview (longest side ~128px) of a layer's pixels for the layer list. */
-private fun scaledLayerThumb(source: Bitmap): ImageBitmap {
-    val scale = 128f / maxOf(source.width, source.height).coerceAtLeast(1)
-    val w = (source.width * scale).toInt().coerceAtLeast(1)
-    val h = (source.height * scale).toInt().coerceAtLeast(1)
-    return Bitmap.createScaledBitmap(source, w, h, true).asImageBitmap()
+private fun scaledLayerThumb(source: Bitmap): ImageBitmap? {
+    if (source.isRecycled) return null
+    return try {
+        val scale = 128f / maxOf(source.width, source.height).coerceAtLeast(1)
+        val w = (source.width * scale).toInt().coerceAtLeast(1)
+        val h = (source.height * scale).toInt().coerceAtLeast(1)
+        Bitmap.createScaledBitmap(source, w, h, true).asImageBitmap()
+    } catch (_: Throwable) {
+        null
+    }
 }

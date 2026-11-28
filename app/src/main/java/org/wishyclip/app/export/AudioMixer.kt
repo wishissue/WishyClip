@@ -42,12 +42,20 @@ object AudioMixer {
         } catch (e: Exception) {
             e.printStackTrace()
             null
+        } catch (e: OutOfMemoryError) {
+            // The mix buffer is ~21 MB per minute. Running out must cost the soundtrack, not the whole video.
+            null
         }
     }
 
     private fun mixClip(mix: IntArray, track: AudioTrackEntity, fps: Int) {
         val extractor = MediaExtractor()
-        extractor.setDataSource(track.filePath)
+        try {
+            extractor.setDataSource(track.filePath)
+        } catch (e: Exception) {
+            extractor.release()
+            throw e
+        }
         var audioIndex = -1
         for (i in 0 until extractor.trackCount) {
             if (extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
@@ -65,9 +73,20 @@ object AudioMixer {
         val clipStartUs = track.startFrame.toLong() * 1_000_000L / fps.coerceAtLeast(1)
         extractor.seekTo(trimStartUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
 
-        val decoder = MediaCodec.createDecoderByType(mime)
-        decoder.configure(inFormat, null, null, 0)
-        decoder.start()
+        val decoder = try {
+            MediaCodec.createDecoderByType(mime).also {
+                try {
+                    it.configure(inFormat, null, null, 0)
+                    it.start()
+                } catch (e: Exception) {
+                    it.release()
+                    throw e
+                }
+            }
+        } catch (e: Exception) {
+            extractor.release()
+            throw e
+        }
 
         var srcRate = inFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
         var srcChannels = inFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
@@ -121,7 +140,10 @@ object AudioMixer {
                                 val lg = (l * gain).toInt()
                                 val rg = (r * gain).toInt()
                                 // Hold the sample over any gap (upsampling) so there are no clicks.
-                                for (d in max(lastDst + 1, 0)..dst) {
+                                // REGRESSION FIX: on the first sample lastDst is -1, and starting at 0 used to smear
+                                // that sample over the whole silent lead-in of any clip that starts after frame 0.
+                                val from = if (lastDst < 0) dst else lastDst + 1
+                                for (d in from..dst) {
                                     mix[d * CHANNELS] += lg
                                     mix[d * CHANNELS + 1] += rg
                                 }

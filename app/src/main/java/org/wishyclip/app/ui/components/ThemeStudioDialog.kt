@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -141,9 +142,10 @@ fun ThemeStudioDialog(
                     val selected = dark == isDarkChoice
                     Box(
                         modifier = Modifier
+                            .minimumInteractiveComponentSize()
                             .clip(RoundedCornerShape(50))
                             .background(if (selected) tokens.primaryContainer else tokens.surfaceVariant)
-                            .clickable {
+                            .clickable(role = androidx.compose.ui.semantics.Role.RadioButton) {
                                 if (dark != isDarkChoice) {
                                     dark = isDarkChoice
                                     // Switching the base palette replaces the colors below with that palette's.

@@ -1,5 +1,7 @@
 package org.wishyclip.app.ui
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineExceptionHandler
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -187,7 +189,17 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     private var strokeFrameId: Long = -1L
 
     init {
-        viewModelScope.launch { bootstrap() }
+        launchSafe {
+            try {
+                bootstrap()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // Opening failed (corrupt database row, out of memory ...). Show the error screen instead of crashing.
+                loaded = false
+                loadError = true
+            }
+        }
     }
 
     private suspend fun bootstrap() {
@@ -217,7 +229,15 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             withContext(Dispatchers.IO) { wishy.brushLibrary.installStarterPack() }
             settings.saveStarterBrushVersion(org.wishyclip.app.brush.StarterBrushes.VERSION)
         }
-        customBrushes = withContext(Dispatchers.IO) { wishy.brushLibrary.list() }
+        customBrushes = try {
+            withContext(Dispatchers.IO) { wishy.brushLibrary.list() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList() // a broken brush library must not stop the project from opening
+        }
+        // Remove half-written files left by a crash during an earlier save (the real files are untouched).
+        withContext(Dispatchers.IO) { try { store.sweepTempFiles(projectId) } catch (_: Exception) {} }
         currentIndex = 0
         ensureLoaded(list[0].id)
         refreshLayerUi()
@@ -302,17 +322,26 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             cache.remove(fd.frameId)
         }
         syncUndoFlags()
-        viewModelScope.launch {
+        launchSafe {
             for (fd in evicted) {
-                persistFrame(fd)
-                fd.release()
+                try {
+                    persistFrame(fd)
+                    fd.release()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    // Saving failed: put the frame back in the cache instead of freeing unsaved pixels.
+                    if (!cache.containsKey(fd.frameId)) cache[fd.frameId] = fd
+                    lastSaveFailed = true
+                    retrySaveLater()
+                }
             }
         }
     }
 
     private fun prefetch(center: Int) {
         prefetchJob?.cancel()
-        prefetchJob = viewModelScope.launch {
+        prefetchJob = launchSafe {
             val maxRange = maxOf(2, onionSkinSettings.framesBefore, onionSkinSettings.framesAfter)
             for (d in 1..maxRange) {
                 // Beyond the direct neighbours, stop loading when the pixel budget is already used up.
@@ -331,7 +360,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         commitLassoSelection()
         if (isPlaying) stopPlay()
         if (index !in frames.indices) return
-        viewModelScope.launch { gotoFrame(index) }
+        launchSafe { gotoFrame(index) }
     }
 
     private suspend fun gotoFrame(index: Int) {
@@ -348,7 +377,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun addFrame() {
         if (strokeLayer != null) return
         stopPlay()
-        viewModelScope.launch {
+        launchSafe {
             val templates = currentFrameData()?.layers?.mapIndexed { i, l ->
                 LayerEntity(
                     frameId = 0, position = i, name = l.name, visible = l.visible, opacity = l.opacity,
@@ -366,8 +395,8 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun duplicateFrame() {
         if (strokeLayer != null) return
         stopPlay()
-        viewModelScope.launch {
-            val source = frames.getOrNull(currentIndex) ?: return@launch
+        launchSafe {
+            val source = frames.getOrNull(currentIndex) ?: return@launchSafe
             currentFrameData()?.let { persistFrame(it) } // files must be current before copying
             val position = currentIndex + 1
             repo.duplicateFrame(source, position)
@@ -380,12 +409,12 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun deleteFrame() {
         if (strokeLayer != null) return
         stopPlay()
-        viewModelScope.launch {
+        launchSafe {
             if (frames.size <= 1) {
                 clearFrameInternal()
-                return@launch
+                return@launchSafe
             }
-            val frame = frames.getOrNull(currentIndex) ?: return@launch
+            val frame = frames.getOrNull(currentIndex) ?: return@launchSafe
             val evictedFd = cache.remove(frame.id)
             undoManager.dropFrame(frame.id)
             syncUndoFlags()
@@ -406,7 +435,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val from = currentIndex
         val to = from + delta
         if (to !in frames.indices) return
-        viewModelScope.launch {
+        launchSafe {
             repo.moveFrame(projectId, from, to)
             frames = repo.frames(projectId)
             currentIndex = to
@@ -421,7 +450,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         if (strokeLayer != null) return
         if (from !in frames.indices || to !in frames.indices || from == to) return
         stopPlay()
-        viewModelScope.launch {
+        launchSafe {
             repo.moveFrame(projectId, from, to)
             frames = repo.frames(projectId)
             currentIndex = to
@@ -450,7 +479,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun updateFrameExposure(index: Int, newDuration: Int) {
         val clamped = newDuration.coerceIn(1, 120)
         val frame = frames.getOrNull(index) ?: return
-        viewModelScope.launch {
+        launchSafe {
             repo.updateFrameExposure(frame.id, clamped)
             frames = repo.frames(projectId)
         }
@@ -487,7 +516,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         audioManager.sync(audioTracks, timelineFrameOf(currentIndex), (project?.fps ?: 12).coerceAtLeast(1))
         // Look-ahead loader: runs for the whole playback and is NOT cancelled on every tick (the normal
         // prefetch is, which at 60 fps meant frames never finished loading and the tick had to wait).
-        playPrefetchJob = viewModelScope.launch {
+        playPrefetchJob = launchSafe {
             while (isActive && isPlaying) {
                 val size = frames.size
                 if (size > 0) {
@@ -501,7 +530,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                 delay(6)
             }
         }
-        playJob = viewModelScope.launch {
+        playJob = launchSafe {
             val fps = (project?.fps ?: 12).coerceAtLeast(1)
             // Absolute schedule (see PlaybackClock). The old code waited 1000 / fps whole milliseconds
             // (24 fps -> 41 ms, 60 fps -> 16 ms), which played up to 4% too fast and drifted.
@@ -540,7 +569,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun updateOnionSkinSettings(s: OnionSkinSettings) {
         onionSkinSettings = s
-        viewModelScope.launch { settings.saveOnionSettings(s) }
+        launchSafe { settings.saveOnionSettings(s) }
         revision++
         prefetch(currentIndex)
     }
@@ -600,7 +629,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun commitCustomBrush() {
         val brush = customBrushes.firstOrNull { it.id == activeCustomBrushId } ?: return
-        viewModelScope.launch(Dispatchers.IO) {
+        launchSafe(Dispatchers.IO) {
             try {
                 wishy.brushLibrary.update(brush)
             } catch (e: Exception) {
@@ -612,7 +641,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun showMessage(text: String) {
         message = text
         val ticket = ++messageTicket
-        viewModelScope.launch {
+        launchSafe {
             delay(2500)
             if (ticket == messageTicket) message = null
         }
@@ -643,7 +672,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun importBrushFiles(uris: List<Uri>) {
         if (uris.isEmpty()) return
-        viewModelScope.launch {
+        launchSafe {
             val app = getApplication<Application>()
             var added = 0
             var lastError: String? = null
@@ -669,12 +698,27 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                     lastError = "Could not read that file (maximum 20 MB)."
                     continue
                 }
-                val outcome = wishy.brushLibrary.import(name, bytes)
+                // Parsing untrusted archives is CPU/memory heavy: keep it off the main thread, and treat any
+                // failure (including OutOfMemoryError / StackOverflowError) as "this file is unusable".
+                val outcome = try {
+                    withContext(Dispatchers.IO) { wishy.brushLibrary.import(name, bytes) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    lastError = "Could not import \"$name\": the file is damaged or too complex."
+                    continue
+                }
                 if (outcome.error != null) lastError = outcome.error
                 added += outcome.added.size
                 if (first == null) first = outcome.added.firstOrNull()
             }
-            customBrushes = withContext(Dispatchers.IO) { wishy.brushLibrary.list() }
+            customBrushes = try {
+                withContext(Dispatchers.IO) { wishy.brushLibrary.list() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                customBrushes
+            }
             first?.let { selectCustomBrush(it.id) }
             showMessage(
                 if (added > 0) "Imported $added brush${if (added == 1) "" else "es"}"
@@ -684,7 +728,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     }
 
     fun deleteCustomBrush(id: String) {
-        viewModelScope.launch {
+        launchSafe {
             withContext(Dispatchers.IO) { wishy.brushLibrary.delete(id) }
             customBrushes = withContext(Dispatchers.IO) { wishy.brushLibrary.list() }
             if (activeCustomBrushId == id) {
@@ -729,7 +773,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val c = color
         val s = brushSize
         val o = opacity
-        viewModelScope.launch { settings.saveBrush(c, s, o) }
+        launchSafe { settings.saveBrush(c, s, o) }
     }
 
     // ---------------------------------------------------------------- drawing
@@ -791,7 +835,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         val startVersion = layer.version
         val fx = x.toInt()
         val fy = y.toInt()
-        viewModelScope.launch {
+        launchSafe {
             val before: Bitmap
             val work: Bitmap?
             try {
@@ -799,20 +843,30 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                 work = layer.bitmap.copy(Bitmap.Config.ARGB_8888, true)
             } catch (e: OutOfMemoryError) {
                 showMessage("Not enough memory to fill this layer")
-                return@launch
+                return@launchSafe
             }
             if (work == null) {
                 before.recycle()
-                return@launch
+                return@launchSafe
             }
-            val changed = withContext(Dispatchers.Default) {
-                ScanlineFillTool().fill(work, fx, fy, fillColor, tolerance)
+            val changed = try {
+                withContext(Dispatchers.Default) {
+                    ScanlineFillTool().fill(work, fx, fy, fillColor, tolerance)
+                }
+            } catch (e: CancellationException) {
+                before.recycle(); work.recycle()
+                throw e
+            } catch (e: Throwable) {
+                // Typically OutOfMemoryError from the fill's working arrays: free the copies and report.
+                before.recycle(); work.recycle()
+                showMessage(if (e is OutOfMemoryError) "Not enough memory to fill this layer" else "Fill failed")
+                return@launchSafe
             }
             // The layer may have been edited, deleted or evicted while the fill was computed.
             if (!changed || !isLive(frameId, layer) || layer.version != startVersion) {
                 before.recycle()
                 work.recycle()
-                return@launch
+                return@launchSafe
             }
             BitmapOps.replace(layer.bitmap, work)
             work.recycle()
@@ -827,7 +881,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     /** Adds the picked image as a NEW layer on the current frame (it never overwrites existing art). */
     fun importImageAsLayer(uri: Uri) {
         val p = project ?: return
-        viewModelScope.launch {
+        launchSafe {
             BusyTracker.show("import-layer", "Importing image", "Decoding…")
             val bmp = try {
                 Importer.importImage(getApplication(), uri, p.width, p.height)
@@ -836,12 +890,12 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             }
             if (bmp == null) {
                 showMessage("Could not open that image")
-                return@launch
+                return@launchSafe
             }
             val fd = currentFrameData()
             if (fd == null) {
                 bmp.recycle()
-                return@launch
+                return@launchSafe
             }
             commitLassoSelection()
             val countBefore = fd.layers.size
@@ -863,15 +917,15 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     /** Drops an image onto the canvas as a floating selection: drag, scale and rotate it, tap outside to commit. */
     fun importImageForPlacement(uri: Uri) {
         val p = project ?: return
-        viewModelScope.launch {
+        launchSafe {
             val layer = activeLayer()
             if (layer == null || !layer.visible || layer.locked) {
                 showMessage("Pick an unlocked, visible layer first")
-                return@launch
+                return@launchSafe
             }
             val bmp = Importer.importImageTight(
                 getApplication(), uri, (p.width * 0.7f).toInt(), (p.height * 0.7f).toInt()
-            ) ?: run { showMessage("Could not open that image"); return@launch }
+            ) ?: run { showMessage("Could not open that image"); return@launchSafe }
             commitLassoSelection()
             selectTool(Tool.LASSO)
             val cx = p.width / 2f
@@ -888,7 +942,12 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
      * cached (full-size, unsaved) until the import ends is what ran long imports out of memory.
      */
     private suspend fun flushAndEvict(fd: FrameData) {
-        persistFrame(fd)
+        try {
+            persistFrame(fd)
+        } catch (e: Throwable) {
+            // Not saved: keep the pixels in memory (the cache keeps retrying) instead of freeing them.
+            throw e
+        }
         cache.remove(fd.frameId)
         fd.release()
     }
@@ -901,32 +960,50 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun importImageSequence(uris: List<Uri>) {
         val p = project ?: return
         if (importJob?.isActive == true) { showMessage("Another import is still running"); return }
-        importJob = viewModelScope.launch {
+        importJob = launchSafe {
             val owner = "import-images"
             var pos = frames.size // advanced per frame: `frames` itself is only refreshed after the loop
             var imported = 0
             var cancelled = false
+            var failed: String? = null
             BusyTracker.show(owner, "Importing images", "0 of ${uris.size}", 0f, onCancel = { cancelImport() })
             try {
                 for ((i, uri) in uris.withIndex()) {
                     val bmp = Importer.importImage(getApplication(), uri, p.width, p.height)
                     if (bmp != null) {
-                        val templates = listOf(LayerEntity(frameId = 0, position = 0, name = "Imported", visible = true, opacity = 1f))
-                        val (newFrame, _) = repo.insertFrame(projectId, pos, templates)
-                        pos++
-                        imported++
-                        val fd = ensureLoaded(newFrame.id)
-                        if (fd.layers.isNotEmpty()) {
-                            BitmapOps.replace(fd.layers[0].bitmap, bmp)
-                            fd.layers[0].version++
+                        var inserted: FrameEntity? = null
+                        try {
+                            val templates = listOf(LayerEntity(frameId = 0, position = 0, name = "Imported", visible = true, opacity = 1f))
+                            val (newFrame, _) = repo.insertFrame(projectId, pos, templates)
+                            inserted = newFrame
+                            val fd = ensureLoaded(newFrame.id)
+                            if (fd.layers.isNotEmpty()) {
+                                BitmapOps.replace(fd.layers[0].bitmap, bmp)
+                                fd.layers[0].version++
+                            }
+                            flushAndEvict(fd)
+                            pos++
+                            imported++
+                            inserted = null // fully stored
+                        } finally {
+                            if (!bmp.isRecycled) bmp.recycle()
+                            // A frame whose pixels never reached the disk would be a silent blank frame: remove it.
+                            inserted?.let { half ->
+                                withContext(kotlinx.coroutines.NonCancellable) {
+                                    cache.remove(half.id)?.release()
+                                    try { repo.deleteFrame(half) } catch (_: Exception) {}
+                                }
+                            }
                         }
-                        bmp.recycle()
-                        flushAndEvict(fd)
                     }
                     BusyTracker.update(owner, "${i + 1} of ${uris.size}", (i + 1f) / uris.size)
                 }
             } catch (e: CancellationException) {
                 cancelled = true
+            } catch (e: Exception) {
+                failed = "Import stopped: ${e.message ?: "could not store an image"}"
+            } catch (e: OutOfMemoryError) {
+                failed = "Import stopped: not enough memory"
             } finally {
                 BusyTracker.hide(owner)
                 // Runs even when cancelled, so frames that were already inserted show up in the timeline.
@@ -938,6 +1015,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             }
             showMessage(
                 when {
+                    failed != null -> "$failed ($imported added)"
                     cancelled -> "Import cancelled ($imported added)"
                     imported == 0 -> "Could not open the selected images"
                     imported < uris.size -> "Imported $imported of ${uris.size} images"
@@ -950,7 +1028,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun importVideoAsFrames(uri: Uri) {
         val p = project ?: return
         if (importJob?.isActive == true) { showMessage("Another import is still running"); return }
-        importJob = viewModelScope.launch {
+        importJob = launchSafe {
             val owner = "import-video"
             var pos = frames.size // see importImageSequence: keeps the frames in playback order
             var imported = 0
@@ -998,45 +1076,136 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun addAudioTrackFromUri(uri: Uri, name: String = "Imported Track") {
         val startFrame = timelineFrameOf(currentIndex)
-        viewModelScope.launch(Dispatchers.IO) {
+        launchSafe(Dispatchers.IO) {
             val audioDir = File(getApplication<Application>().filesDir, "projects/$projectId/audio").apply { mkdirs() }
-            val destFile = File(audioDir, "track_${System.currentTimeMillis()}.m4a")
-            getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
-                FileOutputStream(destFile).use { output -> input.copyTo(output) }
+            val destFile = File(audioDir, "track_${System.currentTimeMillis()}_${(0..9999).random()}.m4a")
+            val partial = File(audioDir, destFile.name + ".part")
+            var failure: String? = null
+            try {
+                val input = getApplication<Application>().contentResolver.openInputStream(uri)
+                    ?: throw java.io.IOException("Could not open that audio file")
+                input.use { src ->
+                    FileOutputStream(partial).use { out ->
+                        var total = 0L
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            val n = src.read(buf)
+                            if (n < 0) break
+                            total += n
+                            if (total > MAX_AUDIO_IMPORT_BYTES) throw java.io.IOException("That audio file is too large")
+                            out.write(buf, 0, n)
+                        }
+                        out.flush()
+                        out.fd.sync()
+                    }
+                }
+                if (!partial.renameTo(destFile)) throw java.io.IOException("Could not store the audio file")
+                val duration = WaveformExtractor.getAudioDurationMs(destFile.absolutePath)
+                if (duration <= 0L) throw java.io.IOException("That file does not contain playable audio")
+                repo.addAudioTrack(
+                    AudioTrackEntity(
+                        projectId = projectId,
+                        filePath = destFile.absolutePath,
+                        name = name,
+                        startFrame = startFrame,
+                        durationMs = duration
+                    )
+                )
+            } catch (e: CancellationException) {
+                partial.delete(); destFile.delete()
+                throw e
+            } catch (e: Exception) {
+                failure = e.message ?: "Could not import that audio file"
+            } catch (e: OutOfMemoryError) {
+                failure = "Not enough memory to import that audio file"
             }
-            val duration = WaveformExtractor.getAudioDurationMs(getApplication(), uri)
-            val entity = AudioTrackEntity(
-                projectId = projectId,
-                filePath = destFile.absolutePath,
-                name = name,
-                startFrame = startFrame,
-                durationMs = duration
-            )
-            repo.addAudioTrack(entity)
-            val tracks = repo.getAudioTracks(projectId)
+            if (failure != null) {
+                // Never leave a half-copied file or a track row that points at nothing.
+                partial.delete(); destFile.delete()
+            }
+            val tracks = try { repo.getAudioTracks(projectId) } catch (e: Exception) { null }
+            val failureMessage: String? = failure // immutable copy: a captured var cannot be smart-cast
             withContext(Dispatchers.Main) {
-                audioTracks = tracks
+                if (tracks != null) audioTracks = tracks
                 revision++
+                if (failureMessage != null) showMessage(failureMessage)
             }
         }
     }
 
-    fun addRecordedVoiceTrack(recordedFile: File) {
-        val startFrame = timelineFrameOf(currentIndex)
-        viewModelScope.launch(Dispatchers.IO) {
-            val duration = WaveformExtractor.getAudioDurationMs(recordedFile.absolutePath)
-            val entity = AudioTrackEntity(
-                projectId = projectId,
-                filePath = recordedFile.absolutePath,
-                name = "Voice Record",
-                startFrame = startFrame,
-                durationMs = duration
-            )
-            repo.addAudioTrack(entity)
-            val tracks = repo.getAudioTracks(projectId)
+    private val voiceRecorder = org.wishyclip.app.audio.VoiceRecorder(app)
+    private var recordingStartFrame = 0
+
+    /** True while the microphone is being recorded; drives the Record/Stop button. */
+    var isRecording by mutableStateOf(false)
+        private set
+
+    /** SystemClock.elapsedRealtime() when the current recording began (for the on-screen timer). */
+    var recordingStartedAt by mutableStateOf(0L)
+        private set
+
+    /** Starts recording at the playhead. The caller must already hold the microphone permission. */
+    fun startVoiceRecording() {
+        if (isRecording) return
+        if (isPlaying) togglePlay()
+        val dir = File(getApplication<Application>().filesDir, "projects/$projectId/audio")
+        if (repo.store.usableSpaceBytes() < MIN_FREE_BYTES_FOR_RECORDING) {
+            showMessage("Not enough free storage to record")
+            return
+        }
+        voiceRecorder.onLimitReached = {
+            showMessage("Recording stopped at the 10 minute limit")
+            stopVoiceRecording()
+        }
+        recordingStartFrame = timelineFrameOf(currentIndex)
+        if (voiceRecorder.startRecording(dir) == null) {
+            showMessage("Could not start recording. Is the microphone in use by another app?")
+            return
+        }
+        recordingStartedAt = android.os.SystemClock.elapsedRealtime()
+        isRecording = true
+    }
+
+    /** Stops the recording and adds it as a clip starting where recording began. */
+    fun stopVoiceRecording() {
+        if (!isRecording) return
+        isRecording = false
+        val file = voiceRecorder.stopRecording()
+        if (file == null) {
+            showMessage("Nothing was recorded")
+            return
+        }
+        addRecordedVoiceTrack(file, recordingStartFrame)
+    }
+
+    private fun addRecordedVoiceTrack(recordedFile: File, startFrame: Int) {
+        launchSafe(Dispatchers.IO) {
+            var failure: String? = null
+            try {
+                val duration = WaveformExtractor.getAudioDurationMs(recordedFile.absolutePath)
+                if (duration <= 0L) throw java.io.IOException("The recording is empty")
+                repo.addAudioTrack(
+                    AudioTrackEntity(
+                        projectId = projectId,
+                        filePath = recordedFile.absolutePath,
+                        name = "Voice ${audioTracks.size + 1}",
+                        startFrame = startFrame,
+                        durationMs = duration
+                    )
+                )
+            } catch (e: CancellationException) {
+                recordedFile.delete()
+                throw e
+            } catch (e: Exception) {
+                failure = e.message ?: "Could not save the recording"
+            }
+            if (failure != null) recordedFile.delete() // never keep a file no clip points at
+            val failureMessage: String? = failure
+            val tracks = try { repo.getAudioTracks(projectId) } catch (e: Exception) { null }
             withContext(Dispatchers.Main) {
-                audioTracks = tracks
+                if (tracks != null) audioTracks = tracks
                 revision++
+                if (failureMessage != null) showMessage(failureMessage)
             }
         }
     }
@@ -1053,34 +1222,70 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             showMessage("Move the playhead inside the clip to split it")
             return
         }
-        viewModelScope.launch {
-            repo.updateAudioTrack(track.copy(durationMs = offsetMs))
-            repo.addAudioTrack(
-                track.copy(
-                    id = 0,
-                    startFrame = here,
-                    trimStartMs = track.trimStartMs + offsetMs,
-                    durationMs = track.durationMs - offsetMs
+        launchSafe {
+            try {
+                // One transaction: a failure between the two writes must not leave a shortened clip with no second half.
+                repo.splitAudioTrack(
+                    track.copy(durationMs = offsetMs),
+                    track.copy(
+                        id = 0,
+                        startFrame = here,
+                        trimStartMs = track.trimStartMs + offsetMs,
+                        durationMs = track.durationMs - offsetMs
+                    )
                 )
-            )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                showMessage("Could not split the clip")
+            }
+            refreshAudioTracks()
+        }
+    }
+
+    private suspend fun refreshAudioTracks() {
+        try {
             audioTracks = repo.getAudioTracks(projectId)
+            revision++
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            showMessage("Could not read the audio tracks")
         }
     }
 
     fun updateAudioTrack(track: AudioTrackEntity) {
-        viewModelScope.launch {
-            repo.updateAudioTrack(track)
-            audioTracks = repo.getAudioTracks(projectId)
-            revision++
+        launchSafe {
+            try {
+                repo.updateAudioTrack(track)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                showMessage("Could not update the audio track")
+            }
+            refreshAudioTracks()
         }
     }
 
     fun deleteAudioTrack(id: Long) {
         audioManager.remove(id)
-        viewModelScope.launch {
-            repo.deleteAudioTrack(id)
-            audioTracks = repo.getAudioTracks(projectId)
-            revision++
+        val doomed = audioTracks.firstOrNull { it.id == id }
+        launchSafe {
+            try {
+                repo.deleteAudioTrack(id)
+                // Split halves share one file, so only delete it when no other track still uses it.
+                if (doomed != null) {
+                    val others = repo.getAudioTracks(projectId)
+                    if (others.none { it.filePath == doomed.filePath }) {
+                        withContext(Dispatchers.IO) { File(doomed.filePath).delete() }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                showMessage("Could not delete the audio track")
+            }
+            refreshAudioTracks()
         }
     }
 
@@ -1262,7 +1467,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     }
 
     private fun refreshFonts() {
-        viewModelScope.launch {
+        launchSafe {
             availableFonts = withContext(Dispatchers.IO) { fontLibrary.list() }
             if (availableFonts.none { it.key == activeFontName }) activeFontName = FontLibrary.DEFAULT_KEY
         }
@@ -1271,7 +1476,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     /** Imports one or more font files picked by the user and selects the first new one. */
     fun importFonts(uris: List<Uri>) {
         if (uris.isEmpty()) return
-        viewModelScope.launch {
+        launchSafe {
             val app = getApplication<Application>()
             var added = 0
             var first: FontOption? = null
@@ -1317,7 +1522,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     }
 
     fun deleteFont(key: String) {
-        viewModelScope.launch {
+        launchSafe {
             withContext(Dispatchers.IO) { fontLibrary.delete(key) }
             availableFonts = withContext(Dispatchers.IO) { fontLibrary.list() }
             if (activeFontName == key) activeFontName = FontLibrary.DEFAULT_KEY
@@ -1358,16 +1563,22 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         if (textEditingExisting) {
             val sel = activeLassoSelection ?: return
             val spec = sel.text ?: return
-            spec.text = text
+            val previous = spec.text
+            spec.text = text.take(TextRaster.MAX_CHARS)
             spec.fontName = activeFontName
-            rerasterText(sel)
+            if (!rerasterText(sel)) spec.text = previous
             return
         }
         val layer = activeLayer() ?: return
         if (!layer.visible) return
         commitLassoSelection()
-        val spec = TextSpec(text, defaultTextSize(), activeFontName)
-        val bmp = TextRaster.render(spec.text, color, spec.sizePx, opacity, getTypeface(spec.fontName))
+        val spec = TextSpec(text.take(TextRaster.MAX_CHARS), defaultTextSize(), activeFontName)
+        val bmp = try {
+            TextRaster.render(spec.text, color, spec.sizePx, opacity, getTypeface(spec.fontName))
+        } catch (e: Throwable) {
+            showMessage("Could not render that text (too large for the available memory)")
+            return
+        }
         val bounds = RectF(
             textPendingX - bmp.width / 2f, textPendingY - bmp.height / 2f,
             textPendingX + bmp.width / 2f, textPendingY + bmp.height / 2f
@@ -1377,11 +1588,16 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     }
 
     /** Re-renders a text selection (new text, size, color) keeping its centre and rotation. */
-    private fun rerasterText(sel: LassoSelection) {
-        val spec = sel.text ?: return
+    private fun rerasterText(sel: LassoSelection): Boolean {
+        val spec = sel.text ?: return false
         val cx = sel.bounds.centerX() + sel.translateX
         val cy = sel.bounds.centerY() + sel.translateY
-        val fresh = TextRaster.render(spec.text, color, spec.sizePx, opacity, getTypeface(spec.fontName))
+        val fresh = try {
+            TextRaster.render(spec.text, color, spec.sizePx, opacity, getTypeface(spec.fontName))
+        } catch (e: Throwable) {
+            showMessage("Could not render that text (too large for the available memory)")
+            return false // the previous bitmap stays valid
+        }
         // The old bitmap is left to the GC: it may still be referenced by a frame being drawn.
         sel.pixels = fresh
         sel.bounds = RectF(cx - fresh.width / 2f, cy - fresh.height / 2f, cx + fresh.width / 2f, cy + fresh.height / 2f)
@@ -1390,6 +1606,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         sel.scaleX = 1f
         sel.scaleY = 1f
         revision++
+        return true
     }
 
     fun updateStabilizer(value: Float) {
@@ -1405,7 +1622,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun pasteFrame() {
         val copy = copiedFrameData ?: return
-        viewModelScope.launch {
+        launchSafe {
             val templates = copy.layers.mapIndexed { i, l ->
                 LayerEntity(
                     frameId = 0, position = i, name = l.name, visible = l.visible, opacity = l.opacity,
@@ -1414,26 +1631,39 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             }
             val pos = currentIndex + 1
             val (newFrame, _) = repo.insertFrame(projectId, pos, templates)
-            val fd = ensureLoaded(newFrame.id)
-            for (i in copy.layers.indices) {
-                if (i in fd.layers.indices) {
-                    val src = copy.layers[i]
-                    if (src.allocated) {
-                        BitmapOps.replace(fd.layers[i].bitmap, src.bitmap)
-                        fd.layers[i].version++
+            try {
+                val fd = ensureLoaded(newFrame.id)
+                for (i in copy.layers.indices) {
+                    if (i in fd.layers.indices) {
+                        val src = copy.layers[i]
+                        if (src.allocated) {
+                            BitmapOps.replace(fd.layers[i].bitmap, src.bitmap)
+                            fd.layers[i].version++
+                        }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // The new frame row exists but its pixels could not be filled in: remove it again instead of
+                // leaving a silent blank frame, and say why.
+                cache.remove(newFrame.id)?.release()
+                try { repo.deleteFrame(newFrame) } catch (_: Exception) {}
+                frames = repo.frames(projectId)
+                showMessage(if (e is OutOfMemoryError) "Not enough memory to paste the frame" else "Could not paste the frame")
+                return@launchSafe
             }
             frames = repo.frames(projectId)
             gotoFrame(pos)
             repo.touch(projectId)
+            scheduleSave() // the pasted pixels are dirty until written
         }
     }
 
     fun updateProjectFps(fps: Int) {
         val newFps = fps.coerceIn(1, 60)
         project = project?.copy(fps = newFps)
-        viewModelScope.launch { repo.updateProjectFps(projectId, newFps) }
+        launchSafe { repo.updateProjectFps(projectId, newFps) }
         revision++
     }
 
@@ -1644,38 +1874,60 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         applyHistory(false)
     }
 
+    /** Undo/redo steps run one at a time, in tap order, even when a frame must first be reloaded from disk. */
+    private val historyMutex = Mutex()
+
     private fun applyHistory(isUndo: Boolean) {
-        val entry = (if (isUndo) undoManager.popUndo() else undoManager.popRedo()) ?: return
-        syncUndoFlags()
-        viewModelScope.launch {
-            val frameData = ensureLoaded(entry.frameId)
-            val layer = frameData.layers.firstOrNull { it.id == entry.layerId }
-            if (layer == null) {
-                entry.bitmap.recycle()
+        if (!(if (isUndo) undoManager.canUndo else undoManager.canRedo)) return
+        launchSafe {
+            historyMutex.withLock {
+                val entry = (if (isUndo) undoManager.popUndo() else undoManager.popRedo()) ?: return@withLock
                 syncUndoFlags()
-                return@launch
-            }
-            val rect = entry.rect
-            val counterpart = if (rect != null) {
-                UndoEntry(entry.frameId, entry.layerId, BitmapOps.copyRect(layer.bitmap, rect), rect)
-            } else {
-                UndoEntry(entry.frameId, entry.layerId, layer.bitmap.snapshot())
-            }
-            if (isUndo) undoManager.pushRedo(counterpart) else undoManager.pushUndoKeepRedo(counterpart)
-            if (rect != null) BitmapOps.putAt(layer.bitmap, entry.bitmap, rect.left, rect.top)
-            else BitmapOps.replace(layer.bitmap, entry.bitmap)
-            entry.bitmap.recycle()
-            layer.version++
+                var counterpart: UndoEntry? = null
+                try {
+                    val frameData = ensureLoaded(entry.frameId)
+                    val layer = frameData.layers.firstOrNull { it.id == entry.layerId }
+                    if (layer == null) {
+                        // The layer no longer exists (deleted or merged): the step is obsolete.
+                        entry.bitmap.recycle()
+                        syncUndoFlags()
+                        return@withLock
+                    }
+                    val rect = entry.rect
+                    counterpart = if (rect != null) {
+                        UndoEntry(entry.frameId, entry.layerId, BitmapOps.copyRect(layer.bitmap, rect), rect)
+                    } else {
+                        UndoEntry(entry.frameId, entry.layerId, layer.bitmap.snapshot())
+                    }
+                    if (rect != null) BitmapOps.putAt(layer.bitmap, entry.bitmap, rect.left, rect.top)
+                    else BitmapOps.replace(layer.bitmap, entry.bitmap)
+                    // Only after the pixels were really restored does the opposite step become available.
+                    if (isUndo) undoManager.pushRedo(counterpart) else undoManager.pushUndoKeepRedo(counterpart)
+                    counterpart = null
+                    entry.bitmap.recycle()
+                    layer.version++
 
-            val idx = frames.indexOfFirst { it.id == entry.frameId }
-            if (idx >= 0 && idx != currentIndex) {
-                currentIndex = idx
-                refreshLayerUi()
+                    val idx = frames.indexOfFirst { it.id == entry.frameId }
+                    if (idx >= 0 && idx != currentIndex) {
+                        currentIndex = idx
+                        refreshLayerUi()
+                    }
+                    revision++
+                    scheduleSave()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    // Do not lose the step: put it back so the user can try again.
+                    counterpart?.let { if (!it.bitmap.isRecycled) it.bitmap.recycle() }
+                    if (!entry.bitmap.isRecycled) {
+                        if (isUndo) undoManager.pushUndoKeepRedo(entry) else undoManager.pushRedo(entry)
+                    }
+                    showMessage(if (e is OutOfMemoryError) "Not enough memory to ${if (isUndo) "undo" else "redo"}"
+                                else "Could not ${if (isUndo) "undo" else "redo"}")
+                } finally {
+                    syncUndoFlags()
+                }
             }
-
-            syncUndoFlags()
-            revision++
-            scheduleSave()
         }
     }
 
@@ -1705,7 +1957,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             return
         }
         val countBefore = fd.layers.size
-        viewModelScope.launch {
+        launchSafe {
             val entity = repo.addLayer(fd.frameId, fd.layers.size, "Layer ${fd.layers.size + 1}")
             // Sparse: the new layer holds no memory until something is drawn on it.
             fd.layers.add(
@@ -1735,7 +1987,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         activeLayerIndex = activeLayerIndex.coerceIn(0, fd.layers.lastIndex)
         refreshLayerUi()
         revision++
-        viewModelScope.launch { repo.deleteLayer(projectId, layer.id) }
+        launchSafe { repo.deleteLayer(projectId, layer.id) }
         scheduleSave()
         mirrorLayerOp { mirrorDelete(fd.frameId, countBefore, index) }
     }
@@ -1748,7 +2000,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             return
         }
         val countBefore = fd.layers.size
-        viewModelScope.launch {
+        launchSafe {
             val entity = repo.addLayer(fd.frameId, fd.layers.size, "${source.name} (Copy)")
             val bmp = source.peekBitmap()?.snapshot()
             val newLayer = LayerData(
@@ -1859,7 +2111,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             .coerceIn(0, fd.layers.lastIndex)
         refreshLayerUi()
         revision++
-        viewModelScope.launch { repo.deleteLayer(projectId, upper.id) }
+        launchSafe { repo.deleteLayer(projectId, upper.id) }
         scheduleSave()
         showMessage("Layers merged")
         mirrorLayerOp { mirrorMerge(fd.frameId, countBefore, index) }
@@ -1898,7 +2150,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     /** Runs a mirroring step after earlier ones (FIFO), off the caller's path. */
     private fun mirrorLayerOp(block: suspend () -> Unit) {
-        viewModelScope.launch {
+        launchSafe {
             layerMirrorMutex.withLock {
                 try {
                     block()
@@ -2012,6 +2264,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             if (upper.visible && upper.opacity > 0f && upper.allocated) {
                 val paint = Paint(Paint.FILTER_BITMAP_FLAG)
                 paint.alpha = (upper.opacity * 255f).toInt().coerceIn(0, 255)
+                LayerBlending.apply(paint, upper.blendMode) // same look as on screen / in the source frame
                 Canvas(lower.bitmap).drawBitmap(upper.bitmap, 0f, 0f, paint)
                 lower.version++
             }
@@ -2040,7 +2293,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         pendingMetaSources.add(sourceId)
         metaTicket += 1
         val ticket = metaTicket
-        viewModelScope.launch {
+        launchSafe {
             delay(350)
             if (ticket == metaTicket) runPendingMetaMirrors()
         }
@@ -2117,21 +2370,81 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     // ---------------------------------------------------------------- saving
 
+
+    /**
+     * Every background job of the editor runs through here. An exception that nobody caught (a full disk
+     * during add/delete frame, a SQLite error, out of memory ...) used to terminate the whole app and
+     * with it the unsaved drawing; now it becomes a message and the in-memory edits stay alive and keep
+     * being saved by the retrying autosave.
+     */
+    private val safeHandler = CoroutineExceptionHandler { _, e ->
+        if (e !is CancellationException) {
+            showMessage(
+                if (e is OutOfMemoryError) "Not enough memory for that action"
+                else "That action failed. Your drawing is still open and will keep being saved."
+            )
+        }
+    }
+
+    private fun launchSafe(
+        context: kotlin.coroutines.CoroutineContext = kotlin.coroutines.EmptyCoroutineContext,
+        block: suspend CoroutineScope.() -> Unit
+    ): Job = viewModelScope.launch(context + safeHandler, block = block)
+
     private fun scheduleSave() {
         saveTicket += 1
         val ticket = saveTicket
-        viewModelScope.launch {
+        launchSafe {
             delay(1500)
             if (ticket == saveTicket) saveAll()
         }
     }
 
-    private suspend fun saveAll() {
+    /** True while a save keeps failing; the dirty versions stay set so the next save retries everything. */
+    private var lastSaveFailed = false
+
+    /**
+     * Writes every dirty frame. Never throws (except cancellation): a failed write leaves the layer dirty,
+     * keeps the previous valid file on disk (BitmapStore replaces files atomically) and tells the user once.
+     * @return true when everything that was dirty has been written.
+     */
+    private suspend fun saveAll(): Boolean {
         var wrote = false
+        var allOk = true
         for (fd in cache.values.toList()) {
-            if (persistFrame(fd)) wrote = true
+            try {
+                if (persistFrame(fd)) wrote = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                allOk = false
+            } catch (e: OutOfMemoryError) {
+                allOk = false
+            }
         }
-        if (wrote) repo.touch(projectId)
+        if (wrote) {
+            try {
+                repo.touch(projectId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The pixels are safe; only the "last modified" time was not updated.
+            }
+        }
+        if (!allOk && !lastSaveFailed) {
+            showMessage("Could not save your latest changes. Free up storage; the app will keep retrying.")
+        }
+        lastSaveFailed = !allOk
+        if (!allOk) retrySaveLater()
+        return allOk
+    }
+
+    private fun retrySaveLater() {
+        val ticket = ++saveTicket
+        launchSafe {
+            delay(10_000)
+            if (ticket == saveTicket) saveAll()
+        }
     }
 
     /** Writes dirty layers (as PNG) and layer metadata. @return true if anything was written. */
@@ -2151,19 +2464,28 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
         }
         val isFirst = frames.firstOrNull()?.id == fd.frameId
         val thumb = if (dirtyLayers.isNotEmpty()) composeThumb(fd) else null
-        saveMutex.withLock {
-            withContext(Dispatchers.IO) {
-                for ((layer, _, bmp) in copies) {
-                    store.save(pid, layer.id, bmp)
-                    bmp.recycle()
-                }
-                repo.saveLayers(metas)
-                if (thumb != null) {
-                    if (isFirst) store.saveThumb(pid, thumb)
-                    store.saveFrameThumb(pid, fd.frameId, thumb)
-                    thumb.recycle()
+        try {
+            saveMutex.withLock {
+                withContext(Dispatchers.IO) {
+                    // Refuse early when the volume is nearly full: better a clear message than a half-written set.
+                    val needed = copies.sumOf { it.third.byteCount.toLong() } / 2 + 1_000_000L
+                    if (copies.isNotEmpty() && store.usableSpaceBytes() < needed) {
+                        throw java.io.IOException("Not enough free storage to save")
+                    }
+                    for ((layer, _, bmp) in copies) {
+                        store.save(pid, layer.id, bmp)
+                    }
+                    repo.saveLayers(metas)
+                    if (thumb != null) {
+                        if (isFirst) store.saveThumb(pid, thumb)
+                        store.saveFrameThumb(pid, fd.frameId, thumb)
+                    }
                 }
             }
+        } finally {
+            // Snapshots are always freed, also when a write failed (a failing save is retried with new ones).
+            for ((_, _, bmp) in copies) if (!bmp.isRecycled) bmp.recycle()
+            if (thumb != null && !thumb.isRecycled) thumb.recycle()
         }
         if (thumb != null) frameThumbVersion++
         for ((layer, version, _) in copies) layer.savedVersion = version
@@ -2184,7 +2506,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun backfillFrameThumbs() {
         val p = project ?: return
         val ids = frames.map { it.id }
-        viewModelScope.launch(Dispatchers.IO) {
+        launchSafe(Dispatchers.IO) {
             val tw = 320
             val th = (tw.toLong() * p.height / p.width).toInt().coerceAtLeast(1)
             var wrote = false
@@ -2237,9 +2559,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun onHostStop() {
         commitLassoSelection()
         stopPlay()
-        viewModelScope.launch {
+        launchSafe {
             settleLayerMirrors()
             saveAll()
+            wishy.syncScheduler.requestNow(projectId)
         }
     }
 
@@ -2250,32 +2573,50 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     fun saveThen(onDone: () -> Unit) {
         commitLassoSelection()
         stopPlay()
-        viewModelScope.launch {
+        launchSafe {
             settleLayerMirrors()
-            saveAll()
-            onDone()
+            if (saveAll()) onDone()
+            else showMessage("Could not save, so the export was not started. Free up storage and try again.")
         }
     }
 
+    private var exiting = false
+
+    /**
+     * Saves, then calls [onDone] exactly once. A second call while one is in flight is ignored (double back
+     * press used to pop the Home screen too). If saving fails the editor stays open so no work is lost.
+     */
     fun saveAndExit(onDone: () -> Unit) {
+        if (exiting) return
+        exiting = true
         commitLassoSelection()
         stopPlay()
-        viewModelScope.launch {
+        launchSafe {
             settleLayerMirrors()
-            saveAll()
-            onDone()
+            if (saveAll()) {
+                wishy.syncScheduler.requestNow(projectId)
+                onDone()
+            } else {
+                exiting = false
+                showMessage("Could not save. Free up storage, then leave the editor again.")
+            }
         }
     }
 
     override fun onCleared() {
+        voiceRecorder.cancel() // an unfinished recording is discarded, never left half-written
         commitLassoSelection()
         renderer.release()
         audioManager.release()
         val remaining = cache.values.toList()
-        try {
-            runBlocking { for (fd in remaining) persistFrame(fd) }
-        } catch (e: Exception) {
-            // Nothing sensible to do while the ViewModel is being destroyed.
+        // Last chance to write pending edits. Each frame is guarded separately so one failure
+        // cannot prevent the others from being saved, and nothing here may throw.
+        for (fd in remaining) {
+            try {
+                runBlocking { persistFrame(fd) }
+            } catch (e: Throwable) {
+                // Nothing sensible to do while the ViewModel is being destroyed; the old files are intact.
+            }
         }
         for (fd in remaining) {
             fd.release()
@@ -2287,6 +2628,12 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 }
 
 private const val TAP_SLOP = 12f
+
+/** Upper bound for one imported audio file (about 3 hours of 128 kbit/s audio). */
+/** Refuse to start recording with less free space than this (10 minutes of AAC is about 10 MB). */
+private const val MIN_FREE_BYTES_FOR_RECORDING = 50L * 1024 * 1024
+
+private const val MAX_AUDIO_IMPORT_BYTES = 200L * 1024 * 1024
 
 /** Layers per frame. Empty layers are free, but each painted one costs a full bitmap per cached frame. */
 private const val MAX_LAYERS = 64

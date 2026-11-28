@@ -59,14 +59,52 @@ fun HomeScreen(
 ) {
     val tokens = WishyTheme.tokens
     val projects by vm.projects.collectAsState()
+    val syncProblems by vm.syncProblems.collectAsState()
+    val pickFolder = org.wishyclip.app.ui.components.rememberFolderPicker { vm.chooseFolder(it) }
+    // Access can change while the app is in the background (folder moved, permission revoked).
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) vm.refreshFolder()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     var selectedProjectForOptions by remember { mutableStateOf<ProjectEntity?>(null) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var projectPendingDelete by remember { mutableStateOf<ProjectEntity?>(null) }
     var renameText by remember { mutableStateOf("") }
 
+    // Failed create / delete / rename used to vanish silently (or crash); tell the user instead.
+    val snackbarHost = remember { androidx.compose.material3.SnackbarHostState() }
+    androidx.compose.runtime.LaunchedEffect(vm.error) {
+        vm.error?.let {
+            vm.clearError()
+            snackbarHost.showSnackbar(it, duration = androidx.compose.material3.SnackbarDuration.Long)
+        }
+    }
+    val removedMessage = vm.removedNotice?.let { stringResource(R.string.ui_removed_from_app, it.first) }
+    val undoLabel = stringResource(R.string.ui_undo)
+    androidx.compose.runtime.LaunchedEffect(vm.removedNotice) {
+        if (removedMessage != null) {
+            val r = snackbarHost.showSnackbar(removedMessage, actionLabel = undoLabel, duration = androidx.compose.material3.SnackbarDuration.Long)
+            if (r == androidx.compose.material3.SnackbarResult.ActionPerformed) vm.restoreRemoved() else vm.clearRemovedNotice()
+        }
+    }
+
+    var query by remember { mutableStateOf("") }
+    var sortByName by remember { mutableStateOf(false) }
+    var showFolderGate by remember { mutableStateOf(false) }
+    val visibleProjects = remember(projects, query, sortByName) {
+        projects
+            .filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) }
+            .let { list -> if (sortByName) list.sortedBy { it.name.lowercase() } else list }
+    }
+
     Scaffold(
         containerColor = tokens.surface,
+        snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHost) },
         topBar = {
             Row(
                 modifier = Modifier
@@ -107,7 +145,11 @@ fun HomeScreen(
                         modifier = Modifier.size(28.dp)
                     )
                 },
-                onClick = onNewProject,
+                onClick = {
+                    // A lost save folder means a new project would only exist inside the app: say so first.
+                    if (vm.folderStatus == org.wishyclip.app.ui.HomeViewModel.FolderStatusUi.LOST) showFolderGate = true
+                    else onNewProject()
+                },
                 containerColor = tokens.primary,
                 contentColor = tokens.onPrimary,
                 shape = RoundedCornerShape(tokens.mediumRadius),
@@ -121,6 +163,42 @@ fun HomeScreen(
                 .padding(innerPadding),
             color = tokens.surface
         ) {
+          Column(Modifier.fillMaxSize()) {
+            org.wishyclip.app.ui.components.ProjectFolderBanner(
+                vm = vm, problems = syncProblems, onPick = pickFolder
+            )
+            vm.working?.let { text ->
+                Column(Modifier.fillMaxWidth().padding(horizontal = tokens.spaceLarge, vertical = tokens.spaceXs)) {
+                    androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text(text, style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
+                }
+            }
+            if (projects.size >= 4) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = tokens.spaceLarge, vertical = tokens.spaceXs),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(tokens.spaceSmall)
+                ) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        singleLine = true,
+                        placeholder = { Text(stringResource(R.string.ui_search_projects)) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    androidx.compose.material3.FilterChip(
+                        selected = !sortByName,
+                        onClick = { sortByName = false },
+                        label = { Text(stringResource(R.string.ui_sort_recent)) }
+                    )
+                    androidx.compose.material3.FilterChip(
+                        selected = sortByName,
+                        onClick = { sortByName = true },
+                        label = { Text(stringResource(R.string.ui_sort_name)) }
+                    )
+                }
+            }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
             if (projects.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -157,6 +235,14 @@ fun HomeScreen(
                         )
                     }
                 }
+            } else if (visibleProjects.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        stringResource(R.string.ui_no_matching_projects, query),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = tokens.onSurfaceVariant
+                    )
+                }
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 170.dp),
@@ -169,12 +255,18 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(tokens.spaceLarge),
                     verticalArrangement = Arrangement.spacedBy(tokens.spaceLarge)
                 ) {
-                    items(projects, key = { it.id }) { project ->
+                    items(visibleProjects, key = { it.id }) { project ->
                         val thumb = vm.thumbFile(project.id)
                         ProjectCard(
                             title = project.name,
                             info = "${project.width}x${project.height} • ${project.fps} FPS",
                             thumbnailFile = thumb,
+                            badge = when {
+                                vm.folderStatus != org.wishyclip.app.ui.HomeViewModel.FolderStatusUi.READY -> org.wishyclip.app.ui.components.ProjectBadge.NONE
+                                syncProblems.containsKey(project.id) -> org.wishyclip.app.ui.components.ProjectBadge.PROBLEM
+                                project.folderName == null -> org.wishyclip.app.ui.components.ProjectBadge.PENDING
+                                else -> org.wishyclip.app.ui.components.ProjectBadge.SAVED
+                            },
                             onClick = { onOpenProject(project.id) },
                             onLongClick = {
                                 selectedProjectForOptions = project
@@ -183,6 +275,21 @@ fun HomeScreen(
                     }
                 }
             }
+            }
+          }
+        }
+    }
+
+    if (showFolderGate) {
+        WishyDialog(
+            title = stringResource(R.string.pf_gate_title),
+            onDismissRequest = { showFolderGate = false },
+            confirmText = stringResource(R.string.pf_choose),
+            onConfirm = { showFolderGate = false; pickFolder() },
+            dismissText = stringResource(R.string.pf_gate_continue),
+            onDismiss = { showFolderGate = false; onNewProject() }
+        ) {
+            Text(stringResource(R.string.pf_gate_body))
         }
     }
 
@@ -218,18 +325,30 @@ fun HomeScreen(
     }
 
     projectPendingDelete?.let { project ->
+        val inFolder = project.folderName != null && vm.folderStatus == org.wishyclip.app.ui.HomeViewModel.FolderStatusUi.READY
         WishyDialog(
             title = stringResource(R.string.ui_delete_animation),
             onDismissRequest = { projectPendingDelete = null },
-            confirmText = stringResource(R.string.ui_delete),
+            confirmText = if (inFolder) stringResource(R.string.ui_remove_from_app) else stringResource(R.string.ui_delete),
+            destructive = !inFolder,
             onConfirm = {
-                vm.delete(project)
+                vm.delete(project, deleteFolder = false)
                 projectPendingDelete = null
             },
             dismissText = stringResource(R.string.action_cancel),
             onDismiss = { projectPendingDelete = null }
         ) {
-            Text("\"${project.name}\" and all of its frames will be permanently deleted. This can't be undone.")
+            Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
+                if (inFolder) {
+                    Text(stringResource(R.string.ui_remove_from_app_body, project.name, project.folderName ?: ""))
+                    TextButton(onClick = {
+                        vm.delete(project, deleteFolder = true)
+                        projectPendingDelete = null
+                    }) { Text(stringResource(R.string.ui_delete_folder_too), color = tokens.danger) }
+                } else {
+                    Text(stringResource(R.string.ui_delete_project_body, project.name))
+                }
+            }
         }
     }
 

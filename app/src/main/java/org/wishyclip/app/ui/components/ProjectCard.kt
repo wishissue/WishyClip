@@ -15,6 +15,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import org.wishyclip.app.R
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +34,9 @@ import org.wishyclip.app.ui.design.themes.DarkTokens
 import org.wishyclip.app.ui.design.themes.LightTokens
 import java.io.File
 
+/** Whether a project's folder copy is up to date. */
+enum class ProjectBadge { NONE, SAVED, PENDING, PROBLEM }
+
 /** Project tile: a Material 3 filled card with the first frame on "paper", the name and the size. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -40,15 +46,24 @@ fun ProjectCard(
     thumbnailFile: File?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    badge: ProjectBadge = ProjectBadge.NONE
 ) {
     val scheme = MaterialTheme.colorScheme
     val shape = MaterialTheme.shapes.large
+    val openLabel = stringResource(R.string.ui_open_project, title)
+    val optionsLabel = stringResource(R.string.ui_project_options)
     Card(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .combinedClickable(
+                role = androidx.compose.ui.semantics.Role.Button,
+                onClickLabel = openLabel,
+                onLongClickLabel = optionsLabel,
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainerLow)
     ) {
@@ -72,6 +87,24 @@ fun ProjectCard(
                     contentDescription = null, // decorative: the card's title text already names it
                     tint = Color.Black.copy(alpha = 0.3f),
                     modifier = Modifier.size(40.dp)
+                )
+            }
+            if (badge != ProjectBadge.NONE) {
+                val (text, container, content) = when (badge) {
+                    ProjectBadge.SAVED -> Triple(stringResource(R.string.ui_badge_saved), scheme.primaryContainer, scheme.onPrimaryContainer)
+                    ProjectBadge.PENDING -> Triple(stringResource(R.string.ui_badge_pending), scheme.surfaceVariant, scheme.onSurfaceVariant)
+                    else -> Triple(stringResource(R.string.ui_badge_problem), scheme.errorContainer, scheme.onErrorContainer)
+                }
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = content,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(container)
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
                 )
             }
         }

@@ -124,29 +124,13 @@ class AnimatedGifEncoder {
     }
 
     /**
-     * Anti-aliased drawings usually exceed 256 colours. Instead of mapping every extra colour to
-     * palette entry 0 (which erased stroke edges), use a fixed 3-3-2 bit RGB palette.
+     * Anti-aliased drawings usually exceed 256 colours. A palette is chosen per frame by median cut
+     * (see [GifQuantizer]), which follows the colours the picture really uses.
      */
     private fun buildQuantizedPalette(nPix: Int) {
-        val tab = ByteArray(256 * 3)
-        for (i in 0 until 256) {
-            val r = (i shr 5) and 7
-            val g = (i shr 2) and 7
-            val b = i and 3
-            tab[i * 3] = (r * 255 / 7).toByte()
-            tab[i * 3 + 1] = (g * 255 / 7).toByte()
-            tab[i * 3 + 2] = (b * 255 / 3).toByte()
-        }
-        for (i in 0 until nPix) {
-            val r = pixels!![i * 3].toInt() and 0xFF
-            val g = pixels!![i * 3 + 1].toInt() and 0xFF
-            val b = pixels!![i * 3 + 2].toInt() and 0xFF
-            val rq = (r * 7 + 127) / 255
-            val gq = (g * 7 + 127) / 255
-            val bq = (b * 3 + 127) / 255
-            indexedPixels!![i] = ((rq shl 5) or (gq shl 2) or bq).toByte()
-        }
-        colorTab = tab
+        val r = GifQuantizer.quantize(pixels!!, nPix)
+        colorTab = r.palette
+        indexedPixels = r.indexes
     }
 
     private fun writeString(s: String) {
@@ -209,6 +193,107 @@ class AnimatedGifEncoder {
     private fun writeShort(value: Int) {
         out?.write(value and 0xFF)
         out?.write((value ushr 8) and 0xFF)
+    }
+}
+
+/**
+ * Median-cut colour quantizer. Colours are first reduced to 5 bits per channel (32768 bins), then the bin
+ * set is split repeatedly along its widest channel at the pixel-count median until there are 256 boxes.
+ * Each box becomes one palette colour (the pixel-weighted average). Pure Kotlin so it is unit-tested.
+ */
+internal object GifQuantizer {
+    class Result(val palette: ByteArray, val indexes: ByteArray)
+
+    private fun binOf(rgb: ByteArray, i: Int): Int {
+        val r = rgb[i * 3].toInt() and 0xFF
+        val g = rgb[i * 3 + 1].toInt() and 0xFF
+        val b = rgb[i * 3 + 2].toInt() and 0xFF
+        return ((r shr 3) shl 10) or ((g shr 3) shl 5) or (b shr 3)
+    }
+
+    private fun channel(bin: Int, c: Int): Int = when (c) {
+        0 -> bin shr 10
+        1 -> (bin shr 5) and 31
+        else -> bin and 31
+    }
+
+    /** [rgb] holds r, g, b bytes per pixel. Always returns a 256-entry palette and one index per pixel. */
+    fun quantize(rgb: ByteArray, nPix: Int): Result {
+        val hist = IntArray(32768)
+        for (i in 0 until nPix) hist[binOf(rgb, i)]++
+        val bins = IntArray(32768)
+        var nb = 0
+        for (b in 0 until 32768) if (hist[b] > 0) bins[nb++] = b
+
+        val start = IntArray(256)
+        val end = IntArray(256)
+        var count = 1
+        end[0] = nb
+        while (count < 256) {
+            var best = -1
+            var bestPix = -1L
+            for (k in 0 until count) {
+                if (end[k] - start[k] < 2) continue
+                var pix = 0L
+                for (j in start[k] until end[k]) pix += hist[bins[j]]
+                if (pix > bestPix) { bestPix = pix; best = k }
+            }
+            if (best < 0) break
+            val s = start[best]
+            val e = end[best]
+            var widest = 0
+            var widestExtent = -1
+            for (c in 0..2) {
+                var lo = 31
+                var hi = 0
+                for (j in s until e) {
+                    val v = channel(bins[j], c)
+                    if (v < lo) lo = v
+                    if (v > hi) hi = v
+                }
+                if (hi - lo > widestExtent) { widestExtent = hi - lo; widest = c }
+            }
+            val keys = LongArray(e - s) { (channel(bins[s + it], widest).toLong() shl 20) or bins[s + it].toLong() }
+            keys.sort()
+            for (j in keys.indices) bins[s + j] = (keys[j] and 0xFFFFF).toInt()
+            var acc = 0L
+            var m = 1
+            for (j in s until e) {
+                acc += hist[bins[j]]
+                if (acc * 2 >= bestPix) { m = j - s + 1; break }
+            }
+            m = m.coerceIn(1, e - s - 1)
+            start[count] = s + m
+            end[count] = e
+            end[best] = s + m
+            count++
+        }
+
+        val palette = ByteArray(256 * 3)
+        val binToIndex = IntArray(32768)
+        for (k in 0 until count) {
+            var w = 0L
+            var sr = 0L
+            var sg = 0L
+            var sb = 0L
+            for (j in start[k] until end[k]) {
+                val b = bins[j]
+                val n = hist[b].toLong()
+                w += n
+                sr += n * (channel(b, 0) * 255 / 31)
+                sg += n * (channel(b, 1) * 255 / 31)
+                sb += n * (channel(b, 2) * 255 / 31)
+                binToIndex[b] = k
+            }
+            if (w > 0) {
+                palette[k * 3] = (sr / w).toInt().toByte()
+                palette[k * 3 + 1] = (sg / w).toInt().toByte()
+                palette[k * 3 + 2] = (sb / w).toInt().toByte()
+            }
+        }
+        val indexes = ByteArray(nPix)
+        for (i in 0 until nPix) indexes[i] = binToIndex[binOf(rgb, i)].toByte()
+        return Result(palette, indexes)
     }
 }
 

@@ -118,8 +118,7 @@ class StrokeRenderer {
         hasDirty = false
         if (viaOverlay) {
             paint.alpha = 255
-            ensureOverlay(target)
-            BitmapOps.clear(overlayBmp!!)
+            ensureOverlay(target) // leaves the overlay fully transparent
         }
         baseWidth = paint.strokeWidth
         variablePressure = !isShape && tool != Tool.MARKER && abs(pressure - 1f) > 0.05f
@@ -150,7 +149,8 @@ class StrokeRenderer {
     }
 
     fun moveTo(x: Float, y: Float, pressure: Float = 1f, @Suppress("UNUSED_PARAMETER") tilt: Float = 0f) {
-        if (target == null) return
+        val live = target ?: return
+        if (live.isRecycled) { abandonRecycledTarget(); return }
         if (isShape) {
             updateShape(x, y)
             lastX = x; lastY = y
@@ -184,6 +184,7 @@ class StrokeRenderer {
      */
     fun finish(): StrokePatch? {
         val t = target ?: return null
+        if (t.isRecycled) { abandonRecycledTarget(); return null }
         if (!isShape && (midX != lastX || midY != lastY)) {
             // Close the gap between the last curve midpoint and the final pointer position.
             segPath.rewind()
@@ -202,8 +203,7 @@ class StrokeRenderer {
             val p = Paint(Paint.FILTER_BITMAP_FLAG)
             p.alpha = (BrushPaints.alphaFactor(tool, opacity) * 255f).roundToInt().coerceIn(0, 255)
             Canvas(t).drawBitmap(overlay, rect, rect, p)
-            BitmapOps.clear(overlay)
-            reset()
+            reset() // clears the part of the overlay that was used
             return StrokePatch(patch, rect)
         } else {
             val patch = BitmapOps.copyRect(t, rect)
@@ -222,9 +222,9 @@ class StrokeRenderer {
     /** Abandons the stroke, restoring the target (eraser) and clearing the overlay. */
     fun cancel() {
         val t = target
-        if (t != null) {
+        if (t != null && !t.isRecycled) {
             if (viaOverlay) {
-                if (hasDirty) overlayBmp?.let { BitmapOps.clearRect(it, Rect(0, 0, it.width, it.height)) }
+                // reset() below clears the used part of the overlay
             } else {
                 for ((key, cell) in backups) {
                     val cx = (key and 0xFFFFL).toInt()
@@ -253,11 +253,25 @@ class StrokeRenderer {
 
     // ------------------------------------------------------------------ internals
 
+    /**
+     * The layer's bitmap was freed while a stroke was still being drawn (frame evicted, layer released).
+     * Drawing on it would throw "Canvas: trying to use a recycled bitmap" and kill the app, so the stroke
+     * is dropped; the undo backups belong to the dead bitmap and are simply discarded.
+     */
+    private fun abandonRecycledTarget() {
+        target = null
+        targetCanvas = null
+        reset()
+    }
+
     private fun reset() {
+        // Only the area the stroke touched needs clearing (a full 4K overlay is 35 MB); the next stroke's
+        // ensureOverlay() still starts from a fully cleared bitmap as a safety net.
+        val o = overlayBmp
+        if (o != null && !o.isRecycled && hasDirty) BitmapOps.clearRect(o, Rect(dirty))
         dirty.setEmpty()
         hasDirty = false
         segPath.rewind()
-        overlayBmp?.let { BitmapOps.clear(it) }
         for (b in backups.values) if (!b.isRecycled) b.recycle()
         backups.clear()
         target = null
@@ -362,13 +376,23 @@ class StrokeRenderer {
         forEachMirror { fx, fy ->
             var px = x + jx
             var py = y + jy
+            if (fx) px = tw - px
+            if (fy) py = th - py
+            // A mirror image is a true reflection of the tip: reflecting across one axis reverses the rotation
+            // AND flips the tip itself (matters for asymmetric tips); reflecting across both is a 180 degree turn.
             var ang = baseAngle
-            if (fx) { px = tw - px; ang = 180f - ang }
-            if (fy) { py = th - py; ang = -ang }
+            var sx = scale
+            var sy = scale
+            if (fx != fy) {
+                ang = -baseAngle
+                if (fx) sx = -scale else sy = -scale
+            } else if (fx) {
+                ang = baseAngle + 180f
+            }
             c.save()
             c.translate(px, py)
             c.rotate(ang)
-            c.scale(scale, scale)
+            c.scale(sx, sy)
             c.drawBitmap(d.tip, -d.tip.width / 2f, -d.tip.height / 2f, dabPaint)
             c.restore()
             expandDirty(px - reachPx, py - reachPx, px + reachPx, py + reachPx)

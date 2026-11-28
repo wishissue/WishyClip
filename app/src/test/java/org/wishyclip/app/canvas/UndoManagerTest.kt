@@ -121,4 +121,42 @@ class UndoManagerTest {
 
         assertEquals(android.graphics.Color.TRANSPARENT, target.getPixel(2, 2))
     }
+
+    @Test
+    fun redoDoesNotGrowUndoStackPastItsLimit() {
+        val m = UndoManager(2)
+        m.push(UndoEntry(1, 1, createBitmap()))
+        m.push(UndoEntry(1, 1, createBitmap()))
+        val a = UndoEntry(1, 1, createBitmap())
+        val b = UndoEntry(1, 1, createBitmap())
+        m.pushUndoKeepRedo(a)
+        m.pushUndoKeepRedo(b)
+        var count = 0
+        while (m.popUndo() != null) count++
+        assertEquals(2, count)
+    }
+
+    @Test
+    fun dropLayerRemovesOnlyThatLayersEntriesAndFreesBitmaps() {
+        val m = UndoManager(10)
+        val doomed = createBitmap()
+        m.push(UndoEntry(1, 10, doomed))
+        m.push(UndoEntry(1, 11, createBitmap()))
+        m.dropLayer(10)
+        assertTrue(doomed.isRecycled)
+        assertEquals(11L, m.popUndo()!!.layerId)
+        assertNull(m.popUndo())
+    }
+
+    @Test
+    fun entryPutBackAfterAFailedUndoCanBePoppedAgainUnchanged() {
+        val m = UndoManager(10)
+        val e = UndoEntry(1, 10, createBitmap())
+        m.push(e)
+        val popped = m.popUndo()!!
+        m.pushUndoKeepRedo(popped) // what applyHistory does when restoring pixels failed
+        assertTrue(m.canUndo)
+        assertFalse(popped.bitmap.isRecycled)
+        assertEquals(e, m.popUndo())
+    }
 }

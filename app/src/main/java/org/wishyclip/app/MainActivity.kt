@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
             val savedTimelineMode by settingsStore.timelineMode.collectAsState(initial = "COMPACT")
             val savedHaptics by settingsStore.hapticsEnabled.collectAsState(initial = true)
             val savedPalmRejection by settingsStore.palmRejection.collectAsState(initial = false)
+            val savedMagnifier by settingsStore.magnifier.collectAsState(initial = true)
 
             val customThemesLoaded by settingsStore.customThemes.collectAsState(initial = null)
             val customThemes = customThemesLoaded ?: emptyList()
@@ -111,6 +112,8 @@ class MainActivity : ComponentActivity() {
                             onTogglePalmRejection = { palm ->
                                 scope.launch { settingsStore.savePalmRejection(palm) }
                             },
+                            magnifier = savedMagnifier,
+                            onToggleMagnifier = { on -> scope.launch { settingsStore.saveMagnifier(on) } },
                             timelineMode = runCatching { TimelineMode.valueOf(savedTimelineMode) }.getOrDefault(TimelineMode.COMPACT),
                             onSelectTimelineMode = { mode ->
                                 scope.launch { settingsStore.saveTimelineMode(mode.name) }
@@ -157,6 +160,8 @@ fun WishyNavHost(
     onToggleHaptics: (Boolean) -> Unit,
     palmRejection: Boolean,
     onTogglePalmRejection: (Boolean) -> Unit,
+    magnifier: Boolean = true,
+    onToggleMagnifier: (Boolean) -> Unit = {},
     timelineMode: TimelineMode = TimelineMode.COMPACT,
     onSelectTimelineMode: (TimelineMode) -> Unit = {},
     customThemes: List<WishyTokens> = emptyList(),
@@ -179,10 +184,19 @@ fun WishyNavHost(
                 onNewProject = { nav.navigate("new_project") },
                 onOpenSettings = { nav.navigate("settings") }
             )
+            // Update dialogs live on the start screen only, so they never interrupt drawing.
+            org.wishyclip.app.update.UpdatePrompt(org.wishyclip.app.update.activityUpdateViewModel())
         }
         composable("new_project") {
             val homeVm: HomeViewModel = viewModel()
+            val pickFolder = org.wishyclip.app.ui.components.rememberFolderPicker { homeVm.chooseFolder(it) }
+            val rootUri by homeVm.rootUri.collectAsState()
             NewProjectScreen(
+                folderCard = {
+                    org.wishyclip.app.ui.components.ProjectFolderCard(
+                        status = homeVm.folderStatus, rootUri = rootUri, onPick = pickFolder, compact = true
+                    )
+                },
                 onCreateProject = { name, w, h, fps ->
                     homeVm.create(name, w, h, fps) { newId ->
                         nav.navigate("editor/$newId") {
@@ -205,6 +219,8 @@ fun WishyNavHost(
                 onToggleHaptics = onToggleHaptics,
                 palmRejection = palmRejection,
                 onTogglePalmRejection = onTogglePalmRejection,
+                magnifier = magnifier,
+                onToggleMagnifier = onToggleMagnifier,
                 timelineMode = timelineMode,
                 onSelectTimelineMode = onSelectTimelineMode,
                 customThemes = customThemes,
@@ -234,6 +250,7 @@ fun WishyNavHost(
                 onExit = { nav.popBackStack() },
                 isLeftHanded = isLeftHanded,
                 palmRejection = palmRejection,
+                magnifier = magnifier,
                 defaultTimelineMode = timelineMode,
                 onOpenDesignGallery = if (showDebugTools) { { nav.navigate("design_gallery") } } else null
             )

@@ -15,7 +15,11 @@ data class ProjectEntity(
     val height: Int,
     val fps: Int,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    /** Stable identity of the project; stored in its folder manifest so a re-import never duplicates it. */
+    @ColumnInfo(defaultValue = "''") val uuid: String = "",
+    /** Name of this project's sub-folder inside the user's project folder (null = not exported yet). */
+    val folderName: String? = null
 )
 
 @Entity(

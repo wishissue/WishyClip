@@ -7,7 +7,8 @@ import org.wishyclip.app.model.LayerBlend
 
 /** Maps [LayerBlend] to Porter-Duff transfer modes (all hardware-accelerated, API 26+ safe). */
 object LayerBlending {
-    private val cache = HashMap<LayerBlend, PorterDuffXfermode>()
+    // Used by the UI thread and by the export thread at the same time: must be thread-safe.
+    private val cache = java.util.concurrent.ConcurrentHashMap<LayerBlend, PorterDuffXfermode>()
 
     fun xfermode(blend: LayerBlend): PorterDuffXfermode? {
         val mode = when (blend) {

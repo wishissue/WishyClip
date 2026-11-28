@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- In-app update check and installer (GitHub releases), with Update / Later prompt.
+- Release signing moved off GitHub: real releases are built locally; GitHub builds only debug test pre-releases. Debug builds now use the app id `org.wishyclip.app.debug`.
+- Magnifier while drawing, unified slider style, one-screen New project, UI polish (see STABILITY_1_0.md).
+
+## Unreleased
 
 ### Redesign (WishIssue UI Design Guidelines)
 - New default themes **Wishy** (light) and **Wishy Dark**, built from the shared WishIssue tokens (primary `#1560D4` / `#A8C8FF`). With no saved choice the app follows the system light/dark setting. Existing themes stay available and a saved choice is kept.

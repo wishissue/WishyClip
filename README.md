@@ -53,7 +53,7 @@
 Animation apps tend to be either locked behind a subscription or full of ads. WishyClip gives you a canvas, a timeline and the tools you need, and nothing else.
 
 - **Free for real.** No ads, no paywall, no subscription.
-- **Private by default.** Projects stay on your device. The app does not even request the internet permission.
+- **Private by default.** Projects stay on your device. The only thing the app ever sends over the internet is one request to GitHub, at start-up, asking whether a newer version exists (you can switch it off in Settings → About).
 - **Built for drawing.** Stylus pressure, optional palm rejection, a stabilizer and motion-predicted, low-latency input.
 - **Bring your own stuff.** Import brush packs, fonts and themes from other apps and communities.
 
@@ -91,7 +91,7 @@ Add, delete, reorder, hide, lock, set opacity and **merge down**. Each layer has
 
 ### Audio
 
-Import an audio file or **record a voiceover**, then trim it, split it at the playhead, change its volume and line it up on the timeline with a waveform lane. Multiple tracks are supported.
+Import an audio file or record your voice at the playhead (Audio > *Record voice*, up to 10 minutes per recording, the microphone permission is asked on first use). Then trim it (start and length sliders; the sound file itself is never cut), split it at the playhead, change its volume and line it up on the timeline. Multiple tracks are supported. A clip is anchored to a position on the timeline, so inserting or deleting frames before it does not move it.
 
 ### Export
 
@@ -108,7 +108,6 @@ Exports run in a foreground service with a progress notification, so you can lea
 
 - **Brush import:** `.wbrush`, Krita `.kpp` and `.bundle`, Photoshop `.abr`, GIMP `.gbr` and `.gih`, and Procreate `.brush` and `.brushset`. See [`BRUSHES.md`](BRUSHES.md) for how the brush engine works.
 - **Themes:** Cloud, Midnight, Flip Dark, AMOLED Black, Candy, Light and Dark, plus a theme editor and **JSON theme import**.
-- **Icon packs:** Cute (colour) or Clean (minimal).
 - **Layouts:** portrait and landscape, with a **left-handed mode**.
 
 ---
@@ -127,7 +126,7 @@ Exports run in a foreground service with a progress notification, so you can lea
 | **Onion skin** button | Show or hide the previous-frame ghost |
 | **Duplicate / delete frame** buttons | Copy or remove the current frame |
 | **+** in the frame strip | Add a new frame |
-| **+** next to *Audio* | Add or record an audio track |
+| **+** next to *Audio* | Add an audio track |
 
 ---
 
@@ -174,22 +173,54 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 - **Android 8.0 (API 26) and newer.** Built against Android 15 (API 35).
 - **Portrait and landscape.** The editor has a layout for each, and rotating the device does not restart the app.
-- **Permissions:** microphone (only when you record a voiceover), notifications and a foreground service (for export progress), and storage write access on Android 8 to 9 only (to save exports). No internet permission.
+- **Permissions:** notifications and a foreground service (for export progress), and storage write access on Android 8 to 9 only (to save exports). Internet, used only for the update check and for downloading an update you accept; and permission to ask Android to install that update.
 
 ---
 
 ## What's stored, and what isn't
 
-Everything lives in the app's private storage on your device:
+**Your projects live in a folder you choose, not inside the app.** When you create your first project (or in
+Settings > Project folder) WishyClip asks you to pick a folder, for example `Documents/WishyClip`. Every
+project gets its own sub-folder there, named after the project:
 
-- Your projects: frames and layers (as PNG bitmaps) and project info (in a local Room database)
-- Audio clips you import or record
-- Brushes, fonts and themes you import
-- Your settings (theme, icon pack, left-handed mode, palm rejection)
+```
+Documents/WishyClip/
+    My Cat/
+        wishyclip-project.json    the project (frames, layers, settings)
+        wishyclip-project.bak     the previous save, kept as a safety copy
+        layers/                   one PNG per layer picture (named by content, never edited afterwards)
+        audio/                    imported sound files
+        thumbnail.png
+        README.txt
+```
 
-Nothing is uploaded anywhere. There are no accounts, no cloud sync and no analytics, ad or crash-reporting SDKs. See [`PRIVACY.md`](PRIVACY.md) for the full policy.
+- **Uninstalling, clearing data, updating or crashing the app does not touch these folders.** After a
+  reinstall, choose the same folder again and WishyClip lists the projects it finds so you can import them.
+  (Android removes an app's access to a folder when the app is uninstalled, so the folder must be chosen again.)
+- You can copy, zip, back up or share a project folder like any other folder, and put it wherever you like.
+- Saves are crash-safe: pictures are never overwritten, the project file is written last and the previous one
+  is kept as `.bak`, so an interrupted save always leaves a complete, readable project.
+- A project saved by a **newer** version of WishyClip is never modified by an older one; it is listed as
+  "saved by a newer version" instead.
+- The app also keeps a fast working copy of your projects in its own storage (frames and layers as PNG bitmaps
+  plus a local Room database). That copy is rebuilt from the folder, so losing it never loses a project.
+- If the folder was changed by something else (another device, a sync app) the app does not overwrite it: it asks
+  whether to keep the app's version or use the folder's.
+- Removing a project from the app keeps its folder; you choose separately whether to delete the folder too.
+
+Also stored in the app's private storage: brushes, fonts and themes you import, and your settings.
+
+Nothing is uploaded anywhere by WishyClip. There are no accounts, no cloud sync and no analytics, ad or
+crash-reporting SDKs. (If you choose a folder that another app syncs, such as a cloud drive, that app does the
+syncing.) See [`PRIVACY.md`](PRIVACY.md) for the full policy.
 
 ---
+
+## Updates and releases
+
+The app checks GitHub for a newer release when it starts. If there is one, a dialog offers **Update** or **Later**; *Later* simply asks again the next time the app opens. **Update** downloads the new APK, checks the checksum and that it is signed with the same key as the installed app, and then hands it to Android's installer (Android asks once for permission to install from this app). Your projects live in your project folder, so even if an update ever cannot be installed in place, installing the new version and choosing the same folder brings every project back.
+
+**Real releases are built on the maintainer's computer and signed there. The signing key is never on GitHub.** GitHub only builds *test* builds (debug key, separate app id `org.wishyclip.app.debug`, published as pre-releases that the updater ignores). The full procedure, written for AI agents and humans alike, is in [AGENT_RELEASE_GUIDE.md](AGENT_RELEASE_GUIDE.md).
 
 ## Under the hood
 
@@ -199,7 +230,7 @@ Nothing is uploaded anywhere. There are no accounts, no cloud sync and no analyt
 | **UI** | Jetpack Compose with Material 3, custom design system in `ui/design/` |
 | **Drawing** | `DrawingSurfaceView` with Android's motion-prediction library, `StrokeRenderer` and a dab-based brush engine |
 | **Storage** | Room (projects, frames, layers, audio tracks), DataStore (settings), PNG layer bitmaps |
-| **Audio** | Media3 ExoPlayer for playback, `MediaRecorder` for voiceover, a waveform extractor for the timeline |
+| **Audio** | Media3 ExoPlayer for playback, a waveform extractor for the timeline |
 | **Export** | `MediaCodec` + `MediaMuxer` for MP4, a built-in GIF encoder, an audio mixer, and a foreground service |
 | **Images** | Coil |
 | **Tests** | JUnit and Robolectric unit tests for the canvas, brushes, data layer and exporter |
@@ -211,7 +242,7 @@ Nothing is uploaded anywhere. There are no accounts, no cloud sync and no analyt
 | `canvas/` | Drawing surface, strokes, fill, lasso, ruler, onion skin, blending, undo |
 | `brush/` | Brush file parsers and the on-disk brush store |
 | `data/` | Database, repository, importers, settings, font and brush libraries |
-| `audio/` | Multi-track playback, voice recording, waveforms |
+| `audio/` | Multi-track playback, waveforms |
 | `export/` | MP4 and GIF encoders, audio mixer, export service |
 | `model/` | Tools, blend modes, mirror modes, presets |
 | `ui/` | Design system, components and screens |
@@ -235,7 +266,9 @@ Being upfront about what can go wrong:
 - **Big canvases use more memory.** The New Project screen shows an estimated cache size, so check it before choosing a very large canvas or frame rate.
 
 **Not finished yet**
-- **Layers are stored as full bitmaps.** A tiled, sparse layer store exists in the code (`canvas/TileStore.kt`) but is not connected yet.
+- **Project folders:** the folder is written by one device at a time. Renaming a project renames its folder too, unless you renamed the folder yourself. Folders on slow or cloud-backed storage can make saving slower.
+- **Layers are stored as full bitmaps.** Very long or very large projects use a lot of memory, so new canvases are limited to about 8.8 megapixels (for example 4096 x 2160).
+- **Not available yet (code exists but is not connected to the app):** icon packs, and a tiled sparse layer store. They are deliberately not advertised until they work end to end. See `STABILITY_1_0.md`.
 - **Krita and Procreate brush import is best effort.** The tip shape, name and spacing are recovered, but not grain or full dynamics. Computed round brushes inside `.abr` files are skipped.
 - **Palm rejection is optional** and off until you turn it on in Settings.
 

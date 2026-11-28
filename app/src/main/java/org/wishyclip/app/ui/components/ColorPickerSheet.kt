@@ -30,6 +30,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -138,17 +143,19 @@ fun ColorPickerSheet(
                         Row(horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)) {
                             Box(
                                 modifier = Modifier
+                                    .minimumInteractiveComponentSize()
                                     .clip(RoundedCornerShape(tokens.smallRadius))
-                                    .clickable { onDismiss() }
+                                    .clickable(role = Role.Button) { onDismiss() }
                                     .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs)
                             ) {
                                 Text(stringResource(R.string.ui_cancel), style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
                             }
                             Box(
                                 modifier = Modifier
+                                    .minimumInteractiveComponentSize()
                                     .clip(RoundedCornerShape(tokens.smallRadius))
                                     .background(tokens.primary)
-                                    .clickable { onPick(argb) }
+                                    .clickable(role = Role.Button) { onPick(argb) }
                                     .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs)
                             ) {
                                 Text(stringResource(R.string.ui_select), style = MaterialTheme.typography.labelMedium, color = tokens.onPrimary, fontWeight = FontWeight.Bold)
@@ -455,14 +462,24 @@ private fun PresetSwatchesGrid(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             for (c in PresetSwatches.take(6)) {
+                val hex = "#%06X".format(c and 0xFFFFFF)
+                val swatchLabel = stringResource(R.string.ui_color_swatch, hex)
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
+                        .minimumInteractiveComponentSize()
                         .clip(CircleShape)
-                        .background(Color(c))
-                        .border(1.5.dp, if (currentColor == c) tokens.primary else tokens.glassBorder, CircleShape)
-                        .clickable { onSelectSwatch(c) }
-                )
+                        .clickable(role = Role.Button, onClickLabel = swatchLabel) { onSelectSwatch(c) }
+                        .semantics { contentDescription = swatchLabel; selected = currentColor == c },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color(c))
+                            .border(1.5.dp, if (currentColor == c) tokens.primary else tokens.glassBorder, CircleShape)
+                    )
+                }
             }
         }
         Row(
@@ -470,14 +487,24 @@ private fun PresetSwatchesGrid(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             for (c in PresetSwatches.drop(6)) {
+                val hex = "#%06X".format(c and 0xFFFFFF)
+                val swatchLabel = stringResource(R.string.ui_color_swatch, hex)
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
+                        .minimumInteractiveComponentSize()
                         .clip(CircleShape)
-                        .background(Color(c))
-                        .border(1.5.dp, if (currentColor == c) tokens.primary else tokens.glassBorder, CircleShape)
-                        .clickable { onSelectSwatch(c) }
-                )
+                        .clickable(role = Role.Button, onClickLabel = swatchLabel) { onSelectSwatch(c) }
+                        .semantics { contentDescription = swatchLabel; selected = currentColor == c },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color(c))
+                            .border(1.5.dp, if (currentColor == c) tokens.primary else tokens.glassBorder, CircleShape)
+                    )
+                }
             }
         }
     }

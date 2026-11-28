@@ -1,12 +1,14 @@
 # Gradle files
 .gradle/
 build/
+**/build/
 
 # Local configuration file (sdk path, etc)
 local.properties
 
 # Log/OS Files
 *.log
+.DS_Store
 
 # Android Studio generated files and folders
 captures/
@@ -22,11 +24,12 @@ misc.xml
 deploymentTargetDropDown.xml
 render.experimental.xml
 
-# Keystore files & properties
+# Keystore files, properties & local release outputs
 keystore/
 *.jks
 *.keystore
 keystore.properties
+release-out/
 
 # Output directory
 output/

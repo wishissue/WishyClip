@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -30,11 +31,13 @@ import org.wishyclip.app.ui.design.themes.LightTokens
 fun WishyDialog(
     title: String,
     onDismissRequest: () -> Unit,
-    confirmText: String = "OK",
+    confirmText: String = stringResource(R.string.action_ok),
     onConfirm: () -> Unit,
-    dismissText: String? = "Cancel",
+    dismissText: String? = stringResource(R.string.action_cancel),
     onDismiss: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    /** Colors the confirm button as dangerous (delete, discard, overwrite). */
+    destructive: Boolean = false,
     content: @Composable () -> Unit
 ) {
     AlertDialog(
@@ -48,7 +51,11 @@ fun WishyDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) { Text(confirmText) }
+            TextButton(
+                onClick = onConfirm,
+                colors = if (destructive) ButtonDefaults.textButtonColors(contentColor = WishyTheme.tokens.danger)
+                else ButtonDefaults.textButtonColors()
+            ) { Text(confirmText) }
         },
         dismissButton = if (dismissText != null && onDismiss != null) {
             { TextButton(onClick = onDismiss) { Text(dismissText) } }
@@ -112,7 +119,7 @@ fun ProjectRecoveryDialog(
         dismissText = stringResource(R.string.ui_discard),
         onDismiss = onDiscard
     ) {
-        Text("Unsaved artwork changes were found for \"$projectName\". Would you like to recover your work?")
+        Text(stringResource(R.string.ui_recover_work_body, projectName))
     }
 }
 
