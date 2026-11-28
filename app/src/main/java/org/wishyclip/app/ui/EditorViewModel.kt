@@ -188,6 +188,15 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     private var strokeLayer: LayerData? = null
     private var strokeFrameId: Long = -1L
 
+    private val safeHandler = CoroutineExceptionHandler { _, e ->
+        if (e !is CancellationException) {
+            showMessage(
+                if (e is OutOfMemoryError) "Not enough memory for that action"
+                else "That action failed. Your drawing is still open and will keep being saved."
+            )
+        }
+    }
+
     init {
         launchSafe {
             try {
@@ -2377,15 +2386,6 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
      * with it the unsaved drawing; now it becomes a message and the in-memory edits stay alive and keep
      * being saved by the retrying autosave.
      */
-    private val safeHandler = CoroutineExceptionHandler { _, e ->
-        if (e !is CancellationException) {
-            showMessage(
-                if (e is OutOfMemoryError) "Not enough memory for that action"
-                else "That action failed. Your drawing is still open and will keep being saved."
-            )
-        }
-    }
-
     private fun launchSafe(
         context: kotlin.coroutines.CoroutineContext = kotlin.coroutines.EmptyCoroutineContext,
         block: suspend CoroutineScope.() -> Unit

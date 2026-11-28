@@ -28,6 +28,10 @@ import org.wishyclip.app.ui.design.themes.IndigoDarkTokens
 import org.wishyclip.app.ui.design.themes.IndigoDuskTokens
 import org.wishyclip.app.ui.design.themes.IndigoLightTokens
 import org.wishyclip.app.ui.design.themes.IndigoOledTokens
+import org.wishyclip.app.ui.design.themes.WishyBlueDarkTokens
+import org.wishyclip.app.ui.design.themes.WishyBlueDuskTokens
+import org.wishyclip.app.ui.design.themes.WishyBlueLightTokens
+import org.wishyclip.app.ui.design.themes.WishyBlueOledTokens
 import org.wishyclip.app.ui.design.themes.WishyDarkTokens
 import org.wishyclip.app.ui.design.themes.WishyLightTokens
 import org.wishyclip.app.ui.design.themes.ThemeImporter
@@ -220,6 +224,10 @@ class SettingsStore(private val context: Context) {
             IndigoDarkTokens,
             IndigoDuskTokens,
             IndigoOledTokens,
+            WishyBlueLightTokens,
+            WishyBlueDarkTokens,
+            WishyBlueDuskTokens,
+            WishyBlueOledTokens,
             WishyLightTokens,
             WishyDarkTokens,
             CoralLightTokens,

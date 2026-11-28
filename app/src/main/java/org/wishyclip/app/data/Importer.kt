@@ -204,7 +204,7 @@ object Importer {
                 // API 27+ can hand back an already scaled frame, so a 4K clip never needs a full-size bitmap
                 // in memory (a single 4K frame is 33 MB).
                 val frameBmp = try {
-                    if (scaledW > 0 && scaledH > 0) {
+                    if (scaledW > 0 && scaledH > 0 && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
                         retriever.getScaledFrameAtTime(
                             currentUs, MediaMetadataRetriever.OPTION_CLOSEST, scaledW, scaledH
                         )

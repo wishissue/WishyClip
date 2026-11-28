@@ -35,6 +35,14 @@ class WishyThemesTest {
         assertTrue(WishyDarkTokens.isDark)
         assertFalse(IndigoLightTokens.isDark)
         assertTrue(listOf(IndigoDarkTokens, IndigoDuskTokens, IndigoOledTokens).all { it.isDark })
+        assertFalse(WishyBlueLightTokens.isDark)
+        assertTrue(listOf(WishyBlueDarkTokens, WishyBlueDuskTokens, WishyBlueOledTokens).all { it.isDark })
+    }
+
+    @Test fun wishyBlueThemesAreBuiltIn() {
+        for (t in listOf(WishyBlueLightTokens, WishyBlueDarkTokens, WishyBlueDuskTokens, WishyBlueOledTokens)) {
+            assertEquals(t, SettingsStore.getThemeTokensByName(t.name, systemDark = false))
+        }
     }
 
     @Test fun themeNamesAreUnique() {
@@ -43,7 +51,10 @@ class WishyThemesTest {
     }
 
     @Test fun textAndPrimaryMeetWcagAa() {
-        for (t in listOf(WishyLightTokens, WishyDarkTokens, IndigoLightTokens, IndigoDarkTokens, IndigoDuskTokens, IndigoOledTokens)) {
+        for (t in listOf(
+            WishyLightTokens, WishyDarkTokens, IndigoLightTokens, IndigoDarkTokens, IndigoDuskTokens, IndigoOledTokens,
+            WishyBlueLightTokens, WishyBlueDarkTokens, WishyBlueDuskTokens, WishyBlueOledTokens
+        )) {
             assertTrue("${t.name} body", contrast(t.onSurface, t.surface) >= 4.5f)
             assertTrue("${t.name} body on panel", contrast(t.onSurface, t.toolRail) >= 4.5f)
             assertTrue("${t.name} secondary", contrast(t.onSurfaceVariant, t.toolRail) >= 4.5f)
@@ -54,7 +65,10 @@ class WishyThemesTest {
     }
 
     @Test fun paperAlwaysContrastsWithBackdrop() {
-        for (t in listOf(IndigoLightTokens, IndigoDarkTokens, IndigoDuskTokens, IndigoOledTokens)) {
+        for (t in listOf(
+            IndigoLightTokens, IndigoDarkTokens, IndigoDuskTokens, IndigoOledTokens,
+            WishyBlueLightTokens, WishyBlueDarkTokens, WishyBlueDuskTokens, WishyBlueOledTokens
+        )) {
             assertTrue("${t.name} paper vs stage", contrast(t.paper, t.canvasBackdrop) >= 1.1f)
         }
     }

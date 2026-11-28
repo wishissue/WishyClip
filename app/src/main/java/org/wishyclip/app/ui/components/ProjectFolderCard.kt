@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import org.wishyclip.app.R
@@ -135,12 +136,13 @@ fun ProjectFolderBanner(
     val tokens = WishyTheme.tokens
     var showFound by remember { mutableStateOf(false) }
     val status = vm.folderStatus
+    val rootUri by vm.rootUri.collectAsState()
     val found = vm.foundInFolder
     val shownProblems = problems.values.toList()
 
     Column(modifier = modifier.fillMaxWidth().padding(horizontal = tokens.spaceLarge), verticalArrangement = Arrangement.spacedBy(tokens.spaceSmall)) {
         if (status != HomeViewModel.FolderStatusUi.READY) {
-            ProjectFolderCard(status, vm.rootUri.value, onPick)
+            ProjectFolderCard(status, rootUri, onPick)
         }
         if (found.isNotEmpty()) {
             Row(

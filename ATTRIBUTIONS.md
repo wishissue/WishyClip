@@ -16,11 +16,21 @@ Wishy Clip is licensed under the Apache License 2.0 (see `LICENSE`).
 Not used: FFmpegKit (retired), Krita or any other GPL code. `androidx.graphics:graphics-core` and
 skydoves ColorPicker are allowed by the project rules but are not used yet (see PROGRESS.md).
 
+## Design credit: WishIssue
+
+The Wishy look is the work of **WishIssue** ([github.com/wishissue](https://github.com/wishissue)). Wishy Clip uses:
+
+- the **Wishy Blue** palette (logo blue `#0166FF`, in light, dark, dusk and OLED variants), re-expressed as
+  Wishy Clip theme tokens in `ui/design/themes/WishyBlue.kt`;
+- the typography pairing of **Plus Jakarta Sans** for the interface.
+
 ## Fonts
 
 | Font | License | Source | Usage |
 |---|---|---|---|
 | **Inter** (Regular, Medium, SemiBold, Bold) | SIL Open Font License 1.1 (`docs/licenses/Inter-OFL.txt`) | https://github.com/rsms/inter | All UI text. Chosen as a free, open-source stand-in for a clean system-UI look. |
+| **Plus Jakarta Sans** (Regular, Medium, SemiBold, Bold) | SIL Open Font License 1.1 (`docs/licenses/PlusJakartaSans-OFL.txt`) | https://github.com/tokotype/PlusJakartaSans | All UI text (the WishIssue interface typeface). |
+| **Bagel Fat One** (Regular) | SIL Open Font License 1.1 (`docs/licenses/BagelFatOne-OFL.txt`) | https://github.com/JAMO-TYPEFACE/BagelFat | The app name on the home screen only. |
 
 ## Icons
 

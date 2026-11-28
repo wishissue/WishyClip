@@ -308,6 +308,25 @@ fun SettingsScreen(
                     )
                 }
                 org.wishyclip.app.update.UpdateStatusRow(updateVm)
+                val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                Text(
+                    text = stringResource(R.string.about_design_credit_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(top = 8.dp, start = 4.dp)
+                )
+                Text(
+                    text = stringResource(R.string.about_design_credit_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp, end = 4.dp)
+                )
+                TextButton(
+                    onClick = { uriHandler.openUri("https://github.com/wishissue") },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.about_open_wishissue), modifier = Modifier.fillMaxWidth())
+                }
                 TextButton(onClick = { showLicensesDialog = true }, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.setting_licenses), modifier = Modifier.fillMaxWidth())
                 }
@@ -418,7 +437,10 @@ fun SettingsScreen(
                 Text(stringResource(R.string.ui_media3_exoplayer_coil_apache_2_0))
                 Text(stringResource(R.string.ui_animated_gif_lzw_encoder_mit_apache_2))
                 Text(stringResource(R.string.ui_lz4_lz4_java_apache_2_0))
+                Text(stringResource(R.string.about_jakarta_license))
+                Text(stringResource(R.string.about_bagel_license))
                 Text(stringResource(R.string.ui_inter_typeface_sil_open_font_license_1))
+                Text(stringResource(R.string.about_design_credit_body))
                 Text(stringResource(R.string.about_icons_license))
             }
         }

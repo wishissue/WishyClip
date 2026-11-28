@@ -25,3 +25,14 @@ WishyClip incorporates the following open-source libraries and assets:
 - **Inter Font**
   - License: SIL Open Font License 1.1
   - Copyright: Rasmus Andersson
+
+- **Plus Jakarta Sans Font**
+  - License: SIL Open Font License 1.1 (`docs/licenses/PlusJakartaSans-OFL.txt`)
+  - Copyright: The Plus Jakarta Sans Project Authors
+
+- **Bagel Fat One Font**
+  - License: SIL Open Font License 1.1 (`docs/licenses/BagelFatOne-OFL.txt`)
+  - Copyright: The Bagel Fat Project Authors
+
+- **Wishy Blue palette and brand typography pairing**
+  - Design by WishIssue (https://github.com/wishissue)
