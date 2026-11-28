@@ -175,7 +175,7 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
     private var playJob: Job? = null
     private var playPrefetchJob: Job? = null
     private var prefetchJob: Job? = null
-    private enum class Gesture { NONE, SELECTING, MOVE, SCALE, ROTATE, TEXT_TAP }
+    private enum class Gesture { NONE, SELECTING, MOVE, SCALE, ROTATE, TEXT_TAP, EYEDROP }
     private var gesture = Gesture.NONE
     private var gestureLastX = 0f
     private var gestureLastY = 0f
@@ -795,7 +795,19 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
      * Eyedropper: takes the colour you actually see at (x, y) (all visible layers, with their
      * opacity and blend modes, over white paper), then returns to the tool used before it.
      */
+    /** One-shot pick: sample the pixel and finish at once (kept for callers that only tap). */
     fun pickColorAt(x: Float, y: Float) {
+        sampleEyedropper(x, y)
+        finishEyedropper()
+    }
+
+    /**
+     * Eyedropper sampling while the finger is down: the brush color follows the pixel under the finger,
+     * so dragging across the canvas shows each color as it passes. Nothing is saved or switched yet;
+     * [finishEyedropper] settles on the last sampled pixel when the finger lifts. A point outside the
+     * canvas is ignored, so lifting there keeps the last pixel that was on the canvas.
+     */
+    private fun sampleEyedropper(x: Float, y: Float) {
         if (isPlaying) return
         val p = project ?: return
         val ix = x.toInt()
@@ -814,10 +826,15 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
                 LayerBlending.apply(paint, layer.blendMode)
                 c.drawBitmap(layer.bitmap, src, dst, paint)
             }
-            updateColor(px.getPixel(0, 0) or 0xFF000000.toInt())
+            color = px.getPixel(0, 0) or 0xFF000000.toInt()
         } finally {
             px.recycle()
         }
+    }
+
+    /** Ends an eyedropper touch: saves the last sampled color and returns to the previous tool. */
+    private fun finishEyedropper() {
+        updateColor(color)
         toolBeforeEyedropper?.let { tool = it }
         toolBeforeEyedropper = null
     }
@@ -1716,7 +1733,9 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
             return
         }
         if (tool == Tool.EYEDROPPER) {
-            pickColorAt(x, y)
+            // Sample while dragging; the color is chosen from the last pixel touched on release.
+            gesture = Gesture.EYEDROP
+            sampleEyedropper(x, y)
             return
         }
         val layer = activeLayer() ?: return
@@ -1752,6 +1771,10 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun strokeMove(x: Float, y: Float, pressure: Float = 1f, tilt: Float = 0f) {
         when (gesture) {
+            Gesture.EYEDROP -> {
+                sampleEyedropper(x, y)
+                return
+            }
             Gesture.MOVE -> {
                 moveLassoSelection(x - gestureLastX, y - gestureLastY)
                 gestureMoved += hypot(x - gestureLastX, y - gestureLastY)
@@ -1811,6 +1834,11 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     fun strokeEnd() {
         when (gesture) {
+            Gesture.EYEDROP -> {
+                gesture = Gesture.NONE
+                finishEyedropper()
+                return
+            }
             Gesture.MOVE -> {
                 gesture = Gesture.NONE
                 // A tap (no drag) on a text object opens it for editing.
@@ -1851,6 +1879,12 @@ class EditorViewModel(app: Application, private val projectId: Long) : AndroidVi
 
     /** The touch turned into a pinch/pan: throw the half-drawn stroke away instead of committing it. */
     fun strokeCancel() {
+        if (gesture == Gesture.EYEDROP) {
+            // Cancelled (e.g. a second finger turned it into a pinch): keep what was sampled, leave the tool.
+            gesture = Gesture.NONE
+            finishEyedropper()
+            return
+        }
         val wasTransform = gesture == Gesture.MOVE || gesture == Gesture.SCALE ||
             gesture == Gesture.ROTATE || gesture == Gesture.TEXT_TAP
         if (wasTransform) {

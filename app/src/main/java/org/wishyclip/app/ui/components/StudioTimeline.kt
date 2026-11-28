@@ -37,6 +37,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.annotation.DrawableRes
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -54,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
@@ -108,6 +113,7 @@ fun StudioTimeline(
     onAddFrame: () -> Unit,
     onDuplicateFrame: () -> Unit,
     onCopyFrame: () -> Unit,
+    onCutFrame: () -> Unit = {},
     onPasteFrame: () -> Unit,
     canPaste: Boolean,
     onDeleteFrame: () -> Unit,
@@ -141,6 +147,10 @@ fun StudioTimeline(
     val listState = rememberLazyListState()
     var showMenu by remember { mutableStateOf(false) }
     var menuFrame by remember { mutableStateOf(-1) }
+    // Frame whose long-press menu is open (-1 = none). Long-press without dragging opens it.
+    var ctxFrame by remember { mutableIntStateOf(-1) }
+    val haptics = LocalHapticFeedback.current
+    val hapticsOn = LocalHapticsEnabled.current
     var dragIdx by remember { mutableIntStateOf(-1) }
     var dragDx by remember { mutableFloatStateOf(0f) }
     val density = LocalDensity.current
@@ -194,17 +204,13 @@ fun StudioTimeline(
         }
     }
     val counter: @Composable () -> Unit = {
-        // frame / total, fps and timecode; tapping opens the fps dialog
+        // frame / total and timecode. The frame rate lives in the ⋮ menu, not in the player controls.
         Text(
-            text = "${currentIndex + 1}/${frames.size} · $fps fps" + if (mode == TimelineMode.MINIMIZED) "" else " · $timecode",
+            text = "${currentIndex + 1}/${frames.size}" + if (mode == TimelineMode.MINIMIZED) "" else " · $timecode",
             style = MaterialTheme.typography.labelLarge,
             color = scheme.onSurfaceVariant,
             maxLines = 1,
-            modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .clip(MaterialTheme.shapes.small)
-                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onFpsRequested)
-                .padding(horizontal = 8.dp, vertical = 12.dp)
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp)
         )
     }
     val actions: @Composable (Boolean) -> Unit = { withMode ->
@@ -241,9 +247,11 @@ fun StudioTimeline(
                         onDismiss = { showMenu = false },
                         onDuplicate = onDuplicateFrame,
                         onCopy = onCopyFrame,
+                        onCut = onCutFrame,
                         onPaste = onPasteFrame,
                         onDelete = onDeleteFrame,
                         onAudio = onAudioRequested,
+                        onFps = onFpsRequested,
                         canMoveLeft = currentIndex > 0,
                         canMoveRight = currentIndex < frames.lastIndex,
                         onMove = onMoveFrame
@@ -281,12 +289,16 @@ fun StudioTimeline(
                                             dragIdx = index
                                             dragDx = 0f
                                             onSelectFrame(index)
+                                            if (hapticsOn) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                         },
                                         onDragEnd = {
+                                            val moved = kotlin.math.abs(dragDx)
                                             val to = dropIndex(index, dragDx)
                                             dragIdx = -1
                                             dragDx = 0f
                                             if (to != index) onMoveFrameTo(index, to)
+                                            // A long press that was not dragged opens the frame's context menu.
+                                            else if (moved < with(density) { 12.dp.toPx() }) { ctxFrame = index }
                                         },
                                         onDragCancel = {
                                             dragIdx = -1
@@ -306,6 +318,21 @@ fun StudioTimeline(
                                 exposureDuration = frame.exposureDuration,
                                 thumbnail = model,
                                 onExposureChange = { onUpdateFrameExposure(index, it) }
+                            )
+                            FrameMenu(
+                                expanded = ctxFrame == index,
+                                canPaste = canPaste,
+                                onDismiss = { ctxFrame = -1 },
+                                onDuplicate = onDuplicateFrame,
+                                onCopy = onCopyFrame,
+                                onCut = onCutFrame,
+                                onPaste = onPasteFrame,
+                                onDelete = onDeleteFrame,
+                                onAudio = onAudioRequested,
+                                onFps = onFpsRequested,
+                                canMoveLeft = index > 0,
+                                canMoveRight = index < frames.lastIndex,
+                                onMove = onMoveFrame
                             )
                         }
                     }
@@ -518,44 +545,44 @@ private fun FrameMenu(
     onDismiss: () -> Unit,
     onDuplicate: () -> Unit,
     onCopy: () -> Unit,
+    onCut: () -> Unit,
     onPaste: () -> Unit,
     onDelete: () -> Unit,
     onAudio: () -> Unit,
+    onFps: () -> Unit,
     canMoveLeft: Boolean,
     canMoveRight: Boolean,
     onMove: (Int) -> Unit
 ) {
+    @Composable
+    fun Item(@DrawableRes icon: Int, text: String, enabled: Boolean = true, danger: Boolean = false, onClick: () -> Unit) {
+        val color = if (danger) MaterialTheme.colorScheme.error else Color.Unspecified
+        DropdownMenuItem(
+            text = { Text(text, color = color) },
+            leadingIcon = {
+                Icon(
+                    painter = painterResource(icon),
+                    contentDescription = null,
+                    tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp)
+                )
+            },
+            enabled = enabled,
+            onClick = { onDismiss(); onClick() }
+        )
+    }
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.ui_duplicate_frame)) },
-            onClick = { onDismiss(); onDuplicate() }
-        )
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.ui_copy_frame)) },
-            onClick = { onDismiss(); onCopy() }
-        )
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.ui_paste_frame)) },
-            enabled = canPaste,
-            onClick = { onDismiss(); onPaste() }
-        )
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.ui_move_frame_left)) },
-            enabled = canMoveLeft,
-            onClick = { onDismiss(); onMove(-1) }
-        )
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.ui_move_frame_right)) },
-            enabled = canMoveRight,
-            onClick = { onDismiss(); onMove(1) }
-        )
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.ui_audio_track_manager)) },
-            onClick = { onDismiss(); onAudio() }
-        )
-        DropdownMenuItem(
-            text = { Text(stringResource(R.string.ui_delete_frame), color = MaterialTheme.colorScheme.error) },
-            onClick = { onDismiss(); onDelete() }
-        )
+        Item(WishyIcons.Duplicate, stringResource(R.string.ui_duplicate_frame), onClick = onDuplicate)
+        Item(WishyIcons.Duplicate, stringResource(R.string.ui_copy_frame), onClick = onCopy)
+        Item(WishyIcons.Cut, stringResource(R.string.ui_cut_frame), onClick = onCut)
+        Item(WishyIcons.Paste, stringResource(R.string.ui_paste_frame), enabled = canPaste, onClick = onPaste)
+        HorizontalDivider()
+        Item(WishyIcons.SkipBack, stringResource(R.string.ui_move_frame_left), enabled = canMoveLeft) { onMove(-1) }
+        Item(WishyIcons.SkipForward, stringResource(R.string.ui_move_frame_right), enabled = canMoveRight) { onMove(1) }
+        HorizontalDivider()
+        Item(WishyIcons.Audio, stringResource(R.string.ui_audio_track_manager), onClick = onAudio)
+        Item(WishyIcons.Timeline, stringResource(R.string.ui_frame_rate), onClick = onFps)
+        HorizontalDivider()
+        Item(WishyIcons.Delete, stringResource(R.string.ui_delete_frame), danger = true, onClick = onDelete)
     }
 }

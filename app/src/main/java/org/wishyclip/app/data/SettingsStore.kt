@@ -74,6 +74,8 @@ class SettingsStore(private val context: Context) {
     private val keyCustomThemes = stringSetPreferencesKey("custom_themes")
     private val keyOnboardingDone = booleanPreferencesKey("onboarding_done")
     private val keyProjectsRoot = stringPreferencesKey("projects_root_uri")
+    private val keyPinnedTools = stringSetPreferencesKey("pinned_tools")
+    private val keyToolbarAutoMinimize = booleanPreferencesKey("toolbar_auto_minimize")
 
     val brushColor: Flow<Int> = prefsFlow.map { it[keyColor] ?: DEFAULT_COLOR }
     val brushSize: Flow<Float> = prefsFlow.map { it[keySize] ?: 8f }
@@ -98,6 +100,20 @@ class SettingsStore(private val context: Context) {
         context.settingsDataStore.edit {
             if (uri == null) it.remove(keyProjectsRoot) else it[keyProjectsRoot] = uri
         }
+    }
+
+    /** Tools (by id, see PinnedToolsEditor) that stay visible in the minimized tool rail. */
+    val pinnedTools: Flow<Set<String>> = prefsFlow.map { it[keyPinnedTools] ?: DEFAULT_PINNED_TOOLS }
+
+    /** The tool rail shrinks to the selected tool, pinned tools and color after 3 s; on by default. */
+    val toolbarAutoMinimize: Flow<Boolean> = prefsFlow.map { it[keyToolbarAutoMinimize] ?: true }
+
+    suspend fun savePinnedTools(tools: Set<String>) {
+        context.settingsDataStore.edit { it[keyPinnedTools] = tools }
+    }
+
+    suspend fun saveToolbarAutoMinimize(enabled: Boolean) {
+        context.settingsDataStore.edit { it[keyToolbarAutoMinimize] = enabled }
     }
 
     val onboardingDone: Flow<Boolean> = prefsFlow.map { it[keyOnboardingDone] ?: false }
@@ -217,6 +233,7 @@ class SettingsStore(private val context: Context) {
     }
 
     companion object {
+        val DEFAULT_PINNED_TOOLS: Set<String> = setOf("brush", "eraser")
         const val DEFAULT_COLOR: Int = -16777216 // 0xFF000000 (opaque black) as signed Int
 
         val BuiltInThemes = listOf(

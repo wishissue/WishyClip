@@ -14,8 +14,16 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -38,7 +46,7 @@ import org.wishyclip.app.ui.design.themes.LightTokens
 /**
  * The floating tool palette: a compact vertical Material 3 surface that sits over the stage
  * (it never takes space away from the canvas). The grip at the top collapses the rail to just the
- * active tool; long-press the rail to move it. [trailing] is pinned at the bottom (the editor puts
+ * active tool; long-press the rail to move it. Tap a tool to select it; tap the selected tool again for its settings. [trailing] is pinned at the bottom (the editor puts
  * the color swatch there). [maxHeight] caps the rail so it scrolls instead of overflowing.
  */
 @Composable
@@ -55,9 +63,21 @@ fun ToolRail(
     onMirrorClick: (() -> Unit)? = null,
     rulerOn: Boolean = false,
     onRulerClick: (() -> Unit)? = null,
-    trailing: (@Composable () -> Unit)? = null
+    trailing: (@Composable () -> Unit)? = null,
+    /** Ids (see [PinnableTool]) of tools that stay visible while the rail is minimized. */
+    pinnedTools: Set<String> = emptySet(),
+    /** Shrink the rail by itself after [AutoMinimizeMs] without switching tools. */
+    autoMinimize: Boolean = true
 ) {
     var collapsed by rememberSaveable { mutableStateOf(false) }
+    // Touching the rail (opening a tool's settings, scrolling it) postpones the auto-minimize.
+    var touches by remember { mutableIntStateOf(0) }
+    LaunchedEffect(selectedTool, collapsed, touches, autoMinimize) {
+        if (autoMinimize && !collapsed) {
+            delay(AutoMinimizeMs)
+            collapsed = true
+        }
+    }
     val capped = if (maxHeight == Dp.Unspecified) Modifier else Modifier.heightIn(max = maxHeight)
 
     GlassSurface(
@@ -65,9 +85,16 @@ fun ToolRail(
             .draggablePanel()
             .width(56.dp)
             .then(capped)
+            .pointerInput(Unit) {
+                // Observe only (Initial pass, nothing consumed): any touch on the rail restarts the idle timer.
+                awaitEachGesture {
+                    awaitPointerEvent(PointerEventPass.Initial)
+                    touches++
+                }
+            }
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 4.dp),
+            modifier = Modifier.padding(vertical = 4.dp).animateContentSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Grip: tap to collapse / expand the palette.
@@ -91,7 +118,7 @@ fun ToolRail(
             ) {
                 ToolItems(
                     collapsed, selectedTool, onSelectTool, onToolDoubleTap, activeShape, activeBrush,
-                    onBrushClick, mirrorMode, onMirrorClick, rulerOn, onRulerClick
+                    onBrushClick, mirrorMode, onMirrorClick, rulerOn, onRulerClick, pinnedTools
                 )
             }
             if (trailing != null) {
@@ -117,7 +144,8 @@ private fun ToolItems(
     mirrorMode: MirrorMode,
     onMirrorClick: (() -> Unit)?,
     rulerOn: Boolean,
-    onRulerClick: (() -> Unit)?
+    onRulerClick: (() -> Unit)?,
+    pinned: Set<String>
 ) {
     val isShape = selectedTool == Tool.LINE || selectedTool == Tool.RECT || selectedTool == Tool.ELLIPSE
     val shapeIcon = when (activeShape) {
@@ -130,41 +158,46 @@ private fun ToolItems(
         if (!collapsed || visibleWhenCollapsed) content()
     }
 
-    Entry(selectedTool.isBrush) {
+    Entry(selectedTool.isBrush || "brush" in pinned) {
         ToolButton(iconRes = brushIcon(activeBrush), description = "Brush", selected = selectedTool.isBrush, onClick = onBrushClick)
     }
-    Entry(selectedTool == Tool.ERASER) {
-        ToolButton(iconRes = WishyIcons.Eraser, description = "Eraser", selected = selectedTool == Tool.ERASER, onClick = { onSelectTool(Tool.ERASER) }, onDoubleClick = { onToolDoubleTap(Tool.ERASER) })
+    Entry(selectedTool == Tool.ERASER || "eraser" in pinned) {
+        ToolButton(iconRes = WishyIcons.Eraser, description = "Eraser", selected = selectedTool == Tool.ERASER, onClick = { if (selectedTool == Tool.ERASER) onToolDoubleTap(Tool.ERASER) else onSelectTool(Tool.ERASER) })
     }
-    Entry(selectedTool == Tool.LASSO) {
-        ToolButton(iconRes = WishyIcons.Lasso, description = "Lasso", selected = selectedTool == Tool.LASSO, onClick = { onSelectTool(Tool.LASSO) }, onDoubleClick = { onToolDoubleTap(Tool.LASSO) })
+    Entry(selectedTool == Tool.LASSO || "lasso" in pinned) {
+        ToolButton(iconRes = WishyIcons.Lasso, description = "Lasso", selected = selectedTool == Tool.LASSO, onClick = { if (selectedTool == Tool.LASSO) onToolDoubleTap(Tool.LASSO) else onSelectTool(Tool.LASSO) })
     }
-    Entry(selectedTool == Tool.FILL) {
-        ToolButton(iconRes = WishyIcons.Fill, description = "Fill", selected = selectedTool == Tool.FILL, onClick = { onSelectTool(Tool.FILL) }, onDoubleClick = { onToolDoubleTap(Tool.FILL) })
+    Entry(selectedTool == Tool.FILL || "fill" in pinned) {
+        ToolButton(iconRes = WishyIcons.Fill, description = "Fill", selected = selectedTool == Tool.FILL, onClick = { if (selectedTool == Tool.FILL) onToolDoubleTap(Tool.FILL) else onSelectTool(Tool.FILL) })
     }
-    Entry(isShape) {
-        ToolButton(iconRes = shapeIcon, description = "Shapes", selected = isShape, onClick = { onSelectTool(activeShape) }, onDoubleClick = { onToolDoubleTap(activeShape) })
+    Entry(isShape || "shapes" in pinned) {
+        ToolButton(iconRes = shapeIcon, description = "Shapes", selected = isShape, onClick = { if (isShape) onToolDoubleTap(activeShape) else onSelectTool(activeShape) })
     }
-    Entry(selectedTool == Tool.TEXT) {
-        ToolButton(iconRes = WishyIcons.Text, description = "Text", selected = selectedTool == Tool.TEXT, onClick = { onSelectTool(Tool.TEXT) }, onDoubleClick = { onToolDoubleTap(Tool.TEXT) })
+    Entry(selectedTool == Tool.TEXT || "text" in pinned) {
+        ToolButton(iconRes = WishyIcons.Text, description = "Text", selected = selectedTool == Tool.TEXT, onClick = { if (selectedTool == Tool.TEXT) onToolDoubleTap(Tool.TEXT) else onSelectTool(Tool.TEXT) })
     }
-    Entry(selectedTool == Tool.EYEDROPPER) {
+    Entry(selectedTool == Tool.EYEDROPPER || "eyedropper" in pinned) {
         ToolButton(iconRes = WishyIcons.Eyedropper, description = "Eyedropper", selected = selectedTool == Tool.EYEDROPPER, onClick = { onSelectTool(Tool.EYEDROPPER) })
     }
-    // Modifiers (not exclusive tools): they stay on while you switch between drawing tools.
+    // Modifiers (not exclusive tools): they stay on while you switch between drawing tools. When the rail is
+    // minimized they remain visible if they are switched on (so an active mirror/ruler is never hidden) or pinned.
+    val showMirror = onMirrorClick != null && (!collapsed || mirrorMode != MirrorMode.OFF || "mirror" in pinned)
+    val showRuler = onRulerClick != null && (!collapsed || rulerOn || "ruler" in pinned)
     if (!collapsed && (onMirrorClick != null || onRulerClick != null)) {
         HorizontalDivider(
             modifier = Modifier.width(32.dp).padding(vertical = 2.dp),
             color = MaterialTheme.colorScheme.outlineVariant
         )
     }
-    if (!collapsed && onMirrorClick != null) {
-        ToolButton(iconRes = WishyIcons.Mirror, description = mirrorMode.label, selected = mirrorMode != MirrorMode.OFF, onClick = onMirrorClick)
+    if (showMirror) {
+        ToolButton(iconRes = WishyIcons.Mirror, description = mirrorMode.label, selected = mirrorMode != MirrorMode.OFF, onClick = onMirrorClick!!)
     }
-    if (!collapsed && onRulerClick != null) {
-        ToolButton(iconRes = WishyIcons.Ruler, description = if (rulerOn) "Ruler on" else "Ruler off", selected = rulerOn, onClick = onRulerClick)
+    if (showRuler) {
+        ToolButton(iconRes = WishyIcons.Ruler, description = if (rulerOn) "Ruler on" else "Ruler off", selected = rulerOn, onClick = onRulerClick!!)
     }
 }
+
+private const val AutoMinimizeMs = 3000L
 
 @Preview(name = "ToolRail Light")
 @Composable

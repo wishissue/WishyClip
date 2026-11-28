@@ -28,7 +28,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,6 +84,8 @@ fun DrawingCanvas(
     revision: () -> Int,
     enabled: Boolean,
     view: CanvasViewState = remember { CanvasViewState() },
+    /** Where the rotate / reset pill floats while the view is transformed (it fades out when idle). */
+    viewControlsAlignment: Alignment = Alignment.TopEnd,
     mirror: () -> MirrorMode = { MirrorMode.OFF },
     ruler: () -> RulerState? = { null },
     onRulerChange: (RulerState) -> Unit = {},
@@ -499,44 +508,68 @@ fun DrawingCanvas(
             }
         }
 
-        if (view.isTransformed) {
-            val tokens = org.wishyclip.app.ui.design.WishyTheme.tokens
-            org.wishyclip.app.ui.components.GlassSurface(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(tokens.spaceSmall),
-                shape = RoundedCornerShape(tokens.largeRadius)
+        ViewControls(view = view, modifier = Modifier.align(viewControlsAlignment))
+    }
+}
+
+/**
+ * Rotate-90 / reset pill. Shown while the view is zoomed, panned or rotated, and fades away after
+ * [ControlsIdleMs] without a change; any new pinch, pan, rotate or button press brings it back.
+ */
+@Composable
+private fun ViewControls(view: CanvasViewState, modifier: Modifier = Modifier) {
+    val tokens = org.wishyclip.app.ui.design.WishyTheme.tokens
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(view) {
+        snapshotFlow { Triple(view.zoom, view.pan, view.rotation) }.collectLatest {
+            if (view.isTransformed) {
+                visible = true
+                delay(ControlsIdleMs)
+            }
+            visible = false
+        }
+    }
+    AnimatedVisibility(
+        visible = visible && view.isTransformed,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier
+    ) {
+        org.wishyclip.app.ui.components.GlassSurface(
+            modifier = Modifier.padding(tokens.spaceSmall),
+            shape = RoundedCornerShape(tokens.largeRadius)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs),
+                modifier = Modifier.padding(horizontal = tokens.spaceXs, vertical = 2.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs),
-                    modifier = Modifier.padding(horizontal = tokens.spaceXs, vertical = 2.dp)
+                ActionIconButton(
+                    iconRes = WishyIcons.RotateLeft,
+                    contentDescription = "Rotate canvas 90 degrees left",
+                    onClick = { view.rotateBy(-90f) }
+                )
+                ActionIconButton(
+                    iconRes = WishyIcons.RotateRight,
+                    contentDescription = "Rotate canvas 90 degrees right",
+                    onClick = { view.rotateBy(90f) }
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(tokens.smallRadius))
+                        .clickable { view.reset() }
+                        .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs)
                 ) {
-                    ActionIconButton(
-                        iconRes = WishyIcons.RotateLeft,
-                        contentDescription = "Rotate canvas 90 degrees left",
-                        onClick = { view.rotateBy(-90f) }
+                    Text(
+                        text = if (view.rotation != 0f) "Reset (${view.rotation.toInt()}°)" else "Reset view",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tokens.onSurface,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                     )
-                    ActionIconButton(
-                        iconRes = WishyIcons.RotateRight,
-                        contentDescription = "Rotate canvas 90 degrees right",
-                        onClick = { view.rotateBy(90f) }
-                    )
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(tokens.smallRadius))
-                            .clickable { view.reset() }
-                            .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs)
-                    ) {
-                        Text(
-                            text = if (view.rotation != 0f) "Reset (${view.rotation.toInt()}°)" else "Reset view",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = tokens.onSurface,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-                        )
-                    }
                 }
             }
         }
     }
 }
+
+private const val ControlsIdleMs = 2500L

@@ -27,7 +27,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.res.painterResource
+import org.wishyclip.app.ui.design.WishyIcons
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.semantics.selected
@@ -67,11 +71,20 @@ fun ColorPickerSheet(
     initialColor: Int,
     onPick: (Int) -> Unit,
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Closes the sheet and lets the user tap the canvas to pick a color; null hides the button. */
+    onEyedropper: (() -> Unit)? = null,
+    /**
+     * The color that was active before the picker was first opened, shown as "Old" and restored by
+     * Cancel. [initialColor] follows the brush live (every change is applied at once), so it cannot
+     * be used for this; when null the color at first composition is used.
+     */
+    oldColor: Int? = null
 ) {
     val tokens = WishyTheme.tokens
-    val start = FloatArray(3)
-    android.graphics.Color.colorToHSV(initialColor, start)
+    // Every change is applied to the brush immediately via onPick; this is what Cancel restores.
+    val originalColor = remember { oldColor ?: initialColor }
+    val start = remember { FloatArray(3).also { android.graphics.Color.colorToHSV(initialColor, it) } }
     var hue by remember { mutableFloatStateOf(start[0]) }
     var sat by remember { mutableFloatStateOf(start[1]) }
     var value by remember { mutableFloatStateOf(start[2]) }
@@ -86,6 +99,13 @@ fun ColorPickerSheet(
     val argb = exactColor?.takeIf {
         exactHsv?.let { h -> h[0] == hue && h[1] == sat && h[2] == value } == true
     } ?: hsvArgb
+
+    // Selecting a color applies it right away (no separate confirm step).
+    // (Skipped until something actually changed, so opening the sheet never nudges the color.)
+    androidx.compose.runtime.LaunchedEffect(argb) {
+        val changed = exactColor != null || hue != start[0] || sat != start[1] || value != start[2]
+        if (changed) onPick(argb)
+    }
 
     var hexText by remember(argb) {
         mutableStateOf(String.format(Locale.US, "%06X", 0xFFFFFF and argb))
@@ -140,12 +160,34 @@ fun ColorPickerSheet(
                             fontWeight = FontWeight.Bold,
                             color = tokens.onSurface
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(tokens.spaceXs),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (onEyedropper != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .minimumInteractiveComponentSize()
+                                        .clip(CircleShape)
+                                        .clickable(role = Role.Button, onClickLabel = stringResource(R.string.ui_pick_from_canvas)) { onEyedropper() },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(WishyIcons.Eyedropper),
+                                        contentDescription = stringResource(R.string.ui_pick_from_canvas),
+                                        tint = tokens.onSurface,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
                             Box(
                                 modifier = Modifier
                                     .minimumInteractiveComponentSize()
                                     .clip(RoundedCornerShape(tokens.smallRadius))
-                                    .clickable(role = Role.Button) { onDismiss() }
+                                    .clickable(role = Role.Button) {
+                                        onPick(originalColor)
+                                        onDismiss()
+                                    }
                                     .padding(horizontal = tokens.spaceSmall, vertical = tokens.spaceXs)
                             ) {
                                 Text(stringResource(R.string.ui_cancel), style = MaterialTheme.typography.labelMedium, color = tokens.onSurfaceVariant)
@@ -155,10 +197,10 @@ fun ColorPickerSheet(
                                     .minimumInteractiveComponentSize()
                                     .clip(RoundedCornerShape(tokens.smallRadius))
                                     .background(tokens.primary)
-                                    .clickable(role = Role.Button) { onPick(argb) }
+                                    .clickable(role = Role.Button) { onDismiss() }
                                     .padding(horizontal = tokens.spaceMedium, vertical = tokens.spaceXs)
                             ) {
-                                Text(stringResource(R.string.ui_select), style = MaterialTheme.typography.labelMedium, color = tokens.onPrimary, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.ui_done), style = MaterialTheme.typography.labelMedium, color = tokens.onPrimary, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -194,7 +236,7 @@ fun ColorPickerSheet(
                                         .clip(RoundedCornerShape(tokens.smallRadius))
                                 )
                                 ColorComparisonAndHex(
-                                    initialColor = initialColor,
+                                    initialColor = originalColor,
                                     currentColor = argb,
                                     hexText = hexText,
                                     onHexChange = { input ->
@@ -210,7 +252,7 @@ fun ColorPickerSheet(
                                 )
                                 PresetSwatchesGrid(
                                     currentColor = argb,
-                                    onSelectSwatch = { setFrom(it) }
+                                    onSelectSwatch = { setFrom(it); onPick(it or 0xFF000000.toInt()); onDismiss() }
                                 )
                             }
                         }
@@ -245,7 +287,7 @@ fun ColorPickerSheet(
                             )
 
                             ColorComparisonAndHex(
-                                initialColor = initialColor,
+                                initialColor = originalColor,
                                 currentColor = argb,
                                 hexText = hexText,
                                 onHexChange = { input ->
@@ -262,7 +304,7 @@ fun ColorPickerSheet(
 
                             PresetSwatchesGrid(
                                 currentColor = argb,
-                                onSelectSwatch = { setFrom(it) }
+                                onSelectSwatch = { setFrom(it); onPick(it or 0xFF000000.toInt()); onDismiss() }
                             )
                         }
                     }
@@ -408,28 +450,18 @@ private fun ColorComparisonAndHex(
         Row(
             modifier = Modifier
                 .weight(1f)
-                .height(32.dp)
+                .height(40.dp)
                 .clip(RoundedCornerShape(tokens.smallRadius))
                 .border(1.dp, tokens.glassBorder, RoundedCornerShape(tokens.smallRadius))
         ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .background(Color(initialColor))
-            )
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .background(Color(currentColor))
-            )
+            ComparisonHalf(color = initialColor, label = stringResource(R.string.ui_color_old), modifier = Modifier.weight(1f))
+            ComparisonHalf(color = currentColor, label = stringResource(R.string.ui_color_new), modifier = Modifier.weight(1f))
         }
 
         Row(
             modifier = Modifier
                 .width(100.dp)
-                .height(32.dp)
+                .height(40.dp)
                 .clip(RoundedCornerShape(tokens.smallRadius))
                 .background(tokens.surfaceVariant)
                 .padding(horizontal = 8.dp),
@@ -451,59 +483,69 @@ private fun ColorComparisonAndHex(
 }
 
 @Composable
+private fun ComparisonHalf(color: Int, label: String, modifier: Modifier = Modifier) {
+    val c = Color(color)
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .background(c),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (c.luminance() > 0.5f) Color.Black else Color.White
+        )
+    }
+}
+
+@Composable
 private fun PresetSwatchesGrid(
     currentColor: Int,
     onSelectSwatch: (Int) -> Unit
 ) {
     val tokens = WishyTheme.tokens
     Column(verticalArrangement = Arrangement.spacedBy(tokens.spaceXs)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            for (c in PresetSwatches.take(6)) {
-                val hex = "#%06X".format(c and 0xFFFFFF)
-                val swatchLabel = stringResource(R.string.ui_color_swatch, hex)
-                Box(
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .clip(CircleShape)
-                        .clickable(role = Role.Button, onClickLabel = swatchLabel) { onSelectSwatch(c) }
-                        .semantics { contentDescription = swatchLabel; selected = currentColor == c },
-                    contentAlignment = Alignment.Center
-                ) {
+        for (rowColors in listOf(PresetSwatches.take(6), PresetSwatches.drop(6))) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                for (c in rowColors) {
+                    val hex = "#%06X".format(c and 0xFFFFFF)
+                    val swatchLabel = stringResource(R.string.ui_color_swatch, hex)
+                    // Compare RGB only: the alpha byte is irrelevant to which swatch is "the" color.
+                    val isSelected = (currentColor and 0xFFFFFF) == (c and 0xFFFFFF)
                     Box(
-                        Modifier
-                            .size(28.dp)
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
                             .clip(CircleShape)
-                            .background(Color(c))
-                            .border(1.5.dp, if (currentColor == c) tokens.primary else tokens.glassBorder, CircleShape)
-                    )
-                }
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            for (c in PresetSwatches.drop(6)) {
-                val hex = "#%06X".format(c and 0xFFFFFF)
-                val swatchLabel = stringResource(R.string.ui_color_swatch, hex)
-                Box(
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .clip(CircleShape)
-                        .clickable(role = Role.Button, onClickLabel = swatchLabel) { onSelectSwatch(c) }
-                        .semantics { contentDescription = swatchLabel; selected = currentColor == c },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(Color(c))
-                            .border(1.5.dp, if (currentColor == c) tokens.primary else tokens.glassBorder, CircleShape)
-                    )
+                            .clickable(role = Role.Button, onClickLabel = swatchLabel) { onSelectSwatch(c) }
+                            .semantics { contentDescription = swatchLabel; selected = isSelected },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color(c))
+                                .border(
+                                    if (isSelected) 3.dp else 1.5.dp,
+                                    if (isSelected) tokens.primary else tokens.glassBorder,
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    painter = painterResource(WishyIcons.Check),
+                                    contentDescription = null,
+                                    tint = if (Color(c).luminance() > 0.5f) Color.Black else Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

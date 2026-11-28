@@ -375,4 +375,28 @@
     <string name="upd_check_now">Check for updates</string>
     <string name="setting_update_checks">Check for updates at start</string>
     <string name="setting_update_checks_sub">Contacts GitHub once when the app opens to see whether a new version exists. Nothing about you or your projects is sent.</string>
+    <!-- WishyClip UI improvements -->
+    <string name="ui_frame_rate_menu">Frame rate (%1$d fps)</string>
+    <string name="ui_cut_frame">Cut frame</string>
+    <string name="ui_pick_from_canvas">Pick from canvas</string>
+    <string name="ui_pick_from_canvas_hint">Tap the canvas to pick a color</string>
+    <string name="ui_color_old">Old</string>
+    <string name="ui_color_new">New</string>
+    <string name="ui_onion_skin_show">Show onion skin</string>
+    <string name="ui_export_mp4_sub">Video file, easy to share</string>
+    <string name="ui_export_gif_sub">Looping animated image</string>
+    <string name="ui_export_png_seq_sub">Numbered images in a ZIP</string>
+    <string name="ui_export_frame_sub">Only the frame you are on</string>
+    <!-- Phase 2 -->
+    <string name="ui_toolbar_tools">Toolbar tools</string>
+    <string name="ui_toolbar_tools_hint">Pinned tools stay in the toolbar when it shrinks. The selected tool and color always stay.</string>
+    <string name="ui_toolbar_auto_minimize">Auto-minimize toolbar</string>
+    <string name="ui_toolbar_auto_minimize_sub">Shrinks after 3 seconds without switching tools</string>
+    <string name="ui_audio_play_preview">Play preview</string>
+    <string name="ui_audio_stop_preview">Stop preview</string>
+    <string name="ui_audio_track_info">Starts at frame %1$d · %2$s · %3$s</string>
+    <string name="ui_onion_preview_before">Previous frames</string>
+    <string name="ui_onion_preview_now">Current</string>
+    <string name="ui_onion_preview_after">Next frames</string>
+    <string name="ui_onion_preview_hint">Ghosts of neighbouring frames help you line up the next drawing.</string>
 </resources>

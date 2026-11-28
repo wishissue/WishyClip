@@ -54,6 +54,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -260,6 +261,22 @@ fun SettingsScreen(
                     subtitle = stringResource(R.string.setting_left_handed_sub),
                     checked = isLeftHanded,
                     onCheckedChange = onToggleLeftHanded
+                )
+                val toolStore = remember { SettingsStore(context.applicationContext) }
+                val toolScope = androidx.compose.runtime.rememberCoroutineScope()
+                val pinned by toolStore.pinnedTools.collectAsState(initial = SettingsStore.DEFAULT_PINNED_TOOLS)
+                val autoMin by toolStore.toolbarAutoMinimize.collectAsState(initial = true)
+                Text(
+                    text = stringResource(R.string.ui_toolbar_tools),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                org.wishyclip.app.ui.components.PinnedToolsEditor(
+                    pinned = pinned,
+                    onPinnedChange = { toolScope.launch { toolStore.savePinnedTools(it) } },
+                    autoMinimize = autoMin,
+                    onAutoMinimizeChange = { toolScope.launch { toolStore.saveToolbarAutoMinimize(it) } }
                 )
             }
 
