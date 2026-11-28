@@ -45,7 +45,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
-        versionName = "1.2.0"
+        versionName = (project.findProperty("appVersionName") as String?) ?: "1.2.0"
 
         manifestPlaceholders["appLabel"] = "@string/app_name"
         buildConfigField("boolean", "SELF_UPDATE", selfUpdate.toString())

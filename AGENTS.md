@@ -1,5 +1,4 @@
 # Notes for AI coding agents
 
-* Never create, copy, print, upload or commit a signing key, keystore password, or `keystore.properties`.
-* Never add signing secrets or keystores to git or GitHub workflows.
-
+* Release builds are signed by GitHub Actions using repository secrets; keys are never committed to git.
+* Never create, copy, print, upload or commit a signing key, keystore password, or `keystore.properties` into the repository.

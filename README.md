@@ -144,7 +144,7 @@ Grab an APK from the [Releases page](https://github.com/wishissue/WishyClip/rele
 
 ### Let GitHub build it for you
 
-The CI workflow (`.github/workflows/ci.yml`) runs lint, unit tests and a debug build on every push and pull request. Open the **Actions** tab, pick the latest run and download the **debug-apk** artifact.
+The release workflow (`.github/workflows/release.yml`) builds, signs and publishes release APKs on pushes to `main`.
 
 ### Build it yourself
 
@@ -220,7 +220,7 @@ syncing.) See [`PRIVACY.md`](PRIVACY.md) for the full policy.
 
 The app checks GitHub for a newer release when it starts. If there is one, a dialog offers **Update** or **Later**; *Later* simply asks again the next time the app opens. **Update** downloads the new APK, checks the checksum and that it is signed with the same key as the installed app, and then hands it to Android's installer (Android asks once for permission to install from this app). Your projects live in your project folder, so even if an update ever cannot be installed in place, installing the new version and choosing the same folder brings every project back.
 
-**Real releases are signed locally. The signing key is never committed to GitHub.** GitHub CI builds debug builds for testing.
+Release builds are signed by GitHub Actions using repository secrets; keys are never committed to git.
 
 ## Under the hood
 
