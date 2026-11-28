@@ -329,7 +329,7 @@ Ideas, brush packs, themes and pull requests are welcome too. Read [`CONTRIBUTIN
 - Libraries: AndroidX, Jetpack Compose, Room, Media3 ExoPlayer, Coil and Kotlin Coroutines (Apache-2.0)
 - Icons: Material Symbols Rounded (Apache 2.0)
 - Fonts: Plus Jakarta Sans and Bagel Fat One (SIL OFL 1.1), Inter (SIL OFL 1.1)
-- Design: the Wishy Blue palette and typography come from [WishIssue](https://github.com/wishissue)
+- App and design: made by [WishIssue](https://github.com/wishissue) (including the Wishy Blue palette and typography)
 
 See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md) for the full accounting.
 

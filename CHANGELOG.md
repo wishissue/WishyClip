@@ -1,9 +1,7 @@
 # Changelog
 
-## Unreleased
+## [1.2.0] - 2026-11-28
 - Wishy look, by [WishIssue](https://github.com/wishissue): four new themes (**Wishy Blue**, **Wishy Blue Dark**, **Wishy Blue Dusk**, **Wishy Blue OLED**, logo blue `#0166FF`), and Plus Jakarta Sans now applied to the whole interface. Design credit added to Settings > About, `NOTICE`, `ATTRIBUTIONS.md` and the README.
-
-## Unreleased
 - In-app update check and installer (GitHub releases), with Update / Later prompt.
 - Release signing moved off GitHub: real releases are built locally; GitHub builds only debug test pre-releases. Debug builds now use the app id `org.wishyclip.app.debug`.
 - Magnifier while drawing, unified slider style, one-screen New project, UI polish (see STABILITY_1_0.md).

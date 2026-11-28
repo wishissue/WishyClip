@@ -34,5 +34,5 @@ WishyClip incorporates the following open-source libraries and assets:
   - License: SIL Open Font License 1.1 (`docs/licenses/BagelFatOne-OFL.txt`)
   - Copyright: The Bagel Fat Project Authors
 
-- **Wishy Blue palette and brand typography pairing**
-  - Design by WishIssue (https://github.com/wishissue)
+- **WishyClip app, palette and brand typography pairing**
+  - Made by WishIssue (https://github.com/wishissue)

@@ -54,8 +54,8 @@ android {
         applicationId = "org.wishyclip.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
 
         manifestPlaceholders["appLabel"] = "@string/app_name"
         buildConfigField("boolean", "SELF_UPDATE", selfUpdate.toString())

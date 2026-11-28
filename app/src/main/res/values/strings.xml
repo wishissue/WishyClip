@@ -274,8 +274,8 @@
     <string name="setting_left_handed_sub">Moves the tool rail to the right edge</string>
     <string name="setting_haptics_sub">A small tick when you press tools and buttons</string>
     <string name="setting_edit_theme">Edit \"%1$s\"</string>
-    <string name="about_design_credit_title">Design by WishIssue</string>
-    <string name="about_design_credit_body">The Wishy look (the Wishy Blue palette and Plus Jakarta Sans typography) was created by WishIssue.</string>
+    <string name="about_design_credit_title">Made by WishIssue</string>
+    <string name="about_design_credit_body">WishyClip is made by WishIssue (including the Wishy look, themes, and design).</string>
     <string name="about_open_wishissue">WishIssue on GitHub</string>
     <string name="about_jakarta_license">• Plus Jakarta Sans typeface - SIL Open Font License 1.1</string>
     <string name="about_bagel_license">• Bagel Fat One typeface - SIL Open Font License 1.1</string>

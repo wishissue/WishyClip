@@ -16,9 +16,9 @@ Wishy Clip is licensed under the Apache License 2.0 (see `LICENSE`).
 Not used: FFmpegKit (retired), Krita or any other GPL code. `androidx.graphics:graphics-core` and
 skydoves ColorPicker are allowed by the project rules but are not used yet (see PROGRESS.md).
 
-## Design credit: WishIssue
+## Made by WishIssue
 
-The Wishy look is the work of **WishIssue** ([github.com/wishissue](https://github.com/wishissue)). Wishy Clip uses:
+WishyClip is made by **WishIssue** ([github.com/wishissue](https://github.com/wishissue)), including the app and the Wishy look:
 
 - the **Wishy Blue** palette (logo blue `#0166FF`, in light, dark, dusk and OLED variants), re-expressed as
   Wishy Clip theme tokens in `ui/design/themes/WishyBlue.kt`;
