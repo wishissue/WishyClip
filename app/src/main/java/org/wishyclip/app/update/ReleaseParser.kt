@@ -24,7 +24,7 @@ data class ReleaseInfo(
  * as pre-releases), tags with a suffix like `-rc1`, and APKs whose name says "debug" or "test" are ignored.
  */
 object ReleaseParser {
-    private val apkName = Regex("^WishyClip-[0-9][0-9A-Za-z.]*\\.apk$")
+    private val apkName = Regex("^WishyClip-[0-9][0-9A-Za-z.-]*\\.apk$")
     private const val MAX_NOTES = 2000
 
     fun parse(json: String): ReleaseInfo? {

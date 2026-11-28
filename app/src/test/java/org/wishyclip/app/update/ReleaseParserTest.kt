@@ -34,6 +34,17 @@ class ReleaseParserTest {
         assertEquals("Fixes things", info.notes)
     }
 
+    @Test fun hyphenatedApkNamesAreAccepted() {
+        val n = "WishyClip-1.2.6-universal-release.apk"
+        val a = """{"name":"$n","size":1,"browser_download_url":"https://github.com/wishissue/WishyClip/releases/download/v1.2.6/$n"}"""
+        assertEquals(n, ReleaseParser.parse(release(tag = "v1.2.6", assets = a))!!.apkName)
+    }
+
+    @Test fun releaseWithoutAnyUsableApkParsesToNull() {
+        val a = """{"name":"notes.txt","size":1,"browser_download_url":"https://github.com/x/y/releases/download/v/notes.txt"}"""
+        assertNull(ReleaseParser.parse(release(assets = a)))
+    }
+
     @Test fun draftsAndPrereleasesAreNeverOffered() {
         assertNull(ReleaseParser.parse(release(draft = true)))
         assertNull(ReleaseParser.parse(release(prerelease = true)))

@@ -17,7 +17,10 @@ class UpdateChecker(
         val body = UpdateNetwork.fetchText(latestUrl)
         val info = body?.let { ReleaseParser.parse(it) }
         when {
-            info == null -> CheckResult.UpToDate
+            // 404: no release published yet.
+            body == null -> CheckResult.UpToDate
+            // A release exists but has no APK we recognise: say so instead of "up to date".
+            info == null -> CheckResult.Failed("An update was found, but its file could not be read.")
             ReleaseParser.isNewer(info.version, currentVersion) -> CheckResult.Available(info)
             else -> CheckResult.UpToDate
         }
