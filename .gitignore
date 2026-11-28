@@ -9,6 +9,8 @@ local.properties
 # Log/OS Files
 *.log
 .DS_Store
+__pycache__/
+*.pyc
 
 # Android Studio generated files and folders
 captures/
