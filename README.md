@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/src/main/res/drawable/ic_logo.png" alt="WishyClip logo" width="140">
+  <img src="images/icon.png" alt="WishyClip logo" width="140">
 </p>
 
 <h1 align="center">WishyClip</h1>
